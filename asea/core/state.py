@@ -18,8 +18,12 @@ class ASEAState(TypedDict, total=False):
     # Patch generation
     patches: list[dict[str, Any]]
 
+    # Test execution
+    test_results: dict[str, Any]
+
     # Patch validation
     validation_results: list[dict[str, Any]]
+    current_validation: dict[str, Any]
 
     # Retry management
     retry_counts: dict[str, int]

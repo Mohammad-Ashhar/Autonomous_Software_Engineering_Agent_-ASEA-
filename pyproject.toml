@@ -1,0 +1,39 @@
+[project]
+name = "asea"
+version = "0.1.0"
+description = "Autonomous Software Engineering Agent"
+requires-python = ">=3.12"
+
+dependencies = [
+    "typer>=0.12",
+    "rich>=13.7",
+    "GitPython>=3.1",
+    "tree-sitter>=0.23",
+    "tree-sitter-python>=0.23",
+    "langgraph>=0.2",
+    "python-dotenv>=1.0"
+]
+
+[project.optional-dependencies]
+github = [
+    "PyGithub>=2.5"
+]
+
+llm = [
+    "openai>=1.50"
+]
+
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6"
+]
+
+[project.scripts]
+asea = "asea.cli:app"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

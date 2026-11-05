@@ -1,6 +1,4 @@
 
-from pathlib import Path
-
 from asea.tools.test_runner import DockerTestRunner
 
 
@@ -24,5 +22,9 @@ def test_docker_sandbox_execution(tmp_path):
     result = runner.run_tests(project)
 
     assert result["success"] is True
+    assert result["status"] == "PASSED"
+    assert result["total"] == 1
+    assert result["passed"] == 1
+    assert result["failed"] == 0
     assert result["timed_out"] is False
-    assert "passed" in result["output"]
+    assert result["duration"] > 0

@@ -111,13 +111,67 @@ class BugDetectorAgent:
                         "source": "ast"
                     })
 
+            # Detect an incorrect implementation of is_positive().
+            if node.name == "is_positive":
+
+                for child in ast.walk(node):
+
+                    if not isinstance(child, ast.Return):
+                        continue
+
+                    expression = child.value
+
+                    if not isinstance(expression, ast.Compare):
+                        continue
+
+                    if not isinstance(expression.left, ast.Name):
+                        continue
+
+                    if expression.left.id != "number":
+                        continue
+
+                    if len(expression.ops) != 1:
+                        continue
+
+                    if not isinstance(expression.ops[0], ast.Lt):
+                        continue
+
+                    if len(expression.comparators) != 1:
+                        continue
+
+                    expected_value = expression.comparators[0]
+
+                    if not isinstance(expected_value, ast.Constant):
+                        continue
+
+                    if expected_value.value != 0:
+                        continue
+
+                    findings.append({
+                        "title": "Incorrect positive-number check",
+                        "line": child.lineno,
+                        "severity": "medium",
+                        "classification": "confirmed_bug",
+                        "confidence": 1.0,
+                        "description": (
+                            "The is_positive function checks whether "
+                            "number is less than zero. This identifies "
+                            "negative numbers instead of positive numbers."
+                        ),
+                        "suggestion": (
+                            "Change the comparison from < 0 to > 0."
+                        ),
+                        "file": str(file_path),
+                        "source": "ast"
+                    })
+
         return findings
 
     def analyze_file(self, file_path: Path) -> list[dict[str, Any]]:
         """Analyze a Python file using AST and Ollama."""
 
         source_code = file_path.read_text(
-            encoding="utf-8",
+            encoding="utf-8-sig",
             errors="replace"
         )
 

@@ -1,4 +1,3 @@
-import re
 import shutil
 import subprocess
 import tempfile
@@ -67,7 +66,7 @@ class PatchValidatorAgent:
         repository_path: Path,
         patch: str
     ) -> None:
-        """Safely apply a patch to the temporary repository."""
+        """Safely apply a patch to a candidate repository."""
 
         target_relative = self.get_patch_target(patch)
 
@@ -75,7 +74,6 @@ class PatchValidatorAgent:
             repository_path / target_relative
         ).resolve()
 
-        # Prevent path traversal outside the temporary repository.
         try:
             target_file.relative_to(repository_path.resolve())
         except ValueError:
@@ -88,18 +86,12 @@ class PatchValidatorAgent:
                 f"Patch target not found: {target_relative}"
             )
 
-        print("TEMPORARY REPOSITORY:", repository_path)
-        print("PATCH TARGET:", target_relative)
-        print("PATCH TARGET EXISTS:", target_file.exists())
-
-        # Normalize source line endings in the temporary copy.
         source = target_file.read_bytes()
 
         target_file.write_bytes(
             source.replace(b"\r\n", b"\n")
         )
 
-        # Normalize patch line endings.
         patch = patch.replace("\r\n", "\n")
 
         init_result = subprocess.run(
@@ -157,12 +149,56 @@ class PatchValidatorAgent:
                 f"Patch application failed:\n{apply_result.stderr}"
             )
 
+    @staticmethod
+    def has_no_new_failures(
+        baseline: dict[str, Any],
+        candidate: dict[str, Any]
+    ) -> bool:
+        """Check whether a patch introduces new test failures."""
+
+        baseline_failed = set(
+            baseline.get("failed_tests", [])
+        )
+
+        candidate_failed = set(
+            candidate.get("failed_tests", [])
+        )
+
+        baseline_count = baseline.get("failed", 0)
+        candidate_count = candidate.get("failed", 0)
+
+        baseline_errors = baseline.get("errors", 0)
+        candidate_errors = candidate.get("errors", 0)
+
+        # Do not accept an increase in failed tests or errors.
+        if candidate_count > baseline_count:
+            return False
+
+        if candidate_errors > baseline_errors:
+            return False
+
+        # When test identifiers are available, ensure no new
+        # failing test has appeared.
+        if candidate_failed and not candidate_failed.issubset(
+            baseline_failed
+        ):
+            return False
+
+        return True
+
     def validate_patch(
         self,
         repository_path: Path,
-        patch_result: dict[str, Any]
+        patch_result: dict[str, Any],
+        working_repo_path: Path | None = None,
+        baseline_test_results: dict[str, Any] | None = None
     ) -> dict[str, Any]:
-        """Validate a patch without modifying the original repository."""
+        """
+        Validate a patch using a candidate copy.
+
+        Accepted patches are preserved in the working repository.
+        Rejected patches do not modify the working repository.
+        """
 
         repository_path = Path(repository_path).resolve()
 
@@ -183,22 +219,41 @@ class PatchValidatorAgent:
                 "No valid patch provided for validation."
             )
 
+        working_repo_path = Path(
+            working_repo_path or repository_path
+        ).resolve()
+
+        if not working_repo_path.is_dir():
+            raise FileNotFoundError(
+                f"Working repository not found: {working_repo_path}"
+            )
+
+        baseline = baseline_test_results or {}
+
+        # Create the candidate on the same filesystem so it can
+        # be promoted to the working repository using rename.
+        working_repo_path.parent.mkdir(
+            parents=True,
+            exist_ok=True
+        )
+
         with tempfile.TemporaryDirectory(
-            prefix="asea_validation_"
+            prefix="asea_candidate_",
+            dir=str(working_repo_path.parent)
         ) as temporary_directory:
 
-            temporary_repo = (
-                Path(temporary_directory) / "repository"
+            candidate_repo = (
+                Path(temporary_directory) / "candidate"
             )
 
             self.create_temporary_copy(
-                repository_path,
-                temporary_repo
+                working_repo_path,
+                candidate_repo
             )
 
             try:
                 self.apply_patch(
-                    temporary_repo,
+                    candidate_repo,
                     patch
                 )
 
@@ -207,11 +262,12 @@ class PatchValidatorAgent:
                     "status": "PATCH_REJECTED",
                     "patch_applied": False,
                     "tests_passed": False,
+                    "regression_free": False,
                     "reason": str(error)
                 }
 
             test_results = self.test_runner.run_tests(
-                temporary_repo
+                candidate_repo
             )
 
             tests_passed = test_results.get(
@@ -219,13 +275,52 @@ class PatchValidatorAgent:
                 False
             )
 
+            regression_free = self.has_no_new_failures(
+                baseline,
+                test_results
+            )
+
+            if not regression_free:
+                return {
+                    "status": "PATCH_REJECTED",
+                    "patch_applied": True,
+                    "tests_passed": tests_passed,
+                    "regression_free": False,
+                    "reason": (
+                        "The candidate patch introduced new "
+                        "test failures or errors."
+                    ),
+                    "test_results": test_results
+                }
+
+            # Preserve the accepted patch by replacing the
+            # current working repository with the candidate.
+            backup_repo = (
+                working_repo_path.parent
+                / f"{working_repo_path.name}_backup"
+            )
+
+            if backup_repo.exists():
+                shutil.rmtree(backup_repo)
+
+            working_repo_path.rename(backup_repo)
+
+            try:
+                candidate_repo.rename(working_repo_path)
+
+            except Exception:
+                backup_repo.rename(working_repo_path)
+                raise
+
+            shutil.rmtree(
+                backup_repo,
+                ignore_errors=True
+            )
+
             return {
-                "status": (
-                    "PATCH_VALIDATED"
-                    if tests_passed
-                    else "PATCH_REJECTED"
-                ),
+                "status": "PATCH_VALIDATED",
                 "patch_applied": True,
                 "tests_passed": tests_passed,
+                "regression_free": True,
                 "test_results": test_results
             }

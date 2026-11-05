@@ -7,6 +7,9 @@ class ASEAState(TypedDict, total=False):
     repo_path: str
     repo_url: str
     repo_map: dict[str, Any]
+    # Cumulative repair workspace
+    working_repo_path: str
+    working_test_results: dict[str, Any]
 
     # Initial analysis
     baseline_results: dict[str, Any]
@@ -14,6 +17,13 @@ class ASEAState(TypedDict, total=False):
 
     # AI bug detection
     detected_bugs: list[dict[str, Any]]
+
+    # Multi-bug prioritization and tracking
+    prioritized_bugs: list[dict[str, Any]]
+    current_bug: dict[str, Any]
+    processed_bug_keys: list[str]
+    repaired_bugs: list[dict[str, Any]]
+    escalated_bugs: list[dict[str, Any]]
 
     # Patch generation
     patches: list[dict[str, Any]]

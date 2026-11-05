@@ -52,7 +52,6 @@ def test_execution_node(state: ASEAState) -> dict[str, Any]:
         raise FileNotFoundError(f"Repository not found: {repo_path}")
 
     runner = DockerTestRunner()
-
     results = runner.run_tests(repo_path)
 
     return {
@@ -78,8 +77,14 @@ def route_after_tests(state: ASEAState) -> str:
     return "finish"
 
 
+def get_bug_key(bug: dict[str, Any]) -> str:
+    """Create a stable identifier for retry tracking."""
+
+    return f"{bug.get('file', 'unknown')}::{bug.get('title', 'unknown')}"
+
+
 def patch_generation_node(state: ASEAState) -> dict[str, Any]:
-    """Generate a patch for the first confirmed bug."""
+    """Generate a patch, using previous validation feedback when available."""
 
     repo_path = Path(state["repo_path"]).resolve()
 
@@ -92,12 +97,23 @@ def patch_generation_node(state: ASEAState) -> dict[str, Any]:
 
     if not confirmed_bugs:
         return {
-            "patches": [],
             "current_agent": "patch_generation",
             "status": "no_confirmed_bugs"
         }
 
     bug = confirmed_bugs[0]
+    bug_key = get_bug_key(bug)
+
+    retry_counts = dict(state.get("retry_counts", {}))
+    attempt = retry_counts.get(bug_key, 0) + 1
+
+    max_retries = state.get("max_retries", 3)
+
+    if attempt > max_retries:
+        return {
+            "current_agent": "patch_generation",
+            "status": "retry_limit_reached"
+        }
 
     bug_file = Path(bug["file"])
 
@@ -118,54 +134,99 @@ def patch_generation_node(state: ASEAState) -> dict[str, Any]:
             f"Bug file not found: {bug_file}"
         )
 
+    previous_feedback = state.get("current_validation")
+
     generator = PatchGeneratorAgent()
 
-    patch_result = generator.generate_patch(
-        file_path=bug_file,
-        bug=bug
-    )
-
-    if not isinstance(patch_result, dict):
-        raise TypeError(
-            "Patch generator must return a dictionary."
+    try:
+        patch_result = generator.generate_patch(
+            file_path=bug_file,
+            bug=bug,
+            previous_feedback=previous_feedback,
+            attempt=attempt
         )
 
-    patches = list(state.get("patches", []))
-    patches.append(patch_result)
+        if not isinstance(patch_result, dict):
+            raise TypeError(
+                "Patch generator must return a dictionary."
+            )
 
-    return {
-        "patches": patches,
-        "current_agent": "patch_generation",
-        "status": "patch_generation_completed"
-    }
+        patch_result["attempt"] = attempt
+
+        patches = list(state.get("patches", []))
+        patches.append(patch_result)
+
+        retry_counts[bug_key] = attempt
+
+        return {
+            "patches": patches,
+            "retry_counts": retry_counts,
+            "current_agent": "patch_generation",
+            "status": "patch_generation_completed"
+        }
+
+    except Exception as error:
+        retry_counts[bug_key] = attempt
+
+        failed_result = {
+            "status": "PATCH_GENERATION_FAILED",
+            "patch_applied": False,
+            "tests_passed": False,
+            "reason": str(error),
+            "attempt": attempt
+        }
+
+        return {
+            "retry_counts": retry_counts,
+            "current_validation": failed_result,
+            "current_agent": "patch_generation",
+            "status": "patch_generation_failed",
+            "errors": state.get("errors", []) + [
+                f"Patch generation attempt {attempt} failed: {error}"
+            ]
+        }
 
 
 def patch_validation_node(state: ASEAState) -> dict[str, Any]:
     """Validate the generated patch in a temporary Docker sandbox."""
 
     repo_path = Path(state["repo_path"]).resolve()
-
     patches = state.get("patches", [])
 
     if not patches:
         return {
             "current_agent": "patch_validation",
-            "status": "no_patch_to_validate"
+            "current_validation": {
+                "status": "PATCH_REJECTED",
+                "patch_applied": False,
+                "tests_passed": False,
+                "reason": "No patch was generated."
+            },
+            "status": "patch_validation_failed"
         }
 
     patch_result = patches[-1]
-
     validator = PatchValidatorAgent()
 
-    validation_result = validator.validate_patch(
-        repository_path=repo_path,
-        patch_result=patch_result
-    )
+    try:
+        validation_result = validator.validate_patch(
+            repository_path=repo_path,
+            patch_result=patch_result
+        )
+
+    except Exception as error:
+        validation_result = {
+            "status": "PATCH_REJECTED",
+            "patch_applied": False,
+            "tests_passed": False,
+            "reason": str(error)
+        }
+
+    validation_result["attempt"] = patch_result.get("attempt", 1)
 
     validation_results = list(
         state.get("validation_results", [])
     )
-
     validation_results.append(validation_result)
 
     return {
@@ -176,6 +237,65 @@ def patch_validation_node(state: ASEAState) -> dict[str, Any]:
             "status",
             "patch_validation_completed"
         )
+    }
+
+
+def route_after_validation(state: ASEAState) -> str:
+    """Retry failed patches or finish after successful validation."""
+
+    validation = state.get("current_validation", {})
+
+    if validation.get("status") == "PATCH_VALIDATED":
+        return "finish"
+
+    detected_bugs = state.get("detected_bugs", [])
+
+    confirmed_bugs = [
+        bug for bug in detected_bugs
+        if bug.get("classification") == "confirmed_bug"
+    ]
+
+    if not confirmed_bugs:
+        return "escalate"
+
+    bug_key = get_bug_key(confirmed_bugs[0])
+
+    retry_counts = state.get("retry_counts", {})
+    attempts = retry_counts.get(bug_key, 0)
+    max_retries = state.get("max_retries", 3)
+
+    if attempts < max_retries:
+        return "retry"
+
+    return "escalate"
+
+
+def escalation_node(state: ASEAState) -> dict[str, Any]:
+    """Escalate a bug when all patch attempts have failed."""
+
+    validation = state.get("current_validation", {})
+
+    message = (
+        "ASEA could not validate a successful patch within "
+        f"{state.get('max_retries', 3)} attempts. "
+        f"Last failure: {validation.get('reason', 'Tests or patch validation failed.')}"
+    )
+
+    errors = list(state.get("errors", []))
+    errors.append(message)
+
+    audit_log = list(state.get("audit_log", []))
+    audit_log.append({
+        "agent": "escalation",
+        "event": "retry_limit_reached",
+        "message": message
+    })
+
+    return {
+        "errors": errors,
+        "audit_log": audit_log,
+        "current_agent": "escalation",
+        "status": "escalated"
     }
 
 
@@ -209,20 +329,14 @@ def build_asea_graph():
         patch_validation_node
     )
 
-    workflow.add_edge(
-        START,
-        "repository_analysis"
+    workflow.add_node(
+        "escalation",
+        escalation_node
     )
 
-    workflow.add_edge(
-        "repository_analysis",
-        "bug_detector"
-    )
-
-    workflow.add_edge(
-        "bug_detector",
-        "test_execution"
-    )
+    workflow.add_edge(START, "repository_analysis")
+    workflow.add_edge("repository_analysis", "bug_detector")
+    workflow.add_edge("bug_detector", "test_execution")
 
     workflow.add_conditional_edges(
         "test_execution",
@@ -238,10 +352,30 @@ def build_asea_graph():
         "patch_validation"
     )
 
-    workflow.add_edge(
+    workflow.add_conditional_edges(
         "patch_validation",
-        END
+        route_after_validation,
+        {
+            "retry": "patch_generation",
+            "finish": END,
+            "escalate": "escalation"
+        }
     )
+
+    workflow.add_conditional_edges(
+        "patch_generation",
+        lambda state: (
+            "validate"
+            if state.get("status") == "patch_generation_completed"
+            else "retry"
+        ),
+        {
+            "validate": "patch_validation",
+            "retry": "patch_validation"
+        }
+    )
+
+    workflow.add_edge("escalation", END)
 
     return workflow.compile()
 

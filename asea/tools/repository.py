@@ -3,7 +3,7 @@ import shutil
 from pathlib import Path
 from urllib.parse import urlparse
 
-from git import Repo, GitCommandError
+from git import GitCommandError, Repo
 
 
 class RepositoryManager:
@@ -35,8 +35,7 @@ class RepositoryManager:
 
         repo_name = urlparse(url).path.strip("/").split("/")[-1]
 
-        if repo_name.endswith(".git"):
-            repo_name = repo_name[:-4]
+        repo_name = repo_name.removesuffix(".git")
 
         destination = self.workspace / repo_name
 

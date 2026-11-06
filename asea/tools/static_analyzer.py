@@ -16,6 +16,7 @@ class StaticAnalyzer:
         try:
             result = subprocess.run(
                 command,
+                check=False,
                 cwd=str(repo_path),
                 capture_output=True,
                 text=True,

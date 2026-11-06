@@ -3,16 +3,14 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from langgraph.graph import StateGraph, START, END
-
-from asea.core.state import ASEAState
-from asea.tools.analyzer import RepositoryAnalyzer
-from asea.tools.test_runner import DockerTestRunner
+from langgraph.graph import END, START, StateGraph
 
 from asea.agents.bug_detector import bug_detector_node
 from asea.agents.patch_generator import PatchGeneratorAgent
 from asea.agents.patch_validator import PatchValidatorAgent
-
+from asea.core.state import ASEAState
+from asea.tools.analyzer import RepositoryAnalyzer
+from asea.tools.test_runner import DockerTestRunner
 
 # --------------------------------------------------
 # 1. REPOSITORY ANALYSIS
@@ -290,8 +288,8 @@ def patch_generation_node(state: ASEAState) -> dict[str, Any]:
             "current_agent": "patch_generation",
             "status": "patch_generation_completed"
         }
-
-    except Exception as error:
+# Catch generator failures so ASEA can record the error and retry.
+    except Exception as error:  # noqa: BLE001
 
         retry_counts[bug_key] = attempt
 
@@ -489,8 +487,8 @@ def patch_validation_node(state: ASEAState) -> dict[str, Any]:
                 working_repo_path=working_repo,
                 baseline_test_results=state.get("working_test_results", {})
             )
-
-        except Exception as error:
+# Convert unexpected validation failures into rejections for retry/escalation.
+        except Exception as error:  # noqa: BLE001
 
             validation_result = {
                 "status": "PATCH_REJECTED",

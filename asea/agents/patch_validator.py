@@ -51,8 +51,7 @@ class PatchValidatorAgent:
                         "Creating new files is not supported yet."
                     )
 
-                if target.startswith("b/"):
-                    target = target[2:]
+                target = target.removeprefix("b/")
 
                 if not target:
                     raise ValueError("Invalid patch target.")
@@ -96,6 +95,7 @@ class PatchValidatorAgent:
 
         init_result = subprocess.run(
             ["git", "init"],
+            check=False,
             cwd=repository_path,
             capture_output=True,
             text=True,
@@ -117,6 +117,7 @@ class PatchValidatorAgent:
                 "--ignore-whitespace",
                 "-"
             ],
+            check=False,
             cwd=repository_path,
             input=patch,
             capture_output=True,
@@ -137,6 +138,7 @@ class PatchValidatorAgent:
                 "--ignore-whitespace",
                 "-"
             ],
+            check=False,
             cwd=repository_path,
             input=patch,
             capture_output=True,
@@ -179,12 +181,9 @@ class PatchValidatorAgent:
 
         # When test identifiers are available, ensure no new
         # failing test has appeared.
-        if candidate_failed and not candidate_failed.issubset(
-            baseline_failed
-        ):
-            return False
-
-        return True
+        return not candidate_failed or candidate_failed.issubset(
+    baseline_failed
+)
 
     def validate_patch(
         self,
@@ -257,7 +256,7 @@ class PatchValidatorAgent:
                     patch
                 )
 
-            except Exception as error:
+            except (ValueError, RuntimeError, OSError, subprocess.SubprocessError) as error:
                 return {
                     "status": "PATCH_REJECTED",
                     "patch_applied": False,

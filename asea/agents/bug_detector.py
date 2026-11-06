@@ -293,18 +293,18 @@ If no issues are found:
             result = parse_json_response(response)
 
             if not isinstance(result, dict):
-                raise ValueError(
+                raise TypeError(
                     "AI response must be a JSON object."
                 )
 
             bugs = result.get("bugs", [])
 
             if not isinstance(bugs, list):
-                raise ValueError(
+                raise TypeError(
                     "AI response contains an invalid bugs list."
                 )
 
-        except (ValueError, json.JSONDecodeError, RuntimeError) as exc:
+        except (ValueError, TypeError, json.JSONDecodeError, RuntimeError) as exc:
             print(
                 f"WARNING: Ollama analysis failed for "
                 f"{file_path.name}: {exc}"
@@ -367,6 +367,25 @@ If no issues are found:
                 for field in required_fields
             ):
                 continue
+
+            claim_text = (
+                bug["title"] + " " + bug["description"]
+            ).lower()
+
+            if "division by zero" in claim_text or "divide by zero" in claim_text:
+                has_zero_divisor = any(
+                    isinstance(node, ast.BinOp)
+                    and isinstance(node.op, (ast.Div, ast.FloorDiv, ast.Mod))
+                    and isinstance(node.right, ast.Constant)
+                    and isinstance(node.right.value, (int, float))
+                    and not isinstance(node.right.value, bool)
+                    and node.right.value == 0
+                    and getattr(node, "lineno", None) == line
+                    for node in ast.walk(syntax_tree)
+                )
+
+                if not has_zero_divisor:
+                    continue
 
             ai_findings.append({
                 "title": bug["title"],

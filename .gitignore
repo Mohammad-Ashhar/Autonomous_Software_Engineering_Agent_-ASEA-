@@ -11,3 +11,6 @@ __pycache__/
 artifacts/
 workspaces/
 *.db
+
+# Python package build metadata
+*.egg-info/

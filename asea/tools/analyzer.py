@@ -1,8 +1,8 @@
 
 from pathlib import Path
 
-from asea.tools.repository import RepositoryManager
 from asea.tools.parser import PythonRepositoryParser
+from asea.tools.repository import RepositoryManager
 
 
 class RepositoryAnalyzer:

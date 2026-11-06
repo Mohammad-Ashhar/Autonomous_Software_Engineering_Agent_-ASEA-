@@ -1,7 +1,7 @@
 
-from asea.tools.repository import RepositoryManager
-
 import pytest
+
+from asea.tools.repository import RepositoryManager
 
 
 def test_local_repository_loading(tmp_path):

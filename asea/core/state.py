@@ -7,6 +7,7 @@ class ASEAState(TypedDict, total=False):
     repo_path: str
     repo_url: str
     repo_map: dict[str, Any]
+
     # Cumulative repair workspace
     working_repo_path: str
     working_test_results: dict[str, Any]
@@ -27,6 +28,11 @@ class ASEAState(TypedDict, total=False):
 
     # Patch generation
     patches: list[dict[str, Any]]
+
+    # Human review and approval
+    patch_review_decision: str
+    patch_review_feedback: str
+    review_history: list[dict[str, Any]]
 
     # Test execution
     test_results: dict[str, Any]

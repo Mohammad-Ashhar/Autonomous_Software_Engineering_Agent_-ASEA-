@@ -321,10 +321,10 @@ def patch_generation_node(state: ASEAState) -> dict[str, Any]:
 
 
 def route_after_generation(state: ASEAState) -> str:
-    """Route generated patches to validation or retry."""
+    """Route successfully generated patches to human review."""
 
     if state.get("status") == "patch_generation_completed":
-        return "validate"
+        return "review"
 
     bug_key = get_bug_key(state.get("current_bug", {}))
 
@@ -335,7 +335,118 @@ def route_after_generation(state: ASEAState) -> str:
         return "retry"
 
     return "escalate"
+def human_patch_review_node(state: ASEAState) -> dict[str, Any]:
+    """Pause the workflow and request human approval for a patch."""
 
+    patches = state.get("patches", [])
+    bug = state.get("current_bug", {})
+
+    if not patches:
+        raise ValueError("No generated patch available for review.")
+
+    patch = patches[-1]
+
+    if patch.get("bug_key") != get_bug_key(bug):
+        raise ValueError("The latest patch does not belong to the current bug.")
+
+    print("\n" + "=" * 65)
+    print("                 ASEA HUMAN CODE REVIEW")
+    print("=" * 65)
+
+    print("\nBUG:", bug.get("title", "Unknown bug"))
+    print("SEVERITY:", bug.get("severity", "Unknown").upper())
+    print("FILE:", patch.get("file", "Unknown"))
+    print("ATTEMPT:", patch.get("attempt", 1))
+
+    print("\nPROPOSED PATCH")
+    print("-" * 65)
+    print(patch.get("patch", "No patch content available."))
+    print("-" * 65)
+
+    while True:
+        decision = input(
+            "\nApprove this patch? [A]pprove / [R]eject: "
+        ).strip().lower()
+
+        if decision in ("a", "approve"):
+            decision = "approved"
+            feedback = ""
+            break
+
+        if decision in ("r", "reject"):
+            decision = "rejected"
+
+            feedback = input(
+                "Enter the reason for rejection: "
+            ).strip()
+
+            if not feedback:
+                feedback = "Patch rejected by reviewer without additional feedback."
+
+            break
+
+        print("Invalid choice. Please enter A or R.")
+
+    bug_key = get_bug_key(bug)
+
+    review_record = {
+        "bug_key": bug_key,
+        "bug_title": bug.get("title", "Unknown bug"),
+        "decision": decision,
+        "feedback": feedback,
+        "attempt": patch.get("attempt", 1)
+    }
+
+    review_history = list(state.get("review_history", []))
+    review_history.append(review_record)
+
+    audit_log = list(state.get("audit_log", []))
+    audit_log.append({
+        "agent": "human_reviewer",
+        "event": f"patch_{decision}",
+        **review_record
+    })
+
+    print("\nREVIEW DECISION:", decision.upper())
+    updates = {
+        "patch_review_decision": decision,
+        "patch_review_feedback": feedback,
+        "review_history": review_history,
+        "audit_log": audit_log,
+        "current_agent": "human_reviewer",
+        "status": f"patch_{decision}"
+    }
+
+    if decision == "rejected":
+        updates["current_validation"] = {
+            "status": "PATCH_REJECTED",
+            "patch_applied": False,
+            "tests_passed": False,
+            "reason": feedback
+        }
+
+    return updates
+    
+def route_after_review(state: ASEAState) -> str:
+    """Route the workflow based on the human review decision."""
+
+    decision = state.get("patch_review_decision")
+
+    if decision == "approved":
+        return "validate"
+
+    if decision == "rejected":
+        bug_key = get_bug_key(state.get("current_bug", {}))
+
+        attempts = state.get("retry_counts", {}).get(bug_key, 0)
+        max_retries = state.get("max_retries", 3)
+
+        if attempts < max_retries:
+            return "retry"
+
+        return "escalate"
+
+    raise ValueError(f"Invalid patch review decision: {decision}")
 
 # --------------------------------------------------
 # 7. CUMULATIVE PATCH VALIDATION
@@ -612,6 +723,11 @@ def build_asea_graph():
     )
 
     workflow.add_node(
+        "human_patch_review",
+        human_patch_review_node
+    )
+
+    workflow.add_node(
         "patch_validation",
         patch_validation_node
     )
@@ -644,10 +760,21 @@ def build_asea_graph():
         }
     )
 
-    # Generate patches.
+        # Generate patches and request human review.
     workflow.add_conditional_edges(
         "patch_generation",
         route_after_generation,
+        {
+            "review": "human_patch_review",
+            "retry": "patch_generation",
+            "escalate": "escalation"
+        }
+    )
+
+    # Route according to the human review decision.
+    workflow.add_conditional_edges(
+        "human_patch_review",
+        route_after_review,
         {
             "validate": "patch_validation",
             "retry": "patch_generation",

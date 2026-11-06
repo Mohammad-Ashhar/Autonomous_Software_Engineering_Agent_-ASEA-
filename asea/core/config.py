@@ -14,6 +14,8 @@ load_dotenv(dotenv_path=ENV_FILE, override=True)
 class Settings:
     ollama_base_url: str
     ollama_model: str
+    github_token: str
+    github_repository: str
 
 
 def get_settings() -> Settings:
@@ -25,5 +27,13 @@ def get_settings() -> Settings:
         ollama_model=os.getenv(
             "OLLAMA_MODEL",
             "qwen2.5-coder:1.5b"
+        ),
+        github_token=os.getenv(
+            "GITHUB_TOKEN",
+            ""
+        ),
+        github_repository=os.getenv(
+            "GITHUB_REPOSITORY",
+            ""
         ),
     )

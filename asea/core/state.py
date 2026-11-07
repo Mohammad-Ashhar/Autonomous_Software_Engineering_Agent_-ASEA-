@@ -30,6 +30,7 @@ class ASEAState(TypedDict, total=False):
     patches: list[dict[str, Any]]
 
     # Human review and approval
+    review_mode: str
     patch_review_decision: str
     patch_review_feedback: str
     review_history: list[dict[str, Any]]

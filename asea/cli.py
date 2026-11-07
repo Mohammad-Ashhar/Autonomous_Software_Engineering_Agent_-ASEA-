@@ -66,7 +66,7 @@ def analyze(
 
     except Exception as error:  # noqa: BLE001
         console.print(f"[bold red]Analysis failed:[/bold red] {error}")
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from error
 
 
 @app.command()
@@ -129,7 +129,7 @@ def repair(
 
     except Exception as error:  # noqa: BLE001
         console.print(f"\n[bold red]Repair workflow failed:[/bold red] {error}")
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from error
 
 
 @app.command()

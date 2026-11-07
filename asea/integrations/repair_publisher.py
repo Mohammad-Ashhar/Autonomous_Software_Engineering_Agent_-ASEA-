@@ -298,10 +298,10 @@ def publish_validated_repairs(
 
             try:
                 source_file.relative_to(working_repo)
-            except ValueError:
+            except ValueError as error:
                 raise ValueError(
-                    "Unsafe source repair file path detected."
-                )
+                "Unsafe source repair file path detected."
+                ) from error
 
             if not source_file.is_file():
                 raise FileNotFoundError(
@@ -318,10 +318,10 @@ def publish_validated_repairs(
 
             try:
                 destination_file.relative_to(checkout_path.resolve())
-            except ValueError:
+            except ValueError as error:
                 raise ValueError(
-                    "Unsafe destination repair file path detected."
-                )
+        "Unsafe destination repair file path detected."
+    ) from error
 
             if any(
                 part in EXCLUDED_PARTS

@@ -14,3 +14,7 @@ workspaces/
 
 # Python package build metadata
 *.egg-info/
+# SQLite databases
+data/*.db
+data/*.db-shm
+data/*.db-wal

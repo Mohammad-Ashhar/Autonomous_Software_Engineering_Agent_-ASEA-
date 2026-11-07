@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from langgraph.graph import END, START, StateGraph
+from langgraph.types import interrupt
 
 from asea.agents.bug_detector import bug_detector_node
 from asea.agents.patch_generator import PatchGeneratorAgent
@@ -233,10 +234,10 @@ def patch_generation_node(state: ASEAState) -> dict[str, Any]:
 
     try:
         relative_path = original_bug_file.relative_to(repo_path)
-    except ValueError:
+    except ValueError as error:
         raise ValueError(
-            "Detected bug file is outside the original repository."
-        )
+        "Detected bug file is outside the original repository."
+    ) from error
 
     # IMPORTANT:
     # Generate the next patch using the cumulative working copy.
@@ -246,10 +247,10 @@ def patch_generation_node(state: ASEAState) -> dict[str, Any]:
 
     try:
         working_bug_file.relative_to(working_repo)
-    except ValueError:
+    except ValueError as error:
         raise ValueError(
-            "Working bug file is outside the repair workspace."
-        )
+        "Working bug file is outside the repair workspace."
+    ) from error
 
     if not working_bug_file.is_file():
         raise FileNotFoundError(
@@ -334,7 +335,7 @@ def route_after_generation(state: ASEAState) -> str:
 
     return "escalate"
 def human_patch_review_node(state: ASEAState) -> dict[str, Any]:
-    """Pause the workflow and request human approval for a patch."""
+    """Request patch approval through the CLI or web application."""
 
     patches = state.get("patches", [])
     bug = state.get("current_bug", {})
@@ -347,43 +348,83 @@ def human_patch_review_node(state: ASEAState) -> dict[str, Any]:
     if patch.get("bug_key") != get_bug_key(bug):
         raise ValueError("The latest patch does not belong to the current bug.")
 
-    print("\n" + "=" * 65)
-    print("                 ASEA HUMAN CODE REVIEW")
-    print("=" * 65)
+    review_mode = state.get("review_mode", "cli")
 
-    print("\nBUG:", bug.get("title", "Unknown bug"))
-    print("SEVERITY:", bug.get("severity", "Unknown").upper())
-    print("FILE:", patch.get("file", "Unknown"))
-    print("ATTEMPT:", patch.get("attempt", 1))
+    if review_mode == "api":
+        review_response = interrupt({
+            "type": "patch_review",
+            "bug": {
+                "title": bug.get("title", "Unknown bug"),
+                "severity": bug.get("severity", "Unknown"),
+                "file": patch.get("file", "Unknown"),
+            },
+            "patch": patch.get(
+                "patch",
+                "No patch content available.",
+            ),
+            "attempt": patch.get("attempt", 1),
+        })
 
-    print("\nPROPOSED PATCH")
-    print("-" * 65)
-    print(patch.get("patch", "No patch content available."))
-    print("-" * 65)
+        if not isinstance(review_response, dict):
+            raise ValueError("Invalid API review response.")
 
-    while True:
-        decision = input(
-            "\nApprove this patch? [A]pprove / [R]eject: "
+        decision = str(
+            review_response.get("decision", "")
         ).strip().lower()
 
-        if decision in ("a", "approve"):
-            decision = "approved"
-            feedback = ""
-            break
+        feedback = str(
+            review_response.get("feedback", "")
+        ).strip()
 
-        if decision in ("r", "reject"):
-            decision = "rejected"
+        if decision not in ("approved", "rejected"):
+            raise ValueError("Invalid API review decision.")
 
-            feedback = input(
-                "Enter the reason for rejection: "
-            ).strip()
+        if decision == "rejected" and not feedback:
+            feedback = (
+                "Patch rejected by reviewer without additional feedback."
+            )
 
-            if not feedback:
-                feedback = "Patch rejected by reviewer without additional feedback."
+    else:
+        print("\n" + "=" * 65)
+        print("                 ASEA HUMAN CODE REVIEW")
+        print("=" * 65)
 
-            break
+        print("\nBUG:", bug.get("title", "Unknown bug"))
+        print("SEVERITY:", bug.get("severity", "Unknown").upper())
+        print("FILE:", patch.get("file", "Unknown"))
+        print("ATTEMPT:", patch.get("attempt", 1))
 
-        print("Invalid choice. Please enter A or R.")
+        print("\nPROPOSED PATCH")
+        print("-" * 65)
+        print(patch.get("patch", "No patch content available."))
+        print("-" * 65)
+
+        while True:
+            decision = input(
+                "\nApprove this patch? [A]pprove / [R]eject: "
+            ).strip().lower()
+
+            if decision in ("a", "approve"):
+                decision = "approved"
+                feedback = ""
+                break
+
+            if decision in ("r", "reject"):
+                decision = "rejected"
+
+                feedback = input(
+                    "Enter the reason for rejection: "
+                ).strip()
+
+                if not feedback:
+                    feedback = (
+                        "Patch rejected by reviewer "
+                        "without additional feedback."
+                    )
+
+                break
+
+            print("Invalid choice. Please enter A or R.")
 
     bug_key = get_bug_key(bug)
 
@@ -392,7 +433,7 @@ def human_patch_review_node(state: ASEAState) -> dict[str, Any]:
         "bug_title": bug.get("title", "Unknown bug"),
         "decision": decision,
         "feedback": feedback,
-        "attempt": patch.get("attempt", 1)
+        "attempt": patch.get("attempt", 1),
     }
 
     review_history = list(state.get("review_history", []))
@@ -402,17 +443,18 @@ def human_patch_review_node(state: ASEAState) -> dict[str, Any]:
     audit_log.append({
         "agent": "human_reviewer",
         "event": f"patch_{decision}",
-        **review_record
+        **review_record,
     })
 
     print("\nREVIEW DECISION:", decision.upper())
+
     updates = {
         "patch_review_decision": decision,
         "patch_review_feedback": feedback,
         "review_history": review_history,
         "audit_log": audit_log,
         "current_agent": "human_reviewer",
-        "status": f"patch_{decision}"
+        "status": f"patch_{decision}",
     }
 
     if decision == "rejected":
@@ -420,7 +462,7 @@ def human_patch_review_node(state: ASEAState) -> dict[str, Any]:
             "status": "PATCH_REJECTED",
             "patch_applied": False,
             "tests_passed": False,
-            "reason": feedback
+            "reason": feedback,
         }
 
     return updates
@@ -680,7 +722,7 @@ def final_validation_node(state: ASEAState) -> dict[str, Any]:
 # 10. BUILD LANGGRAPH
 # --------------------------------------------------
 
-def build_asea_graph():
+def build_asea_graph(checkpointer=None):
     """Build and compile the complete ASEA workflow."""
 
     workflow = StateGraph(ASEAState)
@@ -797,44 +839,46 @@ def build_asea_graph():
     # Finish after all bugs have been processed.
     workflow.add_edge("final_validation", END)
 
-    return workflow.compile()
+    return workflow.compile(checkpointer=checkpointer)
 
 
 # --------------------------------------------------
 # 11. RUN ASEA
 # --------------------------------------------------
 
+def create_initial_state(repo_path: str, review_mode: str = "cli") -> ASEAState:
+    """Create the initial state for an ASEA workflow."""
+
+    return {
+        "repo_path": repo_path,
+        "max_retries": 3,
+        "retry_counts": {},
+        "prioritized_bugs": [],
+        "current_bug": {},
+        "processed_bug_keys": [],
+        "repaired_bugs": [],
+        "escalated_bugs": [],
+        "working_repo_path": "",
+        "working_test_results": {},
+        "errors": [],
+        "audit_log": [],
+        "patches": [],
+        "validation_results": [],
+        "review_mode": review_mode,
+        "patch_review_decision": "",
+        "patch_review_feedback": "",
+        "review_history": [],
+        "status": "initialized",
+    }
+
+
 def run_asea(repo_path: str):
     """Execute the complete multi-bug ASEA workflow."""
 
     app = build_asea_graph()
-
-    initial_state: ASEAState = {
-        "repo_path": repo_path,
-
-        "max_retries": 3,
-        "retry_counts": {},
-
-        "prioritized_bugs": [],
-        "current_bug": {},
-        "processed_bug_keys": [],
-
-        "repaired_bugs": [],
-        "escalated_bugs": [],
-
-        "working_repo_path": "",
-        "working_test_results": {},
-
-        "errors": [],
-        "audit_log": [],
-
-        "patches": [],
-        "validation_results": [],
-
-        "status": "initialized"
-    }
+    initial_state = create_initial_state(repo_path)
 
     return app.invoke(
         initial_state,
-        config={"recursion_limit": 1000}
+        config={"recursion_limit": 1000},
     )

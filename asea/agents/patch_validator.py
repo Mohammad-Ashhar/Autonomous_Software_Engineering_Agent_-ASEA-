@@ -75,10 +75,10 @@ class PatchValidatorAgent:
 
         try:
             target_file.relative_to(repository_path.resolve())
-        except ValueError:
+        except ValueError as error:
             raise ValueError(
                 "Patch target is outside the repository."
-            )
+            ) from error
 
         if not target_file.is_file():
             raise FileNotFoundError(
@@ -256,7 +256,12 @@ class PatchValidatorAgent:
                     patch
                 )
 
-            except (ValueError, RuntimeError, OSError, subprocess.SubprocessError) as error:
+            except (
+                ValueError,
+                RuntimeError,
+                OSError,
+                subprocess.SubprocessError,
+            ) as error:
                 return {
                     "status": "PATCH_REJECTED",
                     "patch_applied": False,

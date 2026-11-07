@@ -1,9 +1,11 @@
 import base64
+import os
 import shutil
 import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from git import Repo
 from git.exc import GitCommandError
@@ -35,6 +37,90 @@ EXCLUDED_PARTS = {
 }
 
 
+def normalize_github_repository(repository_url: str) -> str:
+    """Extract owner/repository from an HTTPS or SSH GitHub URL."""
+
+    repository_url = repository_url.strip()
+
+    if repository_url.startswith("git@github.com:"):
+        repository_path = repository_url.split(":", 1)[1]
+
+    else:
+        parsed_url = urlsplit(repository_url)
+
+        if parsed_url.hostname != "github.com":
+            raise ValueError(
+                "Publishing is allowed only for GitHub repositories."
+            )
+
+        if parsed_url.scheme not in ("https", "ssh"):
+            raise ValueError("Unsupported GitHub remote URL scheme.")
+
+        repository_path = parsed_url.path.strip("/")
+
+    repository_path = repository_path.removesuffix(".git")
+
+    parts = repository_path.split("/")
+
+    if len(parts) != 2 or not all(parts):
+        raise ValueError("Invalid GitHub repository URL.")
+
+    return "/".join(parts).casefold()
+
+
+def validate_source_repository(
+    original_repo: Path,
+    configured_repository: str,
+) -> tuple[Repo, Path]:
+    """Verify that the source repository belongs to the configured GitHub repo."""
+
+    try:
+        source_git_repo = Repo(
+            original_repo,
+            search_parent_directories=True,
+        )
+    except Exception as error:
+        raise RuntimeError(
+            "Publishing blocked: source directory is not inside a valid Git repository."
+        ) from error
+
+    if "origin" not in source_git_repo.remotes:
+        raise RuntimeError(
+            "Publishing blocked: source repository has no origin remote."
+        )
+
+    git_root = Path(
+        source_git_repo.working_tree_dir
+    ).resolve()
+
+    try:
+        original_repo.relative_to(git_root)
+    except ValueError as error:
+        raise RuntimeError(
+            "Publishing blocked: source directory is outside its Git repository."
+        ) from error
+
+    remote_url = source_git_repo.remotes.origin.url
+
+    try:
+        source_repository = normalize_github_repository(remote_url)
+        expected_repository = normalize_github_repository(
+            f"https://github.com/{configured_repository}"
+        )
+    except ValueError as error:
+        raise RuntimeError(
+            f"Publishing blocked: repository identity validation failed: {error}"
+        ) from error
+
+    if source_repository != expected_repository:
+        raise RuntimeError(
+            "Publishing blocked: source repository does not match "
+            "GITHUB_REPOSITORY."
+        )
+
+    return source_git_repo, git_root
+
+
 def get_approved_repair_files(
     state: dict[str, Any],
     original_repo: Path,
@@ -53,7 +139,6 @@ def get_approved_repair_files(
         if bug_key:
             latest_decisions[bug_key] = item
 
-
     approved_files = set()
 
     for bug in repaired_bugs:
@@ -62,7 +147,6 @@ def get_approved_repair_files(
             continue
 
         bug_key = bug.get("bug_key")
-
         latest_review = latest_decisions.get(bug_key)
 
         if not latest_review or latest_review.get("decision") != "approved":
@@ -94,8 +178,8 @@ def get_approved_repair_files(
             continue
 
         if (
-        original_file.is_file()
-        and original_file.read_bytes() == working_file.read_bytes()
+            original_file.is_file()
+            and original_file.read_bytes() == working_file.read_bytes()
         ):
             continue
 
@@ -129,6 +213,26 @@ def publish_validated_repairs(
             "Original repository or validated working repository is missing."
         )
 
+    settings = get_settings()
+
+    if not settings.github_token:
+        raise ValueError("GITHUB_TOKEN is missing from .env.")
+
+    if not settings.github_repository:
+        raise ValueError("GITHUB_REPOSITORY is missing from .env.")
+
+    if not settings.github_base_branch:
+        raise ValueError("GITHUB_BASE_BRANCH is missing from .env.")
+
+    repository_name = settings.github_repository.strip()
+    base_branch = settings.github_base_branch.strip()
+
+    # Validate repository identity before any publishing operation.
+    _, git_root = validate_source_repository(
+    original_repo,
+    repository_name,
+)
+
     repair_files = get_approved_repair_files(
         state,
         original_repo,
@@ -139,16 +243,6 @@ def publish_validated_repairs(
         raise RuntimeError(
             "No approved and validated file changes are available to publish."
         )
-
-    settings = get_settings()
-
-    if not settings.github_token:
-        raise ValueError("GITHUB_TOKEN is missing from .env.")
-
-    if not settings.github_repository:
-        raise ValueError("GITHUB_REPOSITORY is missing from .env.")
-
-    repository_name = settings.github_repository.strip()
 
     temporary_root = Path(
         tempfile.mkdtemp(prefix="asea_publish_")
@@ -165,7 +259,13 @@ def publish_validated_repairs(
 
         github_repository = github_client.get_repo(repository_name)
 
-        base_branch = "MohammadAshhar/deepseek-langraph"
+        if (
+            github_repository.full_name.casefold()
+            != repository_name.casefold()
+        ):
+            raise RuntimeError(
+                "Publishing blocked: GitHub repository identity mismatch."
+            )
 
         github_repository.get_branch(base_branch)
 
@@ -188,22 +288,25 @@ def publish_validated_repairs(
             branch_name,
         )
 
-        source_git_repo = Repo(
-            original_repo,
-            search_parent_directories=True,
-        )
-
-        git_root = Path(
-            source_git_repo.working_tree_dir
-        ).resolve()
-
         repository_prefix = original_repo.relative_to(git_root)
 
         copied_files = []
 
         for relative_path in repair_files:
 
-            source_file = working_repo / relative_path
+            source_file = (working_repo / relative_path).resolve()
+
+            try:
+                source_file.relative_to(working_repo)
+            except ValueError:
+                raise ValueError(
+                    "Unsafe source repair file path detected."
+                )
+
+            if not source_file.is_file():
+                raise FileNotFoundError(
+                    f"Validated repair file is missing: {relative_path}"
+                )
 
             destination_relative = (
                 repository_prefix / relative_path
@@ -217,7 +320,15 @@ def publish_validated_repairs(
                 destination_file.relative_to(checkout_path.resolve())
             except ValueError:
                 raise ValueError(
-                    "Unsafe repair file path detected."
+                    "Unsafe destination repair file path detected."
+                )
+
+            if any(
+                part in EXCLUDED_PARTS
+                for part in destination_relative.parts
+            ):
+                raise ValueError(
+                    "Publishing blocked: sensitive or excluded file detected."
                 )
 
             destination_file.parent.mkdir(
@@ -257,19 +368,21 @@ def publish_validated_repairs(
             f"x-access-token:{settings.github_token}".encode()
         ).decode("ascii")
 
-        authorization = (
-            f"AUTHORIZATION: basic {encoded_token}"
-        )
+        authorization = f"AUTHORIZATION: basic {encoded_token}"
+
+        git_environment = os.environ.copy()
+        git_environment["GIT_CONFIG_COUNT"] = "1"
+        git_environment["GIT_CONFIG_KEY_0"] = "http.extraheader"
+        git_environment["GIT_CONFIG_VALUE_0"] = authorization
 
         publishing_repo.git.execute(
             [
                 "git",
-                "-c",
-                f"http.extraheader={authorization}",
                 "push",
                 "origin",
                 f"{branch_name}:{branch_name}",
-            ]
+            ],
+            env=git_environment,
         )
 
         pull_request = create_pull_request(
@@ -298,10 +411,12 @@ def publish_validated_repairs(
             "pull_request": pull_request,
         }
 
-    except GitCommandError as error:
+    except GitCommandError:
         raise RuntimeError(
-            f"Git publishing operation failed: {error}"
-        ) from error
+        "Git publishing operation failed. "
+        "Check GitHub permissions, network connectivity, "
+        "and branch conflicts. Credentials were not included."
+    ) from None
 
     finally:
         shutil.rmtree(

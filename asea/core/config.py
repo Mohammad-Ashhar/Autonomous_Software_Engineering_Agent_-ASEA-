@@ -16,6 +16,7 @@ class Settings:
     ollama_model: str
     github_token: str
     github_repository: str
+    github_base_branch: str
 
 
 def get_settings() -> Settings:
@@ -35,5 +36,9 @@ def get_settings() -> Settings:
         github_repository=os.getenv(
             "GITHUB_REPOSITORY",
             ""
+        ),
+        github_base_branch=os.getenv(
+            "GITHUB_BASE_BRANCH",
+            "MohammadAshhar/deepseek-langraph"
         ),
     )

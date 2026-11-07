@@ -1,4 +1,3 @@
-
 import json
 from pathlib import Path
 
@@ -16,7 +15,9 @@ class PythonRepositoryParser:
         file_path = Path(file_path)
 
         source_code = file_path.read_bytes()
-        tree = self.parser.parse(source_code)
+        language = Language(tspython.language())
+        local_parser = Parser(language)
+        tree = local_parser.parse(source_code)
 
         result = {
             "file": str(file_path),
@@ -25,38 +26,42 @@ class PythonRepositoryParser:
             "imports": []
         }
 
-        def traverse(node, class_name=None):
+        # Iterative traversal avoids recursive syntax-tree processing.
+        stack = [(tree.root_node, None)]
+
+        while stack:
+            node, class_name = stack.pop()
+
             if node.type == "class_definition":
                 name_node = node.child_by_field_name("name")
-                name = source_code[
-                    name_node.start_byte:name_node.end_byte
-                ].decode("utf-8")
 
-                result["classes"].append({
-                    "name": name,
-                    "start_line": node.start_point.row + 1,
-                    "end_line": node.end_point.row + 1
-                })
+                if name_node is not None:
+                    class_name = source_code[
+                        name_node.start_byte:name_node.end_byte
+                    ].decode("utf-8")
 
-                for child in node.children:
-                    traverse(child, name)
+                    result["classes"].append({
+                        "name": class_name,
+                        "start_line": node.start_point.row + 1,
+                        "end_line": node.end_point.row + 1
+                    })
 
-                return
-
-            if node.type == "function_definition":
+            elif node.type == "function_definition":
                 name_node = node.child_by_field_name("name")
-                name = source_code[
-                    name_node.start_byte:name_node.end_byte
-                ].decode("utf-8")
 
-                result["functions"].append({
-                    "name": name,
-                    "class": class_name,
-                    "start_line": node.start_point.row + 1,
-                    "end_line": node.end_point.row + 1
-                })
+                if name_node is not None:
+                    name = source_code[
+                        name_node.start_byte:name_node.end_byte
+                    ].decode("utf-8")
 
-            if node.type in (
+                    result["functions"].append({
+                        "name": name,
+                        "class": class_name,
+                        "start_line": node.start_point.row + 1,
+                        "end_line": node.end_point.row + 1
+                    })
+
+            elif node.type in (
                 "import_statement",
                 "import_from_statement"
             ):
@@ -66,10 +71,9 @@ class PythonRepositoryParser:
                     ].decode("utf-8")
                 )
 
-            for child in node.children:
-                traverse(child, class_name)
-
-        traverse(tree.root_node)
+            # Reverse preserves the original left-to-right traversal order.
+            for child in reversed(node.children):
+                stack.append((child, class_name))
 
         return result
 

@@ -1,0 +1,49 @@
+
+name: ASEA CI
+
+on:
+  push:
+    branches:
+      - main
+      - MohammadAshhar/deepseek-langraph
+
+  pull_request:
+    branches:
+      - main
+      - MohammadAshhar/deepseek-langraph
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  quality-and-tests:
+    name: Code Quality and Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install ASEA and development dependencies
+        run: python -m pip install -e ".[github,llm,dev]"
+
+      - name: Check code formatting and quality
+        run: ruff check asea tests
+
+      - name: Compile Python modules
+        run: python -m compileall -q asea tests
+
+      - name: Build ASEA Docker sandbox
+        run: docker build -t asea-sandbox:py312 -f Dockerfile.sandbox .
+
+      - name: Run test suite
+        run: python -m pytest tests/ -v

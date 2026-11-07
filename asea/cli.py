@@ -43,7 +43,10 @@ def analyze(
 
         analyzer = RepositoryAnalyzer()
 
-        result = analyzer.analyze_local_repository(repo_path)
+        if repository.startswith("https://"):
+          result = analyzer.analyze_cloned_repository(repo_path)
+        else:
+          result = analyzer.analyze_local_repository(repo_path)
 
         table = Table(title="ASEA Repository Analysis")
 

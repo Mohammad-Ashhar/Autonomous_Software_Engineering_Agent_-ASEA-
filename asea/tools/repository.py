@@ -1,9 +1,8 @@
-
 import shutil
 from pathlib import Path
 from urllib.parse import urlparse
 
-from git import GitCommandError, Repo
+from git import GitCommandError, InvalidGitRepositoryError, Repo
 
 
 class RepositoryManager:
@@ -34,16 +33,38 @@ class RepositoryManager:
         self.validate_github_url(url)
 
         repo_name = urlparse(url).path.strip("/").split("/")[-1]
-
         repo_name = repo_name.removesuffix(".git")
 
         destination = self.workspace / repo_name
 
+        # Reuse an existing clone only if it belongs to the requested repository.
         if destination.exists():
-            raise FileExistsError(
-                f"Repository already exists: {destination}"
-            )
+            try:
+                repo = Repo(
+                    str(destination),
+                    search_parent_directories=False
+                )
 
+                existing_url = repo.remotes.origin.url.rstrip("/")
+                requested_url = url.rstrip("/")
+
+                if (
+                    existing_url.removesuffix(".git")
+                    != requested_url.removesuffix(".git")
+                ):
+                    raise ValueError(
+                        "Existing workspace repository has a different remote URL."
+                    )
+
+                return destination
+
+            except (InvalidGitRepositoryError, AttributeError) as error:
+                raise ValueError(
+                    f"Existing workspace directory is not a valid Git clone: "
+                    f"{destination}"
+                ) from error
+
+        # Clone the repository if it does not already exist.
         try:
             Repo.clone_from(url, str(destination))
             return destination
@@ -68,6 +89,35 @@ class RepositoryManager:
             raise ValueError(
                 "Source repository cannot be inside the workspace."
             )
+
+        return source
+
+    def load_cloned_repository(self, folder):
+        source = Path(folder).resolve()
+
+        if not source.is_dir():
+            raise NotADirectoryError(
+                f"Cloned repository not found: {source}"
+            )
+
+        if source.parent != self.workspace:
+            raise ValueError(
+                "Cloned repository must be directly inside the workspace."
+            )
+
+        try:
+            repo = Repo(
+                str(source),
+                search_parent_directories=False
+            )
+
+            if Path(repo.working_tree_dir).resolve() != source:
+                raise ValueError("Invalid cloned repository path.")
+
+        except (InvalidGitRepositoryError, ValueError) as error:
+            raise ValueError(
+                "Workspace directory is not a valid Git repository."
+            ) from error
 
         return source
 

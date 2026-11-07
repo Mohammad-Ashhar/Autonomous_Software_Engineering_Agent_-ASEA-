@@ -16,7 +16,8 @@ dependencies = [
     "tree-sitter>=0.23",
     "tree-sitter-python>=0.23",
     "langgraph>=0.2",
-    "python-dotenv>=1.0"
+    "python-dotenv>=1.0",
+    "docker>=7.1"
 ]
 
 [project.optional-dependencies]

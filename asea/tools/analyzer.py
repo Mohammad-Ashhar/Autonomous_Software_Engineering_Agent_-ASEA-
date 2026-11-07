@@ -1,4 +1,3 @@
-
 from pathlib import Path
 
 from asea.tools.parser import PythonRepositoryParser
@@ -16,18 +15,25 @@ class RepositoryAnalyzer:
         folder,
         output_file="artifacts/repo_map.json"
     ):
-        # Step 1: Load the repository
-        repo_path = self.repository_manager.load_local_repository(
-            folder
-        )
+        repo_path = self.repository_manager.load_local_repository(folder)
 
-        # Step 2: Generate the repository map
+        return self._analyze_repository(repo_path, output_file)
+
+    def analyze_cloned_repository(
+        self,
+        folder,
+        output_file="artifacts/repo_map.json"
+    ):
+        repo_path = self.repository_manager.load_cloned_repository(folder)
+
+        return self._analyze_repository(repo_path, output_file)
+
+    def _analyze_repository(self, repo_path, output_file):
         repo_map = self.parser.build_repository_map(
             repo_path,
             output_file
         )
 
-        # Step 3: Calculate repository statistics
         total_files = len(repo_map["files"])
 
         total_functions = sum(

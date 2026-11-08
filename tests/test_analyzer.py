@@ -49,3 +49,34 @@ import math
 
     assert data["repository"] == "sample_project"
     assert len(data["files"]) == 1
+
+
+def test_repository_inventory_reports_languages_without_claiming_parser_support(tmp_path):
+    project = tmp_path / "mixed_project"
+    project.mkdir()
+    (project / "main.py").write_text("def run():\n    return True\n")
+    (project / "app.ts").write_text("export const run = () => true;\n")
+    (project / "Main.java").write_text("class Main {}\n")
+    (project / "package.json").write_text('{"name": "mixed-project"}')
+
+    ignored = project / "node_modules"
+    ignored.mkdir()
+    (ignored / "dependency.js").write_text("ignored")
+
+    analyzer = RepositoryAnalyzer(workspace=tmp_path / "workspace")
+    result = analyzer.analyze_local_repository(
+        project,
+        tmp_path / "artifacts" / "repo_map.json",
+    )
+
+    assert result["languages"] == {
+        "Java": 1,
+        "Python": 1,
+        "TypeScript": 1,
+    }
+    assert result["language_count"] == 3
+    assert result["parsed_languages"] == ["Python"]
+    assert result["inventory_only_languages"] == ["Java", "TypeScript"]
+    assert result["manifests"] == ["package.json"]
+    assert result["total_files"] == 1
+    assert result["repository_file_count"] == 4

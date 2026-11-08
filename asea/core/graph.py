@@ -42,13 +42,13 @@ def repository_analysis_node(state: ASEAState) -> dict[str, Any]:
     return {
         "repo_map": repo_map,
         "repo_inventory": {
-            "repository_file_count": result.get("repository_file_count", result["total_files"]),
-            "total_source_files": result.get("total_source_files", result["total_files"]),
+            "repository_file_count": result.get(\n                "repository_file_count", result["total_files"]\n            ),
+            "total_source_files": result.get(\n                "total_source_files", result["total_files"]\n            ),
             "language_count": result.get("language_count", 1),
-            "languages": result.get("languages", {"Python": result["total_files"]}),
+            "languages": result.get(\n                "languages", {"Python": result["total_files"]}\n            ),
             "manifests": result.get("manifests", []),
             "parsed_languages": result.get("parsed_languages", ["Python"]),
-            "inventory_only_languages": result.get("inventory_only_languages", []),
+            "inventory_only_languages": result.get(\n                "inventory_only_languages", []\n            ),
         },
         "baseline_results": result,
         "current_agent": "repository_analysis",
@@ -803,7 +803,7 @@ def build_asea_graph(checkpointer=None):
     workflow.add_conditional_edges(
         "bug_detector",
         lambda state: (
-            "continue" if state.get("analysis_status") in {"completed", "partial"} else "stop"
+            "continue"\n            if state.get("analysis_status") in {"completed", "partial"}\n            else "stop"
         ),
         {"continue": "test_execution", "stop": END},
     )

@@ -56,12 +56,24 @@ if (syntaxErrors.length) {
   process.exit(2);
 }
 if (!tests.length) {
-  process.stdout.write(JSON.stringify({ status: "NO_TESTS", syntax_errors: [], test_files: [], syntax_checked: files.length }));
+  process.stdout.write(JSON.stringify({
+    status: "NO_TESTS",
+    syntax_errors: [],
+    test_files: [],
+    syntax_checked: files.length
+  }));
   process.exit(5);
 }
-const result = spawnSync(process.execPath, ["--test", ...tests], {
-  cwd: root, encoding: "utf8", timeout: 90000, maxBuffer: 4 * 1024 * 1024
-});
+const result = spawnSync(
+  process.execPath,
+  ["--test", ...tests],
+  {
+    cwd: root,
+    encoding: "utf8",
+    timeout: 90000,
+    maxBuffer: 4 * 1024 * 1024
+  }
+);
 process.stdout.write(JSON.stringify({
   status: result.status === 0 ? "PASSED" : "FAILED",
   syntax_errors: [],

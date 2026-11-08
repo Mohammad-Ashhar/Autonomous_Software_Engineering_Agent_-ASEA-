@@ -6,6 +6,7 @@ from asea.languages.base import LanguageAdapter
 from asea.languages.python import PythonAdapter
 from asea.languages.web import (
     javascript_adapter,
+    jsx_adapter,
     tsx_adapter,
     typescript_adapter,
 )
@@ -43,6 +44,7 @@ def get_default_registry() -> LanguageRegistry:
     return LanguageRegistry([
         PythonAdapter(),
         javascript_adapter(),
+        jsx_adapter(),
         typescript_adapter(),
         tsx_adapter(),
     ])

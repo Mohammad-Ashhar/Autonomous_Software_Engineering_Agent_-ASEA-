@@ -164,8 +164,7 @@ def prioritize_bugs_node(state: ASEAState) -> dict[str, Any]:
         )
     )
 
-    print("
-PRIORITIZED BUGS:")
+    print("\nPRIORITIZED BUGS:")
 
     for index, bug in enumerate(prioritized_bugs, start=1):
         print(
@@ -196,8 +195,7 @@ def select_next_bug_node(state: ASEAState) -> dict[str, Any]:
 
         if bug_key not in processed_keys:
 
-            print("
-SELECTED BUG:", bug.get("title"))
+            print("\nSELECTED BUG:", bug.get("title"))
 
             return {
                 "current_bug": bug,

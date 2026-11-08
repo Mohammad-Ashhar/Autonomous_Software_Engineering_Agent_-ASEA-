@@ -43,8 +43,11 @@ jobs:
       - name: Compile Python modules
         run: python -m compileall -q asea tests
 
-      - name: Build ASEA Docker sandbox
+      - name: Build ASEA Python sandbox
         run: docker build -t asea-sandbox:py312 -f Dockerfile.sandbox .
+
+      - name: Build ASEA Node.js sandbox
+        run: docker build -t asea-sandbox:node22 -f Dockerfile.sandbox.node .
 
       - name: Run test suite
         run: python -m pytest tests/ -v

@@ -1,12 +1,27 @@
-
 FROM python:3.12-slim
 
-# Install pytest in the sandbox image
-RUN pip install --no-cache-dir pytest==8.3.5
+# Install Git executable.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install pytest and ASEA dependencies.
+RUN pip install --no-cache-dir \
+    pytest==8.3.5 \
+    "langgraph>=0.2.0" \
+    "openai>=1.0.0" \
+    "python-dotenv>=1.0.0" \
+    "pydantic>=2.0.0" \
+    "typer>=0.12.0" \
+    "gitpython>=3.1.0" \
+    "pygithub>=2.0.0" \
+    "docker>=7.1.0" \
+    tree-sitter==0.25.0 \
+    tree-sitter-python==0.25.0
 
 WORKDIR /workspace
 
-# Run tests as an unprivileged user
+# Run tests as an unprivileged user.
 USER 65532:65532
 
 CMD ["python", "-m", "pytest", "-q", "-p", "no:cacheprovider"]

@@ -51,7 +51,9 @@ import math
     assert len(data["files"]) == 1
 
 
-def test_repository_inventory_reports_languages_without_claiming_parser_support(tmp_path):
+def test_repository_inventory_reports_languages_without_claiming_parser_support(
+    tmp_path
+):
     project = tmp_path / "mixed_project"
     project.mkdir()
     (project / "main.py").write_text("def run():\n    return True\n")

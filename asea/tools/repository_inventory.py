@@ -4,6 +4,7 @@ This module identifies repository composition without executing project code.
 It does not claim that every inventoried language is currently analyzable.
 """
 from collections import Counter
+import os
 from pathlib import Path
 
 IGNORED_DIRECTORIES = {
@@ -91,7 +92,7 @@ def build_repository_inventory(repo_path: str | Path) -> dict:
     source_file_count = 0
     total_file_count = 0
 
-    for directory, dirnames, filenames in __import__("os").walk(
+    for directory, dirnames, filenames in os.walk(
         root, topdown=True, followlinks=False
     ):
         current = Path(directory)

@@ -4,6 +4,11 @@ from pathlib import Path
 
 from asea.languages.base import LanguageAdapter
 from asea.languages.python import PythonAdapter
+from asea.languages.web import (
+    javascript_adapter,
+    typescript_adapter,
+    tsx_adapter,
+)
 
 
 class LanguageRegistry:
@@ -35,4 +40,9 @@ class LanguageRegistry:
 
 
 def get_default_registry() -> LanguageRegistry:
-    return LanguageRegistry([PythonAdapter()])
+    return LanguageRegistry([
+        PythonAdapter(),
+        javascript_adapter(),
+        typescript_adapter(),
+        tsx_adapter(),
+    ])

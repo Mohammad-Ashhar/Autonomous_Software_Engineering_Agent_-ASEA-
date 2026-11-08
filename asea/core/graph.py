@@ -713,10 +713,12 @@ def final_validation_node(state: ASEAState) -> dict[str, Any]:
 
     results = runner.run_tests(working_repo)
 
-    if state.get("analysis_status") == "failed":
-        final_status = "ANALYSIS_FAILED"
-    elif state.get("analysis_status") == "partial":
-        final_status = "COMPLETED_WITH_ANALYSIS_WARNINGS"
+    if state.get("analysis_status") == "partial":
+        final_status = (
+            "COMPLETED_WITH_ANALYSIS_WARNINGS"
+            if results.get("success", False)
+            else "COMPLETED_WITH_ANALYSIS_WARNINGS_AND_TEST_FAILURES"
+        )
     else:
         final_status = (
             "COMPLETED"
@@ -801,7 +803,7 @@ def build_asea_graph(checkpointer=None):
     workflow.add_conditional_edges(
         "bug_detector",
         lambda state: (
-            "continue" if state.get("analysis_status") != "failed" else "stop"
+            "continue" if state.get("analysis_status") in {"completed", "partial"} else "stop"
         ),
         {"continue": "test_execution", "stop": END},
     )

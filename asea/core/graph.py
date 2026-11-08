@@ -136,36 +136,36 @@ def get_bug_key(bug: dict[str, Any]) -> str:
 
 
 def prioritize_bugs_node(state: ASEAState) -> dict[str, Any]:
-    """Prioritize confirmed bugs by severity."""
+    """Prioritize repairable bugs and retain findings blocked by capability."""
+    from asea.languages.registry import get_default_registry
 
-    severity_order = {
-        "high": 0,
-        "medium": 1,
-        "low": 2
-    }
+    severity_order = {"high": 0, "medium": 1, "low": 2}
+    registry = get_default_registry()
+    repairable = {}
+    repair_blocked = []
 
-    detected_bugs = state.get("detected_bugs", [])
-
-    unique_bugs = {}
-
-    for bug in detected_bugs:
-
+    for bug in state.get("detected_bugs", []):
         if bug.get("classification") != "confirmed_bug":
             continue
-
-        unique_bugs[get_bug_key(bug)] = bug
+        adapter = registry.resolve(bug.get("file", ""))
+        if adapter is None or not adapter.supports_repair:
+            repair_blocked.append({
+                **bug,
+                "repair_status": "unsupported_language_repair",
+            })
+            continue
+        repairable[get_bug_key(bug)] = bug
 
     prioritized_bugs = sorted(
-        unique_bugs.values(),
+        repairable.values(),
         key=lambda bug: (
             severity_order.get(bug.get("severity"), 3),
             str(bug.get("file", "")),
-            bug.get("line", 0)
-        )
+            bug.get("line", 0),
+        ),
     )
 
-    print("\nPRIORITIZED BUGS:")
-
+    print("\\nPRIORITIZED REPAIRABLE BUGS:")
     for index, bug in enumerate(prioritized_bugs, start=1):
         print(
             f"{index}. {bug.get('severity', 'unknown').upper()} - "
@@ -174,8 +174,9 @@ def prioritize_bugs_node(state: ASEAState) -> dict[str, Any]:
 
     return {
         "prioritized_bugs": prioritized_bugs,
+        "repair_blocked_bugs": repair_blocked,
         "current_agent": "bug_prioritization",
-        "status": "bugs_prioritized"
+        "status": "bugs_prioritized",
     }
 
 

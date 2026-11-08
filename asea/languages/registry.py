@@ -6,8 +6,8 @@ from asea.languages.base import LanguageAdapter
 from asea.languages.python import PythonAdapter
 from asea.languages.web import (
     javascript_adapter,
-    typescript_adapter,
     tsx_adapter,
+    typescript_adapter,
 )
 
 

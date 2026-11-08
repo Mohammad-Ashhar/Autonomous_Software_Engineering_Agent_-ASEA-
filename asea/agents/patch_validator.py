@@ -4,6 +4,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from asea.tools.node_test_runner import NodeTestRunner
 from asea.tools.test_runner import DockerTestRunner
 
 
@@ -11,6 +12,7 @@ class PatchValidatorAgent:
 
     def __init__(self):
         self.test_runner = DockerTestRunner()
+        self.node_test_runner = NodeTestRunner()
 
     def create_temporary_copy(
         self,
@@ -308,14 +310,49 @@ class PatchValidatorAgent:
                     "reason": str(error)
                 }
 
-            test_results = self.test_runner.run_tests(
-                candidate_repo
+            target_extension = Path(
+                self.get_patch_target(patch)
+            ).suffix.lower()
+            is_javascript = target_extension in {
+                ".js", ".mjs", ".cjs"
+            }
+
+            if is_javascript and not baseline.get("success", False):
+                return {
+                    "status": "PATCH_REJECTED",
+                    "patch_applied": True,
+                    "tests_passed": False,
+                    "regression_free": False,
+                    "reason": (
+                        "JavaScript repair requires a passing baseline "
+                        "Node test run. Missing tests or baseline failures "
+                        "cannot establish a safe comparison."
+                    ),
+                }
+
+            runner = (
+                self.node_test_runner
+                if is_javascript
+                else self.test_runner
             )
+            test_results = runner.run_tests(candidate_repo)
 
             tests_passed = test_results.get(
                 "success",
                 False
             )
+            if is_javascript and not tests_passed:
+                return {
+                    "status": "PATCH_REJECTED",
+                    "patch_applied": True,
+                    "tests_passed": False,
+                    "regression_free": False,
+                    "reason": (
+                        "JavaScript candidate did not pass Node syntax "
+                        "checks and its native test suite."
+                    ),
+                    "test_results": test_results,
+                }
 
             regression_free = self.has_no_new_failures(
                 baseline,

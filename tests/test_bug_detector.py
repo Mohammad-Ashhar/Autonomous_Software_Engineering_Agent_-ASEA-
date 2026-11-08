@@ -1,4 +1,5 @@
 import ast
+import json
 from pathlib import Path
 from unittest.mock import patch
 
@@ -106,7 +107,7 @@ def test_detector_analyzes_javascript_with_registered_adapter(tmp_path):
         }]
     }
 
-    with patch.object(agent.llm, "chat", return_value=__import__("json").dumps(response)):
+    with patch.object(agent.llm, "chat", return_value=json.dumps(response)):
         result = agent.analyze_file_with_status(source)
 
     assert result["status"] == "completed"

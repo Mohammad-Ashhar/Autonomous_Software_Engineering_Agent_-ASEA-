@@ -403,27 +403,23 @@ def human_patch_review_node(state: ASEAState) -> dict[str, Any]:
             )
 
     else:
-        print("
-" + "=" * 65)
+        print("\n" + "=" * 65)
         print("                 ASEA HUMAN CODE REVIEW")
         print("=" * 65)
 
-        print("
-BUG:", bug.get("title", "Unknown bug"))
+        print("\nBUG:", bug.get("title", "Unknown bug"))
         print("SEVERITY:", bug.get("severity", "Unknown").upper())
         print("FILE:", patch.get("file", "Unknown"))
         print("ATTEMPT:", patch.get("attempt", 1))
 
-        print("
-PROPOSED PATCH")
+        print("\nPROPOSED PATCH")
         print("-" * 65)
         print(patch.get("patch", "No patch content available."))
         print("-" * 65)
 
         while True:
             decision = input(
-                "
-Approve this patch? [A]pprove / [R]eject: "
+                "\nApprove this patch? [A]pprove / [R]eject: "
             ).strip().lower()
 
             if decision in ("a", "approve"):
@@ -468,8 +464,7 @@ Approve this patch? [A]pprove / [R]eject: "
         **review_record,
     })
 
-    print("
-REVIEW DECISION:", decision.upper())
+    print("\nREVIEW DECISION:", decision.upper())
 
     updates = {
         "patch_review_decision": decision,

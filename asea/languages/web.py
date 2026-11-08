@@ -12,11 +12,16 @@ from asea.languages.base import ParsedSource
 class TreeSitterWebAdapter:
     """Parse JavaScript/TypeScript symbols without claiming repair support."""
 
-    supports_repair = False
-
-    def __init__(self, name: str, extensions: tuple[str, ...], grammar):
+    def __init__(
+        self,
+        name: str,
+        extensions: tuple[str, ...],
+        grammar,
+        supports_repair: bool = False,
+    ):
         self.name = name
         self.extensions = extensions
+        self.supports_repair = supports_repair
         self._parser = Parser(Language(grammar()))
 
     def parse(self, file_path: Path, source: str | None = None) -> ParsedSource:
@@ -77,16 +82,34 @@ class TreeSitterWebAdapter:
             )
 
     def repair_instructions(self) -> str:
-        raise NotImplementedError(
-            f"{self.name} repair is not enabled until a matching "
-            "test runner and validation policy are configured."
+        if not self.supports_repair:
+            raise NotImplementedError(
+                f"{self.name} repair is not enabled until a matching "
+                "test runner and validation policy are configured."
+            )
+        return (
+            "You are editing plain JavaScript executed by Node.js. "
+            "Return only complete corrected source code. Preserve the "
+            "module system, public exports, runtime compatibility, and "
+            "existing behavior except for the reported defect. Do not "
+            "introduce dependencies, change package manifests, or use "
+            "browser-only or JSX syntax."
         )
 
 
 def javascript_adapter() -> TreeSitterWebAdapter:
     return TreeSitterWebAdapter(
         "JavaScript",
-        (".js", ".jsx", ".mjs", ".cjs"),
+        (".js", ".mjs", ".cjs"),
+        tree_sitter_javascript.language,
+        supports_repair=True,
+    )
+
+
+def jsx_adapter() -> TreeSitterWebAdapter:
+    return TreeSitterWebAdapter(
+        "JavaScript",
+        (".jsx",),
         tree_sitter_javascript.language,
     )
 

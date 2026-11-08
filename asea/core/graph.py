@@ -41,6 +41,15 @@ def repository_analysis_node(state: ASEAState) -> dict[str, Any]:
 
     return {
         "repo_map": repo_map,
+        "repo_inventory": {
+            "repository_file_count": result.get("repository_file_count", result["total_files"]),
+            "total_source_files": result.get("total_source_files", result["total_files"]),
+            "language_count": result.get("language_count", 1),
+            "languages": result.get("languages", {"Python": result["total_files"]}),
+            "manifests": result.get("manifests", []),
+            "parsed_languages": result.get("parsed_languages", ["Python"]),
+            "inventory_only_languages": result.get("inventory_only_languages", []),
+        },
         "baseline_results": result,
         "current_agent": "repository_analysis",
         "status": "repository_analysis_completed"
@@ -704,11 +713,16 @@ def final_validation_node(state: ASEAState) -> dict[str, Any]:
 
     results = runner.run_tests(working_repo)
 
-    final_status = (
-        "COMPLETED"
-        if results.get("success", False)
-        else "COMPLETED_WITH_REMAINING_FAILURES"
-    )
+    if state.get("analysis_status") == "failed":
+        final_status = "ANALYSIS_FAILED"
+    elif state.get("analysis_status") == "partial":
+        final_status = "COMPLETED_WITH_ANALYSIS_WARNINGS"
+    else:
+        final_status = (
+            "COMPLETED"
+            if results.get("success", False)
+            else "COMPLETED_WITH_REMAINING_FAILURES"
+        )
 
     return {
         "working_test_results": results,
@@ -784,7 +798,13 @@ def build_asea_graph(checkpointer=None):
     # Initial workflow.
     workflow.add_edge(START, "repository_analysis")
     workflow.add_edge("repository_analysis", "bug_detector")
-    workflow.add_edge("bug_detector", "test_execution")
+    workflow.add_conditional_edges(
+        "bug_detector",
+        lambda state: (
+            "continue" if state.get("analysis_status") != "failed" else "stop"
+        ),
+        {"continue": "test_execution", "stop": END},
+    )
     workflow.add_edge("test_execution", "workspace_preparation")
     workflow.add_edge("workspace_preparation", "bug_prioritization")
     workflow.add_edge("bug_prioritization", "bug_selector")

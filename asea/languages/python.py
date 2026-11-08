@@ -52,6 +52,8 @@ class PythonAdapter:
                 })
             elif isinstance(node, (ast.Import, ast.ImportFrom)):
                 result.imports.append(ast.get_source_segment(text, node) or "")
+        result.functions.sort(key=lambda item: item["start_line"])
+        result.classes.sort(key=lambda item: item["start_line"])
         return result
 
     def validate_source(self, source: str, file_path: Path) -> None:

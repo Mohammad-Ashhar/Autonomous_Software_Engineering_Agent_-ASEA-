@@ -2,8 +2,8 @@
 
 from pathlib import Path
 
-from asea.tools.node_test_runner import NodeTestRunner  # noqa: I001
 from asea.tools.test_runner import DockerTestRunner
+from asea.tools.node_test_runner import NodeTestRunner
 
 
 IGNORED_DIRECTORIES = {

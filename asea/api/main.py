@@ -52,6 +52,26 @@ async def lifespan(app: FastAPI):
 executor = ThreadPoolExecutor(max_workers=1)
 
 
+def get_job_outcome(result: dict) -> tuple[str, str]:
+    """Map workflow outcomes to honest API job states and messages."""
+    analysis_status = result.get("analysis_status")
+    workflow_status = result.get("status")
+
+    if analysis_status == "unsupported":
+        return "failed", "This repository has no source language ASEA can analyze yet."
+    if analysis_status == "failed":
+        return "failed", "ASEA analysis failed; no repair was attempted."
+    if analysis_status == "partial":
+        if workflow_status == "COMPLETED_WITH_ANALYSIS_WARNINGS_AND_TEST_FAILURES":
+            return "completed", (
+                "ASEA completed partially; analysis warnings and test failures remain."
+            )
+        return "completed", "ASEA completed with analysis warnings."
+    if workflow_status == "COMPLETED_WITH_REMAINING_FAILURES":
+        return "completed", "ASEA finished, but repository tests still have failures."
+    return "completed", "ASEA repair workflow completed."
+
+
 def run_repair_job(job_id: str, repository: str):
     """Execute an ASEA repair workflow in the background."""
 
@@ -96,21 +116,7 @@ def run_repair_job(job_id: str, repository: str):
             )
 
         else:
-            analysis_status = result.get("analysis_status")
-            job_status = (
-                "failed"
-                if analysis_status in {"failed", "unsupported"}
-                else "completed"
-            )
-            message = (
-                "ASEA has no supported source files in this repository yet."
-                if analysis_status == "unsupported"
-                else "ASEA analysis could not complete; no repair was attempted."
-                if analysis_status == "failed"
-                else "ASEA completed with analysis warnings."
-                if analysis_status == "partial"
-                else "ASEA repair workflow completed."
-            )
+            job_status, message = get_job_outcome(result)
             repair_jobs.update_job(
                 job_id,
                 status=job_status,
@@ -175,21 +181,7 @@ def resume_repair_job(
             )
 
         else:
-            analysis_status = result.get("analysis_status")
-            job_status = (
-                "failed"
-                if analysis_status in {"failed", "unsupported"}
-                else "completed"
-            )
-            message = (
-                "ASEA has no supported source files in this repository yet."
-                if analysis_status == "unsupported"
-                else "ASEA analysis could not complete; no repair was attempted."
-                if analysis_status == "failed"
-                else "ASEA completed with analysis warnings."
-                if analysis_status == "partial"
-                else "ASEA repair workflow completed."
-            )
+            job_status, message = get_job_outcome(result)
             repair_jobs.update_job(
                 job_id,
                 status=job_status,

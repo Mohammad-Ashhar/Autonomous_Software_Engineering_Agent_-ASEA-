@@ -37,7 +37,10 @@ for (const file of files) {
     cwd: root, encoding: "utf8", timeout: 15000
   });
   if (check.status !== 0) {
-    syntaxErrors.push({ file: path.relative(root, file), output: (check.stderr || check.stdout || "Syntax check failed").slice(0, 4000) });
+    syntaxErrors.push({
+      file: path.relative(root, file),
+      output: (check.stderr || check.stdout || "Syntax check failed").slice(0, 4000)
+    });
   }
 }
 const tests = files.filter(file =>
@@ -45,7 +48,11 @@ const tests = files.filter(file =>
   /\.(?:test|spec)\.(?:js|mjs|cjs)$/.test(file)
 );
 if (syntaxErrors.length) {
-  process.stdout.write(JSON.stringify({ status: "SYNTAX_FAILED", syntax_errors: syntaxErrors, test_files: tests.map(f => path.relative(root, f)) }));
+  process.stdout.write(JSON.stringify({
+    status: "SYNTAX_FAILED",
+    syntax_errors: syntaxErrors,
+    test_files: tests.map(f => path.relative(root, f))
+  }));
   process.exit(2);
 }
 if (!tests.length) {

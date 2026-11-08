@@ -1,116 +1,71 @@
+"""Repository parsing through registered language adapters."""
+
 import json
 from pathlib import Path
 
-import tree_sitter_python as tspython
-from tree_sitter import Language, Parser
+from asea.languages.python import PythonAdapter
+from asea.languages.registry import LanguageRegistry, get_default_registry
 
 
-class PythonRepositoryParser:
+class RepositoryParser:
+    """Parse all source files for which an adapter is registered."""
 
-    def __init__(self):
-        self.language = Language(tspython.language())
-        self.parser = Parser(self.language)
+    IGNORED_DIRECTORIES = {
+        ".git", ".venv", "venv", "__pycache__", "node_modules",
+        "dist", "build", ".pytest_cache", ".mypy_cache", ".ruff_cache",
+        "artifacts", "workspaces",
+    }
+
+    def __init__(self, registry: LanguageRegistry | None = None):
+        self.registry = registry or get_default_registry()
 
     def parse_file(self, file_path):
-        file_path = Path(file_path)
-
-        source_code = file_path.read_bytes()
-        language = Language(tspython.language())
-        local_parser = Parser(language)
-        tree = local_parser.parse(source_code)
-
-        result = {
-            "file": str(file_path),
-            "functions": [],
-            "classes": [],
-            "imports": []
+        path = Path(file_path)
+        adapter = self.registry.resolve(path)
+        if adapter is None:
+            raise ValueError(f"No language adapter registered for {path.suffix}")
+        parsed = adapter.parse(path)
+        return {
+            "file": str(path),
+            "language": parsed.language,
+            "functions": parsed.functions,
+            "classes": parsed.classes,
+            "imports": parsed.imports,
+            "syntax_valid": parsed.syntax_valid,
+            "syntax_error": parsed.syntax_error,
+            "repair_supported": adapter.supports_repair,
         }
-
-        # Iterative traversal avoids recursive syntax-tree processing.
-        stack = [(tree.root_node, None)]
-
-        while stack:
-            node, class_name = stack.pop()
-
-            if node.type == "class_definition":
-                name_node = node.child_by_field_name("name")
-
-                if name_node is not None:
-                    class_name = source_code[
-                        name_node.start_byte:name_node.end_byte
-                    ].decode("utf-8")
-
-                    result["classes"].append({
-                        "name": class_name,
-                        "start_line": node.start_point.row + 1,
-                        "end_line": node.end_point.row + 1
-                    })
-
-            elif node.type == "function_definition":
-                name_node = node.child_by_field_name("name")
-
-                if name_node is not None:
-                    name = source_code[
-                        name_node.start_byte:name_node.end_byte
-                    ].decode("utf-8")
-
-                    result["functions"].append({
-                        "name": name,
-                        "class": class_name,
-                        "start_line": node.start_point.row + 1,
-                        "end_line": node.end_point.row + 1
-                    })
-
-            elif node.type in (
-                "import_statement",
-                "import_from_statement"
-            ):
-                result["imports"].append(
-                    source_code[
-                        node.start_byte:node.end_byte
-                    ].decode("utf-8")
-                )
-
-            # Reverse preserves the original left-to-right traversal order.
-            for child in reversed(node.children):
-                stack.append((child, class_name))
-
-        return result
 
     def build_repository_map(self, repo_path, output_file):
-        repo_path = Path(repo_path)
+        root = Path(repo_path).resolve()
+        repo_map = {"repository": root.name, "files": []}
+        extensions = set(self.registry.supported_extensions())
 
-        manager_ignored = {
-            ".git", ".venv", "venv", "__pycache__",
-            "node_modules", "dist", "build",
-            ".pytest_cache", ".mypy_cache"
-        }
-
-        repo_map = {
-            "repository": repo_path.name,
-            "files": []
-        }
-
-        for file_path in sorted(repo_path.rglob("*.py")):
-            if manager_ignored.intersection(
-                file_path.relative_to(repo_path).parts
+        for file_path in sorted(root.rglob("*")):
+            if not file_path.is_file() or file_path.is_symlink():
+                continue
+            if file_path.suffix.lower() not in extensions:
+                continue
+            if self.IGNORED_DIRECTORIES.intersection(
+                file_path.relative_to(root).parts
             ):
                 continue
 
             parsed = self.parse_file(file_path)
-
-            parsed["file"] = str(
-                file_path.relative_to(repo_path)
-            )
-
+            parsed["file"] = file_path.relative_to(root).as_posix()
             repo_map["files"].append(parsed)
 
-        output_file = Path(output_file)
-        output_file.parent.mkdir(parents=True, exist_ok=True)
-
-        output_file.write_text(
+        destination = Path(output_file)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text(
             json.dumps(repo_map, indent=4),
-            encoding="utf-8"
+            encoding="utf-8",
         )
-
         return repo_map
+
+
+class PythonRepositoryParser(RepositoryParser):
+    """Backward-compatible Python-only parser facade."""
+
+    def __init__(self):
+        self.registry = LanguageRegistry([PythonAdapter()])

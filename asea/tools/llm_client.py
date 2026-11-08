@@ -1,3 +1,4 @@
+import os
 import time
 from itertools import count
 
@@ -16,8 +17,9 @@ class OllamaClient:
         self.client = OpenAI(
             api_key="ollama",
             base_url=self.settings.ollama_base_url,
-            timeout=120.0,
-            max_retries=2,
+            # A stuck request used to cost up to 3 x 120s before failing.
+            timeout=float(os.getenv("ASEA_LLM_TIMEOUT", "90")),
+            max_retries=int(os.getenv("ASEA_LLM_RETRIES", "0")),
         )
 
     def chat(

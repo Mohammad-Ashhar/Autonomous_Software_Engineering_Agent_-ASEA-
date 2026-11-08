@@ -1,4 +1,6 @@
 import logging
+import os
+import time
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -17,6 +19,7 @@ from asea.core.graph import (
     build_asea_graph,
     create_initial_state,
 )
+from asea.integrations.repair_publisher import publish_validated_repairs
 from asea.tools.analyzer import RepositoryAnalyzer
 from asea.tools.repository import RepositoryManager
 
@@ -27,8 +30,180 @@ CHECKPOINT_DB_PATH = (
 )
 
 
+STAGE_LABELS = {
+    "repository_analysis": "Analysing repository",
+    "bug_detector": "Detecting bugs",
+    "test_execution": "Running baseline tests",
+    "workspace_preparation": "Preparing workspace",
+    "bug_prioritization": "Prioritising bugs",
+    "bug_selector": "Selecting next bug",
+    "patch_generation": "Generating patch",
+    "human_patch_review": "Waiting for patch review",
+    "patch_validation": "Validating patch in sandbox",
+    "escalation": "Escalating unrepaired bug",
+    "final_validation": "Final validation",
+}
+
+
+def summarize_result(values: dict) -> dict:
+    """Return a compact, UI-friendly view of the final workflow state.
+
+    The full state can be several MB (test output, repository map...) and
+    used to be stored and re-sent on every status poll.
+    """
+
+    def slim_tests(tests):
+        if not isinstance(tests, dict):
+            return tests
+        return {k: v for k, v in tests.items() if k != "output"}
+
+    validations = []
+    for item in values.get("validation_results", []):
+        item = dict(item)
+        if "test_results" in item:
+            item["test_results"] = slim_tests(item["test_results"])
+        validations.append(item)
+
+    return {
+        "status": values.get("status"),
+        "repo_path": values.get("repo_path"),
+        "detected_bug_count": len(values.get("detected_bugs", [])),
+        "repaired_bugs": values.get("repaired_bugs", []),
+        "escalated_bugs": values.get("escalated_bugs", []),
+        "errors": values.get("errors", []),
+        "review_history": values.get("review_history", []),
+        "audit_log": values.get("audit_log", []),
+        "patches": values.get("patches", []),
+        "validation_results": validations,
+        "test_results": slim_tests(values.get("test_results")),
+        "working_test_results": slim_tests(
+            values.get("working_test_results")
+        ),
+    }
+
+
+def drive_graph(job_id: str, graph_input, config: dict):
+    """Run the workflow, recording the live stage and per-stage timings."""
+
+    graph = app.state.graph
+
+    job = repair_jobs.get_job(job_id) or {}
+    timings = dict(job.get("timings") or {})
+
+    def mark_stage(label: str):
+        repair_jobs.update_job(
+            job_id,
+            stage=label,
+            message=f"{label}...",
+            timings=timings,
+        )
+
+    last = time.perf_counter()
+
+    for update in graph.stream(
+        graph_input,
+        config=config,
+        stream_mode="updates",
+    ):
+        now = time.perf_counter()
+
+        for node in update:
+            if node.startswith("__"):
+                continue
+            timings[node] = round(timings.get(node, 0.0) + now - last, 2)
+
+        last = now
+
+        upcoming = graph.get_state(config).next
+
+        if upcoming:
+            mark_stage(STAGE_LABELS.get(upcoming[0], upcoming[0]))
+
+
+def finish_job(job_id: str, config: dict, interrupted_message: str):
+    """Move the job to review / completed after the graph stops."""
+
+    graph = app.state.graph
+    snapshot = graph.get_state(config)
+
+    if snapshot.interrupts:
+        repair_jobs.update_job(
+            job_id,
+            status="waiting_for_review",
+            stage="Waiting for patch review",
+            message=interrupted_message,
+            review_request=snapshot.interrupts[0].value,
+        )
+        return
+
+    values = dict(snapshot.values)
+    job = repair_jobs.get_job(job_id) or {}
+
+    publication = None
+
+    if job.get("publish"):
+        repair_jobs.update_job(
+            job_id,
+            stage="Publishing pull request",
+            message="Publishing approved repairs to GitHub...",
+        )
+        publication = publish_repairs(values)
+
+    message = "ASEA repair workflow completed."
+
+    if publication and publication.get("status") == "PULL_REQUEST_CREATED":
+        message += " Pull request created."
+    elif publication and publication.get("status") == "FAILED":
+        message += " Publishing failed — see the publication details."
+
+    repair_jobs.update_job(
+        job_id,
+        status="completed",
+        message=message,
+        result=summarize_result(values),
+        publication=publication,
+    )
+
+
+def publish_repairs(values: dict) -> dict:
+    """Open a pull request with the approved repairs, never raising."""
+
+    if not values.get("repaired_bugs"):
+        return {
+            "status": "SKIPPED",
+            "reason": "No approved and validated repairs to publish.",
+        }
+
+    try:
+        result = publish_validated_repairs(values)
+
+        return {
+            "status": result["status"],
+            "repository": result.get("repository"),
+            "branch": result.get("branch"),
+            "base_branch": result.get("base_branch"),
+            "commit": result.get("commit"),
+            "files": result.get("files", []),
+            "pushed_to_fork": result.get("pushed_to_fork", False),
+            "pull_request": result.get("pull_request"),
+        }
+
+    except Exception as error:  # noqa: BLE001
+        logging.exception("ASEA publishing failed.")
+
+        return {
+            "status": "FAILED",
+            "reason": str(error),
+        }
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    interrupted = repair_jobs.fail_interrupted_jobs()
+
+    if interrupted:
+        print(f"ASEA marked {interrupted} interrupted job(s) as failed.")
+
     CHECKPOINT_DB_PATH.parent.mkdir(
         parents=True,
         exist_ok=True,
@@ -59,6 +234,7 @@ def run_repair_job(job_id: str, repository: str):
         repair_jobs.update_job(
             job_id,
             status="running",
+            stage="Resolving repository",
             message="Resolving repository and starting repair.",
         )
 
@@ -76,32 +252,13 @@ def run_repair_job(job_id: str, repository: str):
             "recursion_limit": 1000,
         }
 
-        graph = app.state.graph
+        drive_graph(job_id, initial_state, config)
 
-        result = graph.invoke(
-            initial_state,
-            config=config,
+        finish_job(
+            job_id,
+            config,
+            "ASEA is waiting for patch approval.",
         )
-
-        snapshot = graph.get_state(config)
-
-        if snapshot.interrupts:
-            review_request = snapshot.interrupts[0].value
-
-            repair_jobs.update_job(
-                job_id,
-                status="waiting_for_review",
-                message="ASEA is waiting for patch approval.",
-                review_request=review_request,
-            )
-
-        else:
-            repair_jobs.update_job(
-                job_id,
-                status="completed",
-                message="ASEA repair workflow completed.",
-                result=result,
-            )
 
     except Exception:
         logging.exception(
@@ -126,6 +283,7 @@ def resume_repair_job(
         repair_jobs.update_job(
             job_id,
             status="running",
+            stage="Processing review decision",
             message="Processing patch review decision.",
             review_request=None,
         )
@@ -137,37 +295,29 @@ def resume_repair_job(
             "recursion_limit": 1000,
         }
 
-        result = app.state.graph.invoke(
+        drive_graph(
+            job_id,
             Command(
                 resume={
                     "decision": decision,
                     "feedback": feedback,
                 }
             ),
-            config=config,
+            config,
         )
 
-        snapshot = app.state.graph.get_state(config)
-
-        if snapshot.interrupts:
-            review_request = snapshot.interrupts[0].value
-
-            repair_jobs.update_job(
-                job_id,
-                status="waiting_for_review",
-                message="ASEA generated another patch requiring approval.",
-                review_request=review_request,
-            )
-
-        else:
-            repair_jobs.update_job(
-                job_id,
-                status="completed",
-                message="ASEA repair workflow completed.",
-                result=result,
-            )
+        finish_job(
+            job_id,
+            config,
+            "ASEA generated another patch requiring approval.",
+        )
 
     except Exception:
+        logging.exception(
+            "ASEA review resume failed. Job ID: %s",
+            job_id,
+        )
+
         repair_jobs.update_job(
             job_id,
             status="failed",
@@ -185,6 +335,11 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:3000",
         "http://127.0.0.1:3000",
+        *[
+            origin.strip()
+            for origin in os.getenv("ASEA_CORS_ORIGINS", "").split(",")
+            if origin.strip()
+        ],
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -203,6 +358,13 @@ class RepairRequest(BaseModel):
         ...,
         min_length=1,
         description="Local repository path or HTTPS GitHub repository URL.",
+    )
+    publish: bool = Field(
+        default=True,
+        description=(
+            "Open a pull request with the approved repairs when the "
+            "workflow finishes."
+        ),
     )
 class ReviewRequest(BaseModel):
     decision: Literal["approved", "rejected"]
@@ -239,6 +401,7 @@ def start_repair(request: RepairRequest):
     job = repair_jobs.create_job(
         job_id=job_id,
         repository=repository,
+        publish=request.publish,
     )
 
     executor.submit(

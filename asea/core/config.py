@@ -39,6 +39,6 @@ def get_settings() -> Settings:
         ),
         github_base_branch=os.getenv(
             "GITHUB_BASE_BRANCH",
-            "MohammadAshhar/deepseek-langraph"
+            ""
         ),
     )

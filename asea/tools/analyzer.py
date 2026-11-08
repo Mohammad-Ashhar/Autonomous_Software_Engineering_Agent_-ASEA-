@@ -28,6 +28,20 @@ class RepositoryAnalyzer:
 
         return self._analyze_repository(repo_path, output_file)
 
+    def analyze_path(
+        self,
+        folder,
+        output_file="artifacts/repo_map.json"
+    ):
+        """Analyse any repository folder (cloned or local)."""
+
+        repo_path = Path(folder).resolve()
+
+        if not repo_path.is_dir():
+            raise NotADirectoryError(f"Directory not found: {repo_path}")
+
+        return self._analyze_repository(repo_path, output_file)
+
     def _analyze_repository(self, repo_path, output_file):
         repo_map = self.parser.build_repository_map(
             repo_path,

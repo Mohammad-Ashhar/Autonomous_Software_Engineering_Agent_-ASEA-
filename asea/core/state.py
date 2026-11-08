@@ -6,7 +6,6 @@ class ASEAState(TypedDict, total=False):
     # Repository information
     repo_path: str
     repo_url: str
-    repo_map: dict[str, Any]
 
     # Cumulative repair workspace
     working_repo_path: str

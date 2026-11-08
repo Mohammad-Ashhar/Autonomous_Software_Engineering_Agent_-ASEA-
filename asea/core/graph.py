@@ -1,4 +1,3 @@
-import json
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -27,20 +26,14 @@ def repository_analysis_node(state: ASEAState) -> dict[str, Any]:
 
     analyzer = RepositoryAnalyzer()
 
-    result = analyzer.analyze_cloned_repository(
-        folder=str(repo_path)
-    )
+    # analyze_path works for cloned *and* local repositories.
+    result = analyzer.analyze_path(str(repo_path))
 
-    output_file = Path(result["output_file"])
-
-    if not output_file.is_absolute():
-        output_file = Path.cwd() / output_file
-
-    with output_file.open("r", encoding="utf-8") as file:
-        repo_map = json.load(file)
-
+    # The full repository map is written to artifacts/repo_map.json.
+    # It is deliberately NOT kept in the graph state: the state is
+    # checkpointed to SQLite after every node, so a large map made each
+    # step slower.
     return {
-        "repo_map": repo_map,
         "baseline_results": result,
         "current_agent": "repository_analysis",
         "status": "repository_analysis_completed"
@@ -700,9 +693,15 @@ def final_validation_node(state: ASEAState) -> dict[str, Any]:
         state["working_repo_path"]
     ).resolve()
 
-    runner = DockerTestRunner()
+    # The working repository is always byte-identical to the last tree
+    # that was tested: either the baseline copy or the validated
+    # candidate that replaced it. Re-running the whole suite in Docker
+    # would just repeat that result, so reuse it.
+    results = state.get("working_test_results") or {}
 
-    results = runner.run_tests(working_repo)
+    if not results.get("status"):
+        runner = DockerTestRunner()
+        results = runner.run_tests(working_repo)
 
     final_status = (
         "COMPLETED"

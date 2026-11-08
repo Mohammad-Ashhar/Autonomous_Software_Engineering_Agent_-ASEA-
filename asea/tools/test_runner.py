@@ -113,18 +113,12 @@ class DockerTestRunner:
 
             timed_out = False
 
-            while True:
-                container.reload()
-
-                if container.status == "exited":
-                    break
-
-                if time.monotonic() - start_time >= self.timeout:
-                    timed_out = True
-                    container.kill()
-                    break
-
-                time.sleep(0.5)
+            try:
+                # Returns the moment the container exits (no polling lag).
+                container.wait(timeout=self.timeout)
+            except Exception:  # noqa: BLE001 - timeout / connection error
+                timed_out = True
+                container.kill()
 
             output = container.logs(
                 stdout=True,

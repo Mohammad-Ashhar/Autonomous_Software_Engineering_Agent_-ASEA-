@@ -1,0 +1,1 @@
+[{"title": "Division by zero in is_even function", "line": 4, "severity": "high", "classification": "potential_issue", "confidence": 0.99, "description": "The function attempts to divide by zero.", "suggestion": "Handle division by zero."}]

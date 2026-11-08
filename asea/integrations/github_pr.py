@@ -6,9 +6,12 @@ from github.GithubException import GithubException
 from asea.core.config import get_settings
 
 
-def get_github_repository() -> Any:
+def get_github_repository(repository_name: str | None = None) -> Any:
     """
-    Authenticate with GitHub and return the configured repository.
+    Authenticate with GitHub and return a repository.
+
+    Uses ``repository_name`` (owner/repo) when given, otherwise the
+    repository configured in .env.
     """
 
     settings = get_settings()
@@ -18,9 +21,11 @@ def get_github_repository() -> Any:
             "GITHUB_TOKEN is missing from the .env file."
         )
 
-    if not settings.github_repository:
+    repository_name = repository_name or settings.github_repository
+
+    if not repository_name:
         raise ValueError(
-            "GITHUB_REPOSITORY is missing from the .env file."
+            "No GitHub repository was specified."
         )
 
     try:
@@ -28,9 +33,7 @@ def get_github_repository() -> Any:
 
         github_client = Github(auth=authentication)
 
-        repository = github_client.get_repo(
-            settings.github_repository
-        )
+        repository = github_client.get_repo(repository_name)
 
         return repository
 
@@ -45,6 +48,8 @@ def create_pull_request(
     base_branch: str,
     title: str,
     body: str,
+    repository_name: str | None = None,
+    head_owner: str | None = None,
 ) -> dict[str, Any]:
     """
     Create a GitHub Pull Request.
@@ -62,10 +67,11 @@ def create_pull_request(
     if not title.strip():
         raise ValueError("Pull Request title cannot be empty.")
 
-    repository = get_github_repository()
+    repository = get_github_repository(repository_name)
 
     try:
-        owner = repository.owner.login
+        # Branches pushed to a fork are referenced as "forkowner:branch".
+        owner = head_owner or repository.owner.login
 
         existing_prs = repository.get_pulls(
             state="open",
@@ -86,7 +92,7 @@ def create_pull_request(
         pull_request = repository.create_pull(
             title=title,
             body=body,
-            head=head_branch,
+            head=f"{owner}:{head_branch}",
             base=base_branch,
         )
 

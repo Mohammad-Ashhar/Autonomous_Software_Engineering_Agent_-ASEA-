@@ -925,3 +925,63 @@ button, a {
   line-height: 1.7;
   text-align: center;
 }
+
+/* Agent activity badge: only "live" while a job is really running. */
+.live-badge.idle,
+.live-badge.done {
+  color: var(--muted);
+  background: rgba(128, 128, 128, 0.12);
+}
+.live-badge.waiting {
+  color: var(--yellow, #e0a526);
+  background: rgba(224, 165, 38, 0.12);
+}
+.live-badge.failed {
+  color: var(--red, #e5484d);
+  background: rgba(229, 72, 77, 0.12);
+}
+.live-badge.idle span,
+.live-badge.done span {
+  background: var(--muted);
+}
+.live-badge.waiting span {
+  background: var(--yellow, #e0a526);
+}
+.live-badge.failed span {
+  background: var(--red, #e5484d);
+}
+.live-badge.live span {
+  animation: asea-pulse 1.4s ease-in-out infinite;
+}
+@keyframes asea-pulse {
+  50% { opacity: 0.25; }
+}
+
+.pipeline-step.running .pipeline-marker {
+  color: var(--green);
+  background: rgba(54, 201, 149, 0.12);
+}
+.pipeline-step.waiting .pipeline-marker {
+  color: var(--yellow, #e0a526);
+}
+.pipeline-step.failed .pipeline-marker,
+.pipeline-step.failed .step-time {
+  color: var(--red, #e5484d);
+}
+.pipeline-step.pending .step-time,
+.pipeline-step.waiting .step-time {
+  color: var(--muted);
+}
+.pipeline-step.running .step-time {
+  color: var(--green);
+}
+
+.publish-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+}

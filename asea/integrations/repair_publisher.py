@@ -6,8 +6,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
+from uuid import uuid4
 
-from git import Repo
+from git import Actor, Repo
 from git.exc import GitCommandError
 
 from asea.core.config import get_settings
@@ -70,9 +71,14 @@ def normalize_github_repository(repository_url: str) -> str:
 
 def validate_source_repository(
     original_repo: Path,
-    configured_repository: str,
+    configured_repository: str | None = None,
 ) -> tuple[Repo, Path]:
-    """Verify that the source repository belongs to the configured GitHub repo."""
+    """Verify the source is a GitHub-backed Git repository.
+
+    When ``configured_repository`` is given, the origin remote must also
+    point at that repository. When it is omitted, the repository is
+    whatever ``origin`` points at, so ASEA works for any GitHub repo.
+    """
 
     try:
         source_git_repo = Repo(
@@ -104,8 +110,12 @@ def validate_source_repository(
 
     try:
         source_repository = normalize_github_repository(remote_url)
-        expected_repository = normalize_github_repository(
-            f"https://github.com/{configured_repository}"
+        expected_repository = (
+            normalize_github_repository(
+                f"https://github.com/{configured_repository}"
+            )
+            if configured_repository
+            else source_repository
         )
     except ValueError as error:
         raise RuntimeError(
@@ -119,6 +129,26 @@ def validate_source_repository(
         )
 
     return source_git_repo, git_root
+
+
+def _no_new_failures(
+    baseline: dict[str, Any],
+    final: dict[str, Any],
+) -> bool:
+    """True when ``final`` has no test failure that ``baseline`` lacked."""
+
+    if final.get("timed_out"):
+        return False
+
+    if final.get("failed", 0) > baseline.get("failed", 0):
+        return False
+
+    if final.get("errors", 0) > baseline.get("errors", 0):
+        return False
+
+    return set(final.get("failed_tests", [])).issubset(
+        set(baseline.get("failed_tests", []))
+    )
 
 
 def get_approved_repair_files(
@@ -188,19 +218,54 @@ def get_approved_repair_files(
     return sorted(approved_files)
 
 
+def _ensure_fork(github_client, upstream, base_branch: str):
+    """Fork ``upstream`` for the token's user and wait until it is usable."""
+
+    import time
+
+    fork = github_client.get_user().create_fork(upstream)
+
+    for _ in range(30):
+        try:
+            fork.get_branch(base_branch)
+            return fork
+        except Exception:  # noqa: BLE001 - fork still being created
+            time.sleep(2)
+
+    raise RuntimeError(
+        "Publishing blocked: the fork was created but is not ready yet. "
+        "Retry in a minute."
+    )
+
+
 def publish_validated_repairs(
     state: dict[str, Any],
 ) -> dict[str, Any]:
     """Publish approved repairs through a GitHub Pull Request."""
 
-    if state.get("status") != "COMPLETED":
+    status = state.get("status")
+    test_results = state.get("working_test_results", {})
+
+    if status == "COMPLETED_WITH_REMAINING_FAILURES":
+        # Repositories often have failing tests that were already failing
+        # before ASEA touched them. Allow publishing as long as the
+        # repairs introduced no new failures compared with the baseline.
+        baseline = state.get("test_results")
+
+        if not baseline or not test_results or not _no_new_failures(
+            baseline, test_results
+        ):
+            raise RuntimeError(
+                "Publishing blocked: ASEA workflow did not complete "
+                "successfully."
+            )
+
+    elif status != "COMPLETED":
         raise RuntimeError(
             "Publishing blocked: ASEA workflow did not complete successfully."
         )
 
-    test_results = state.get("working_test_results", {})
-
-    if not test_results.get("success", False):
+    elif not test_results.get("success", False):
         raise RuntimeError(
             "Publishing blocked: final tests did not pass."
         )
@@ -218,20 +283,12 @@ def publish_validated_repairs(
     if not settings.github_token:
         raise ValueError("GITHUB_TOKEN is missing from .env.")
 
-    if not settings.github_repository:
-        raise ValueError("GITHUB_REPOSITORY is missing from .env.")
-
-    if not settings.github_base_branch:
-        raise ValueError("GITHUB_BASE_BRANCH is missing from .env.")
-
-    repository_name = settings.github_repository.strip()
-    base_branch = settings.github_base_branch.strip()
-
-    # Validate repository identity before any publishing operation.
-    _, git_root = validate_source_repository(
-    original_repo,
-    repository_name,
-)
+    # The target is whatever the analysed repository's origin points at,
+    # so publishing works for any GitHub repository, not one in .env.
+    source_git_repo, git_root = validate_source_repository(original_repo)
+    repository_name = normalize_github_repository(
+        source_git_repo.remotes.origin.url
+    )
 
     repair_files = get_approved_repair_files(
         state,
@@ -267,20 +324,41 @@ def publish_validated_repairs(
                 "Publishing blocked: GitHub repository identity mismatch."
             )
 
-        github_repository.get_branch(base_branch)
+        # Always target the repository's own default branch.
+        base_branch = github_repository.default_branch
 
-        clone_url = github_repository.clone_url
+        can_push_directly = bool(
+            getattr(github_repository.permissions, "push", False)
+        )
+
+        push_remote = "origin"
+        head_owner = None
+
+        if not can_push_directly:
+            # No write access: publish from the user's fork instead.
+            fork_repository = _ensure_fork(
+                github_client, github_repository, base_branch
+            )
+            head_owner = fork_repository.owner.login
 
         publishing_repo = Repo.clone_from(
-            clone_url,
+            github_repository.clone_url,
             checkout_path,
             branch=base_branch,
             depth=1,
         )
 
+        if not can_push_directly:
+            publishing_repo.create_remote(
+                "fork", fork_repository.clone_url
+            )
+            push_remote = "fork"
+
         branch_name = (
             "asea/repair-"
             + datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+            + "-"
+            + uuid4().hex[:6]
         )
 
         publishing_repo.git.checkout(
@@ -360,8 +438,12 @@ def publish_validated_repairs(
                 "No Git changes were detected after copying repair files."
             )
 
+        asea_actor = Actor("ASEA", "asea@users.noreply.github.com")
+
         publishing_repo.index.commit(
-            f"ASEA: repair {len(copied_files)} validated file(s)"
+            f"ASEA: repair {len(copied_files)} validated file(s)",
+            author=asea_actor,
+            committer=asea_actor,
         )
 
         encoded_token = base64.b64encode(
@@ -379,7 +461,7 @@ def publish_validated_repairs(
             [
                 "git",
                 "push",
-                "origin",
+                push_remote,
                 f"{branch_name}:{branch_name}",
             ],
             env=git_environment,
@@ -388,6 +470,8 @@ def publish_validated_repairs(
         pull_request = create_pull_request(
             head_branch=branch_name,
             base_branch=base_branch,
+            repository_name=repository_name,
+            head_owner=head_owner,
             title="ASEA: Automated validated code repairs",
             body=(
                 "## Automated Repair Summary\n\n"
@@ -396,7 +480,13 @@ def publish_validated_repairs(
                 f"- Successfully repaired bugs: "
                 f"{len(state.get('repaired_bugs', []))}\n"
                 "- Human review: approved\n"
-                "- Final validation: passed\n\n"
+                + (
+                    "- Final validation: passed\n\n"
+                    if status == "COMPLETED"
+                    else "- Final validation: no new test failures "
+                    "(some tests were already failing before ASEA)\n\n"
+                )
+                +
                 "All changes were validated in an isolated Docker workspace. "
                 "Please review before merging."
             ),
@@ -408,6 +498,8 @@ def publish_validated_repairs(
             "base_branch": base_branch,
             "commit": publishing_repo.head.commit.hexsha,
             "files": copied_files,
+            "repository": repository_name,
+            "pushed_to_fork": not can_push_directly,
             "pull_request": pull_request,
         }
 

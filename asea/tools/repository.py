@@ -32,10 +32,12 @@ class RepositoryManager:
     def clone_repository(self, url):
         self.validate_github_url(url)
 
-        repo_name = urlparse(url).path.strip("/").split("/")[-1]
+        owner, repo_name = urlparse(url).path.strip("/").split("/")
         repo_name = repo_name.removesuffix(".git")
 
-        destination = self.workspace / repo_name
+        # owner__repo avoids collisions between same-named repositories
+        # belonging to different owners.
+        destination = self.workspace / f"{owner}__{repo_name}"
 
         # Reuse an existing clone only if it belongs to the requested repository.
         if destination.exists():
@@ -49,14 +51,12 @@ class RepositoryManager:
                 requested_url = url.rstrip("/")
 
                 if (
-                    existing_url.removesuffix(".git")
-                    != requested_url.removesuffix(".git")
+                    existing_url.removesuffix(".git").casefold()
+                    != requested_url.removesuffix(".git").casefold()
                 ):
                     raise ValueError(
                         "Existing workspace repository has a different remote URL."
                     )
-
-                return destination
 
             except (InvalidGitRepositoryError, AttributeError) as error:
                 raise ValueError(
@@ -64,9 +64,19 @@ class RepositoryManager:
                     f"{destination}"
                 ) from error
 
-        # Clone the repository if it does not already exist.
+            # Refresh so repairs are made against the latest code.
+            # Best effort: a failed fast-forward keeps the existing clone.
+            try:
+                if not repo.is_dirty(untracked_files=False):
+                    repo.git.pull("--ff-only")
+            except GitCommandError:
+                pass
+
+            return destination
+
+        # Shallow clone: much faster, and ASEA never needs history.
         try:
-            Repo.clone_from(url, str(destination))
+            Repo.clone_from(url, str(destination), depth=1)
             return destination
 
         except GitCommandError as error:

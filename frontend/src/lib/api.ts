@@ -14,10 +14,28 @@ export interface RepairResponse {
   status: string;
 }
 
+export interface Publication {
+  status: string;
+  reason?: string;
+  repository?: string;
+  branch?: string;
+  base_branch?: string;
+  pushed_to_fork?: boolean;
+  files?: string[];
+  pull_request?: { url?: string; number?: number } | null;
+}
+
 export interface RepairJob {
   job_id: string;
   repository: string;
   status: string;
+  stage?: string | null;
+  elapsed_seconds?: number;
+  is_active?: boolean;
+  is_terminal?: boolean;
+  timings?: Record<string, number> | null;
+  publish?: boolean;
+  publication?: Publication | null;
   message?: string;
   error?: string | null;
   review_request?: Record<string, unknown> | null;
@@ -72,10 +90,11 @@ export function analyzeRepository(
 
 export function startRepair(
   repository: string,
+  publish = true,
 ): Promise<RepairResponse> {
   return request<RepairResponse>("/repair", {
     method: "POST",
-    body: JSON.stringify({ repository }),
+    body: JSON.stringify({ repository, publish }),
   });
 }
 

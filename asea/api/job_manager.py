@@ -5,9 +5,26 @@ from pathlib import Path
 from threading import Lock
 from typing import Any
 
+TERMINAL_STATUSES = {"completed", "failed"}
+ACTIVE_STATUSES = {"queued", "running"}
+
 
 class RepairJobManager:
     """Manage repair jobs using persistent SQLite storage."""
+
+    # Columns added after the first release (added via migration).
+    EXTRA_COLUMNS = {
+        "stage": "TEXT",
+        "started_at": "TEXT",
+        "completed_at": "TEXT",
+        "active_seconds": "REAL NOT NULL DEFAULT 0",
+        "running_since": "TEXT",
+        "timings": "TEXT",
+        "publish": "INTEGER NOT NULL DEFAULT 0",
+        "publication": "TEXT",
+    }
+
+    JSON_FIELDS = ("review_request", "result", "error", "timings", "publication")
 
     def __init__(self):
         self.db_path = (
@@ -47,6 +64,21 @@ class RepairJobManager:
                 """
             )
 
+            # Lightweight migration for databases created by older versions.
+            existing = {
+                row["name"]
+                for row in connection.execute(
+                    "PRAGMA table_info(repair_jobs)"
+                )
+            }
+
+            for column, definition in self.EXTRA_COLUMNS.items():
+                if column not in existing:
+                    connection.execute(
+                        f"ALTER TABLE repair_jobs "
+                        f"ADD COLUMN {column} {definition}"
+                    )
+
     @staticmethod
     def _serialize(value: Any) -> str | None:
         if value is None:
@@ -63,8 +95,30 @@ class RepairJobManager:
     def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
         job = dict(row)
 
-        for field in ("review_request", "result", "error"):
-            job[field] = RepairJobManager._deserialize(job[field])
+        for field in RepairJobManager.JSON_FIELDS:
+            job[field] = RepairJobManager._deserialize(job.get(field))
+
+        job["publish"] = bool(job.get("publish"))
+
+        # Execution time counts only time spent actually working: queue
+        # time and time spent waiting for a human reviewer are excluded,
+        # and the value is frozen as soon as the job stops running.
+        elapsed = float(job.get("active_seconds") or 0.0)
+        running_since = job.pop("running_since", None)
+
+        if running_since and job["status"] == "running":
+            elapsed += max(
+                0.0,
+                (
+                    datetime.now(timezone.utc)
+                    - datetime.fromisoformat(running_since)
+                ).total_seconds(),
+            )
+
+        job["elapsed_seconds"] = round(elapsed, 1)
+        job["is_active"] = job["status"] in ACTIVE_STATUSES
+        job["is_terminal"] = job["status"] in TERMINAL_STATUSES
+        job.pop("active_seconds", None)
 
         return job
 
@@ -72,6 +126,7 @@ class RepairJobManager:
         self,
         job_id: str,
         repository: str,
+        publish: bool = False,
     ) -> dict[str, Any]:
         """Register a new repair job."""
 
@@ -87,6 +142,7 @@ class RepairJobManager:
             "review_request": None,
             "result": None,
             "error": None,
+            "publish": publish,
         }
 
         with self.lock:
@@ -96,9 +152,9 @@ class RepairJobManager:
                     INSERT INTO repair_jobs (
                         job_id, repository, status, message,
                         created_at, updated_at,
-                        review_request, result, error
+                        review_request, result, error, publish
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         job["job_id"],
@@ -110,10 +166,11 @@ class RepairJobManager:
                         None,
                         None,
                         None,
+                        int(publish),
                     ),
                 )
 
-        return job.copy()
+        return self.get_job(job_id) or job.copy()
 
     def update_job(
         self,
@@ -128,6 +185,9 @@ class RepairJobManager:
             "review_request",
             "result",
             "error",
+            "stage",
+            "timings",
+            "publication",
         }
 
         invalid_fields = set(updates) - allowed_fields
@@ -147,11 +207,12 @@ class RepairJobManager:
                 if row is None:
                     raise KeyError(f"Repair job not found: {job_id}")
 
-                updates["updated_at"] = datetime.now(
-                    timezone.utc
-                ).isoformat()
+                now = datetime.now(timezone.utc)
+                updates["updated_at"] = now.isoformat()
 
-                for field in ("review_request", "result", "error"):
+                self._apply_time_tracking(row, updates, now)
+
+                for field in self.JSON_FIELDS:
                     if field in updates:
                         updates[field] = self._serialize(updates[field])
 
@@ -177,6 +238,76 @@ class RepairJobManager:
                 ).fetchone()
 
                 return self._row_to_dict(updated_row)
+
+    @staticmethod
+    def _apply_time_tracking(
+        row: sqlite3.Row,
+        updates: dict[str, Any],
+        now: datetime,
+    ) -> None:
+        """Maintain started_at / active_seconds / completed_at."""
+
+        new_status = updates.get("status")
+
+        if new_status is None:
+            return
+
+        old_status = row["status"]
+        running_since = row["running_since"]
+
+        if new_status == "running" and old_status != "running":
+            updates["running_since"] = now.isoformat()
+
+            if not row["started_at"]:
+                updates["started_at"] = now.isoformat()
+
+        elif new_status != "running" and running_since:
+            spent = (
+                now - datetime.fromisoformat(running_since)
+            ).total_seconds()
+
+            updates["active_seconds"] = (
+                float(row["active_seconds"] or 0.0) + max(0.0, spent)
+            )
+            updates["running_since"] = None
+
+        if new_status in TERMINAL_STATUSES:
+            updates["completed_at"] = now.isoformat()
+            updates["stage"] = updates.get("stage", "finished")
+
+    def fail_interrupted_jobs(self) -> int:
+        """Mark jobs that were queued/running when the server stopped.
+
+        Their worker thread died with the process, so without this they
+        would show as "running" (and the UI as LIVE) forever.
+        """
+
+        now = datetime.now(timezone.utc).isoformat()
+
+        with self.lock:
+            with self._connect() as connection:
+                cursor = connection.execute(
+                    """
+                    UPDATE repair_jobs
+                    SET status = 'failed',
+                        message = 'Interrupted by a server restart.',
+                        error = ?,
+                        stage = 'finished',
+                        running_since = NULL,
+                        completed_at = ?,
+                        updated_at = ?
+                    WHERE status IN ('queued', 'running')
+                    """,
+                    (
+                        json.dumps(
+                            "The server restarted while this job was "
+                            "running. Please start it again."
+                        ),
+                        now,
+                        now,
+                    ),
+                )
+                return cursor.rowcount
 
     def get_job(self, job_id: str) -> dict[str, Any] | None:
         """Retrieve a repair job."""

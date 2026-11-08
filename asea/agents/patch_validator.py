@@ -26,6 +26,10 @@ class PatchValidatorAgent:
             "__pycache__",
             ".pytest_cache",
             ".ruff_cache",
+            ".mypy_cache",
+            "node_modules",
+            "dist",
+            "build",
             "artifacts",
             "workspaces",
             "*.pyc"

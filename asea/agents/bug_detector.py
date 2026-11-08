@@ -1,10 +1,52 @@
 import ast
+import hashlib
 import json
+import os
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
+from openai import APIConnectionError, APITimeoutError
+
 from asea.core.state import ASEAState
 from asea.tools.llm_client import OllamaClient
+
+CACHE_DIR = Path(__file__).resolve().parents[2] / "data" / "llm_cache"
+PROMPT_VERSION = "v1"
+
+# The 1.5B local model has a ~4k-token context, so very long sources are
+# truncated anyway; keep the prompt inside the window.
+MAX_SOURCE_CHARS = int(os.getenv("ASEA_MAX_SOURCE_CHARS", "8000"))
+# Upper bound on files sent to the LLM per run (the rest still get the
+# fast deterministic AST checks).
+MAX_LLM_FILES = int(os.getenv("ASEA_MAX_LLM_FILES", "40"))
+# Ollama on a small GPU serves one request at a time, so 1 is a safe
+# default. Raise it only if your Ollama has OLLAMA_NUM_PARALLEL > 1.
+LLM_WORKERS = max(1, int(os.getenv("ASEA_LLM_WORKERS", "1")))
+
+
+def _cache_path(model: str, source_code: str, file_type: str) -> Path:
+    digest = hashlib.sha256(
+        f"{PROMPT_VERSION}|{model}|{file_type}|{MAX_SOURCE_CHARS}|"
+        f"{source_code}".encode()
+    ).hexdigest()
+    return CACHE_DIR / f"{digest}.json"
+
+
+def _read_cache(path: Path) -> list | None:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return data if isinstance(data, list) else None
+    except (OSError, ValueError):
+        return None
+
+
+def _write_cache(path: Path, bugs: list) -> None:
+    try:
+        CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(bugs), encoding="utf-8")
+    except OSError:
+        pass
 
 
 def parse_json_response(response: str) -> dict:
@@ -33,6 +75,9 @@ class BugDetectorAgent:
 
     def __init__(self):
         self.llm = OllamaClient()
+        # Circuit breaker: once Ollama is unreachable, stop waiting on
+        # it for every remaining file.
+        self._llm_unavailable = False
 
     def detect_ast_bugs(
         self,
@@ -167,8 +212,12 @@ class BugDetectorAgent:
 
         return findings
 
-    def analyze_file(self, file_path: Path) -> list[dict[str, Any]]:
-        """Analyze a Python file using AST and Ollama."""
+    def analyze_file(
+        self,
+        file_path: Path,
+        use_llm: bool = True,
+    ) -> list[dict[str, Any]]:
+        """Analyze a Python file using AST and (optionally) Ollama."""
 
         source_code = file_path.read_text(
             encoding="utf-8-sig",
@@ -198,6 +247,17 @@ class BugDetectorAgent:
             "TEST FILE" if is_test_file
             else "APPLICATION CODE"
         )
+
+        has_definitions = any(
+            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef,
+                              ast.ClassDef))
+            for node in ast.walk(syntax_tree)
+        )
+
+        # Files without any function/class (empty __init__.py, constants,
+        # settings...) are not worth a 5-30s LLM call.
+        if not use_llm or not has_definitions or self._llm_unavailable:
+            return ast_findings
 
         messages = [
             {
@@ -276,40 +336,67 @@ If no issues are found:
                     f"Filename: {file_path.name}\n\n"
                     "Analyze the following source code. "
                     "Use only the supplied source as evidence.\n\n"
-                    f"```python\n{source_code[:12000]}\n```"
+                    f"```python\n{source_code[:MAX_SOURCE_CHARS]}\n```"
                 )
             }
         ]
 
         ai_findings = []
 
-        try:
-            response = self.llm.chat(
-                messages=messages,
-                temperature=0.1,
-                max_tokens=900
-            )
+        cache_file = _cache_path(
+            self.llm.settings.ollama_model, source_code, file_type
+        )
+        cached = _read_cache(cache_file)
 
-            result = parse_json_response(response)
-
-            if not isinstance(result, dict):
-                raise TypeError(
-                    "AI response must be a JSON object."
+        if cached is not None:
+            bugs = cached
+        else:
+            try:
+                response = self.llm.chat(
+                    messages=messages,
+                    temperature=0.1,
+                    max_tokens=900
                 )
 
-            bugs = result.get("bugs", [])
+                result = parse_json_response(response)
 
-            if not isinstance(bugs, list):
-                raise TypeError(
-                    "AI response contains an invalid bugs list."
+                if not isinstance(result, dict):
+                    raise TypeError(
+                        "AI response must be a JSON object."
+                    )
+
+                bugs = result.get("bugs", [])
+
+                if not isinstance(bugs, list):
+                    raise TypeError(
+                        "AI response contains an invalid bugs list."
+                    )
+
+                # Only successful analyses are cached, so re-running on
+                # an unchanged file is instant.
+                _write_cache(cache_file, bugs)
+
+            except (APIConnectionError, APITimeoutError) as exc:
+                self._llm_unavailable = True
+                print(
+                    "WARNING: Ollama is not reachable "
+                    f"({type(exc).__name__}). Skipping AI analysis for "
+                    "the rest of this run; start Ollama and retry."
                 )
+                bugs = []
 
-        except (ValueError, TypeError, json.JSONDecodeError, RuntimeError) as exc:
-            print(
-                f"WARNING: Ollama analysis failed for "
-                f"{file_path.name}: {exc}"
-            )
-            bugs = []
+            except (
+                ValueError,
+                TypeError,
+                json.JSONDecodeError,
+                RuntimeError,
+                OSError,
+            ) as exc:
+                print(
+                    f"WARNING: Ollama analysis failed for "
+                    f"{file_path.name}: {exc}"
+                )
+                bugs = []
 
         valid_lines = {
             node.lineno
@@ -449,13 +536,43 @@ If no issues are found:
             )
         )
 
+        def is_test(path: Path) -> bool:
+            return (
+                path.name.startswith("test_")
+                or path.name.endswith("_test.py")
+            )
+
+        # Application code first: if the cap is hit, the files that
+        # matter most have already been analysed.
+        ordered = sorted(
+            python_files,
+            key=lambda path: (is_test(path), str(path)),
+        )
+
+        llm_files = set(ordered[:MAX_LLM_FILES])
+
+        if len(ordered) > MAX_LLM_FILES:
+            print(
+                f"[ASEA] {len(ordered)} Python files found; sending the "
+                f"first {MAX_LLM_FILES} to the LLM "
+                f"(ASEA_MAX_LLM_FILES to change)."
+            )
+
+        def analyse(file_path: Path) -> list[dict[str, Any]]:
+            return self.analyze_file(
+                file_path,
+                use_llm=file_path in llm_files,
+            )
+
         detected_bugs = []
 
-        for file_path in python_files:
-
-            findings = self.analyze_file(file_path)
-
-            detected_bugs.extend(findings)
+        if LLM_WORKERS > 1:
+            with ThreadPoolExecutor(max_workers=LLM_WORKERS) as pool:
+                for findings in pool.map(analyse, python_files):
+                    detected_bugs.extend(findings)
+        else:
+            for file_path in python_files:
+                detected_bugs.extend(analyse(file_path))
 
         confirmed_count = sum(
             bug["classification"] == "confirmed_bug"

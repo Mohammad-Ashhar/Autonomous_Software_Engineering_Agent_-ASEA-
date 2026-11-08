@@ -80,6 +80,69 @@ function readRecord(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
+function formatDuration(totalSeconds: number): string {
+  const seconds = Math.max(0, Math.floor(totalSeconds));
+  const minutes = Math.floor(seconds / 60);
+  return minutes > 0 ? `${minutes}m ${seconds % 60}s` : `${seconds}s`;
+}
+
+// Pipeline shown in the "Agent activity" panel. `stages` are the backend
+// stage labels (see STAGE_LABELS in asea/api/main.py); `nodes` are the
+// workflow nodes whose timings belong to the step.
+const PIPELINE = [
+  {
+    title: "Repository ingestion",
+    detail: "Clone and index source code",
+    stages: ["Resolving repository", "Analysing repository"],
+    nodes: ["repository_analysis"],
+  },
+  {
+    title: "AI bug detection",
+    detail: "AST checks + local LLM",
+    stages: ["Detecting bugs"],
+    nodes: ["bug_detector"],
+  },
+  {
+    title: "Baseline tests",
+    detail: "Sandboxed pytest run",
+    stages: [
+      "Running baseline tests",
+      "Preparing workspace",
+      "Prioritising bugs",
+      "Selecting next bug",
+    ],
+    nodes: [
+      "test_execution",
+      "workspace_preparation",
+      "bug_prioritization",
+      "bug_selector",
+    ],
+  },
+  {
+    title: "Patch generation & review",
+    detail: "Generate fix, wait for approval",
+    stages: [
+      "Generating patch",
+      "Waiting for patch review",
+      "Processing review decision",
+      "Escalating unrepaired bug",
+    ],
+    nodes: ["patch_generation", "human_patch_review", "escalation"],
+  },
+  {
+    title: "Patch validation",
+    detail: "Re-run tests with the patch",
+    stages: ["Validating patch in sandbox", "Final validation"],
+    nodes: ["patch_validation", "final_validation"],
+  },
+  {
+    title: "GitHub pull request",
+    detail: "Publish approved fixes",
+    stages: ["Publishing pull request"],
+    nodes: [],
+  },
+] as const;
+
 function formatStatus(status: string): string {
   return status.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
@@ -96,6 +159,9 @@ const [repairJob, setRepairJob] = useState<RepairResponse | null>(null);
 const [repairStatus, setRepairStatus] = useState<RepairJob | null>(null);
 const [reviewFeedback, setReviewFeedback] = useState("");
 const [isSubmittingReview, setIsSubmittingReview] = useState(false);
+const [publishFixes, setPublishFixes] = useState(true);
+const [statusFetchedAt, setStatusFetchedAt] = useState(() => Date.now());
+const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
   const savedTheme = localStorage.getItem("asea-theme");
@@ -131,8 +197,13 @@ useEffect(() => {
       if (cancelled) return;
 
       setRepairStatus(status);
+      setStatusFetchedAt(Date.now());
 
-      if (status.status === "completed" || status.status === "failed") {
+      if (
+        status.is_terminal ||
+        status.status === "completed" ||
+        status.status === "failed"
+      ) {
         return;
       }
 
@@ -161,7 +232,16 @@ useEffect(() => {
   };
 }, [repairJob?.job_id]);
 
-  
+// Only tick while the backend says the job is really running. Once it is
+// waiting for review or finished, the backend value is frozen.
+useEffect(() => {
+  if (repairStatus?.status !== "running") return;
+
+  const interval = setInterval(() => setNow(Date.now()), 1000);
+
+  return () => clearInterval(interval);
+}, [repairStatus?.status]);
+
 async function startAnalysis() {
   const repoUrl = repository.trim();
 
@@ -199,8 +279,9 @@ async function handleStartRepair() {
   setNotice("Submitting autonomous repair job...");
 
   try {
-    const result = await startRepair(repository.trim());
+    const result = await startRepair(repository.trim(), publishFixes);
 
+    setRepairStatus(null);
     setRepairJob(result);
     setNotice(`Repair job submitted successfully. Job ID: ${result.job_id}`);
   } catch (error) {
@@ -264,6 +345,85 @@ async function handlePatchReview(decision: "approved" | "rejected") {
   const bugsDetected = reviewBug ? 1 : 0;
   const bugsRepaired = auditLog.filter((entry) => entry.event === "bug_repaired").length;
   const pendingReviews = repairStatus?.status === "waiting_for_review" ? 1 : 0;
+  const jobStatus = repairStatus?.status ?? repairJob?.status;
+  const jobActive =
+    jobStatus === "queued" || jobStatus === "running";
+  const elapsedSeconds =
+    (repairStatus?.elapsed_seconds ?? 0) +
+    (repairStatus?.status === "running"
+      ? Math.max(0, now - statusFetchedAt) / 1000
+      : 0);
+  const timings = repairStatus?.timings ?? {};
+  const publication = repairStatus?.publication ?? null;
+  const currentStageIndex = PIPELINE.findIndex((step) =>
+    (step.stages as readonly string[]).includes(repairStatus?.stage ?? ""),
+  );
+  const activityBadge = !repairJob
+    ? { label: "IDLE", tone: "idle" }
+    : jobActive
+      ? { label: "LIVE", tone: "live" }
+      : jobStatus === "waiting_for_review"
+        ? { label: "AWAITING REVIEW", tone: "waiting" }
+        : jobStatus === "failed"
+          ? { label: "FAILED", tone: "failed" }
+          : { label: "FINISHED", tone: "done" };
+  const pipelineSteps = PIPELINE.map((step, index) => {
+    const seconds = step.nodes.reduce(
+      (total, node) => total + (timings[node] ?? 0),
+      0,
+    );
+    const isLast = index === PIPELINE.length - 1;
+    let state: "pending" | "running" | "waiting" | "complete" | "failed" =
+      "pending";
+    let label = "Idle";
+
+    if (repairJob) {
+      if (jobStatus === "failed") {
+        state = seconds > 0 ? "complete" : "pending";
+        if (index === currentStageIndex) state = "failed";
+      } else if (jobStatus === "completed") {
+        if (isLast) {
+          state = !repairStatus?.publish
+            ? "pending"
+            : publication?.status === "PULL_REQUEST_CREATED"
+              ? "complete"
+              : publication
+                ? "failed"
+                : "pending";
+        } else {
+          state = "complete";
+        }
+      } else if (index === currentStageIndex) {
+        state = jobStatus === "waiting_for_review" ? "waiting" : "running";
+      } else if (
+        seconds > 0 ||
+        (currentStageIndex > index && currentStageIndex !== -1)
+      ) {
+        state = "complete";
+      }
+
+      label =
+        state === "running"
+          ? "Running"
+          : state === "waiting"
+            ? "Needs you"
+            : state === "failed"
+              ? publication?.status === "SKIPPED"
+                ? "Skipped"
+                : "Failed"
+              : state === "complete"
+                ? seconds > 0
+                  ? formatDuration(seconds)
+                  : "Done"
+                : isLast && jobStatus === "completed"
+                  ? repairStatus?.publish
+                    ? "Skipped"
+                    : "Not requested"
+                  : "Pending";
+    }
+
+    return { ...step, state, label };
+  });
   const currentJobs = [
     ...(analysisResult
       ? [{
@@ -364,7 +524,7 @@ async function handlePatchReview(decision: "approved" | "rejected") {
 <button
   className="repair-button"
   onClick={handleStartRepair}
-  disabled={isAnalyzing || isStartingRepair || !analysisResult}
+  disabled={isAnalyzing || isStartingRepair || jobActive || !analysisResult}
 >
   {isStartingRepair ? "Starting repair..." : "Start autonomous repair"}
 </button>
@@ -425,6 +585,15 @@ async function handlePatchReview(decision: "approved" | "rejected") {
   {!isAnalyzing && <Icon name="arrow" size={17} />}
 </button>
             </div>
+            <label className="publish-toggle">
+              <input
+                type="checkbox"
+                checked={publishFixes}
+                onChange={(event) => setPublishFixes(event.target.checked)}
+                disabled={jobActive}
+              />
+              Open a GitHub pull request with the approved fixes when the repair finishes
+            </label>
             {notice && (
   <div className="input-notice" role="status">
     {notice}
@@ -456,6 +625,37 @@ async function handlePatchReview(decision: "approved" | "rejected") {
       <b>Message:</b>{" "}
       {repairStatus?.message || repairJob.message}
     </p>
+
+    {repairStatus && (
+      <p>
+        <b>Execution time:</b> {formatDuration(elapsedSeconds)}
+        {jobActive ? " (running)" : ""}
+        {repairStatus.stage && jobActive ? ` · ${repairStatus.stage}` : ""}
+      </p>
+    )}
+
+    {publication && (
+      <p>
+        <b>GitHub:</b>{" "}
+        {publication.status === "PULL_REQUEST_CREATED" ? (
+          <>
+            Pull request created
+            {publication.pushed_to_fork ? " from your fork" : ""} —{" "}
+            <a
+              href={publication.pull_request?.url}
+              target="_blank"
+              rel="noreferrer"
+            >
+              {publication.pull_request?.url}
+            </a>
+          </>
+        ) : publication.status === "SKIPPED" ? (
+          <>Nothing published. {publication.reason}</>
+        ) : (
+          <>Publishing failed. {publication.reason}</>
+        )}
+      </p>
+    )}
 
     {repairStatus?.error && (
       <p>
@@ -596,30 +796,36 @@ async function handlePatchReview(decision: "approved" | "rejected") {
                   <h2>Agent activity</h2>
                   <p>Execution pipeline</p>
                 </div>
-                <span className="live-badge"><span /> LIVE</span>
+                <span className={`live-badge ${activityBadge.tone}`}>
+                  <span /> {activityBadge.label}
+                </span>
               </div>
 
               <div className="pipeline">
-                <div className="pipeline-step complete">
-                  <div className="pipeline-marker"><Icon name="check" size={13} /></div>
-                  <div><strong>Repository ingestion</strong><span>Source code indexed</span></div>
-                  <span className="step-time">Done</span>
-                </div>
-                <div className="pipeline-step complete">
-                  <div className="pipeline-marker"><Icon name="check" size={13} /></div>
-                  <div><strong>Static analysis</strong><span>Ruff · Semgrep · pytest</span></div>
-                  <span className="step-time">Done</span>
-                </div>
-                <div className="pipeline-step complete">
-                  <div className="pipeline-marker"><Icon name="check" size={13} /></div>
-                  <div><strong>AI bug detection</strong><span>Potential issues identified</span></div>
-                  <span className="step-time">Done</span>
-                </div>
-                <div className="pipeline-step waiting">
-                  <div className="pipeline-marker"><Icon name="clock" size={13} /></div>
-                  <div><strong>Patch validation</strong><span>Awaiting next repair job</span></div>
-                  <span className="step-time">Idle</span>
-                </div>
+                {pipelineSteps.map((step) => (
+                  <div
+                    className={`pipeline-step ${step.state}`}
+                    key={step.title}
+                  >
+                    <div className="pipeline-marker">
+                      <Icon
+                        name={
+                          step.state === "complete"
+                            ? "check"
+                            : step.state === "failed"
+                              ? "alert"
+                              : "clock"
+                        }
+                        size={13}
+                      />
+                    </div>
+                    <div>
+                      <strong>{step.title}</strong>
+                      <span>{step.detail}</span>
+                    </div>
+                    <span className="step-time">{step.label}</span>
+                  </div>
+                ))}
               </div>
 
               <div className="activity-footer">

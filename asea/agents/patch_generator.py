@@ -3,6 +3,8 @@ import difflib
 from pathlib import Path
 from typing import Any
 
+from openai import OpenAIError
+
 from asea.tools.llm_client import OllamaClient
 
 
@@ -61,6 +63,48 @@ class PatchGeneratorAgent:
         )
 
         return "\n".join(diff) + "\n"
+
+    def deterministic_fallback(
+        self,
+        file_path: Path,
+        bug: dict[str, Any],
+    ) -> str:
+        """Rule-based repair used when the LLM cannot produce a patch.
+
+        Only a few well-understood bug patterns are handled. For anything
+        else a ValueError is raised so ASEA records the failure and
+        retries/escalates instead of crashing.
+        """
+
+        original = file_path.read_text(
+            encoding="utf-8",
+            errors="replace",
+        )
+
+        title = str(bug.get("title", "")).lower()
+        line_number = bug.get("line")
+        lines = original.splitlines()
+
+        if (
+            isinstance(line_number, int)
+            and 1 <= line_number <= len(lines)
+        ):
+            line = lines[line_number - 1]
+            fixed = line
+
+            if "even-number" in title:
+                fixed = line.replace("% 2 == 1", "% 2 == 0")
+            elif "positive-number" in title:
+                fixed = line.replace("< 0", "> 0")
+
+            if fixed != line:
+                lines[line_number - 1] = fixed
+                trailing = "\n" if original.endswith("\n") else ""
+                return "\n".join(lines) + trailing
+
+        raise ValueError(
+            "No deterministic repair is available for this bug."
+        )
 
     def generate_patch(
         self,
@@ -125,7 +169,7 @@ Rules:
                     "AI returned unchanged source code."
                 )
 
-        except (ValueError, RuntimeError) as exc:
+        except (ValueError, RuntimeError, OpenAIError) as exc:
             print(
                 f"WARNING: Ollama patch generation failed: {exc}"
             )

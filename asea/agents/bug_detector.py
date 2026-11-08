@@ -215,7 +215,9 @@ If no issue is supported, return {"bugs":[]}.
         partial_count = sum(r["status"] == "partial" for r in file_results)
         completed_count = sum(r["status"] == "completed" for r in file_results)
 
-        if not file_results or failed_count == len(file_results):
+        if not file_results:
+            analysis_status = "unsupported"
+        elif failed_count == len(file_results):
             analysis_status = "failed"
         elif failed_count or partial_count:
             analysis_status = "partial"

@@ -27,7 +27,7 @@ def repository_analysis_node(state: ASEAState) -> dict[str, Any]:
 
     analyzer = RepositoryAnalyzer()
 
-    result = analyzer.analyze_local_repository(
+    result = analyzer.analyze_cloned_repository(
         folder=str(repo_path)
     )
 
@@ -45,7 +45,6 @@ def repository_analysis_node(state: ASEAState) -> dict[str, Any]:
         "current_agent": "repository_analysis",
         "status": "repository_analysis_completed"
     }
-
 
 # --------------------------------------------------
 # 2. BASELINE TEST EXECUTION

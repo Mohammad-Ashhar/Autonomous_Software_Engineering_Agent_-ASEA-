@@ -1,6 +1,11 @@
+import time
+from itertools import count
+
 from openai import OpenAI
 
 from asea.core.config import get_settings
+
+_REQUEST_COUNTER = count(1)
 
 
 class OllamaClient:
@@ -22,16 +27,28 @@ class OllamaClient:
         max_tokens: int = 512,
     ) -> str:
 
-        response = self.client.chat.completions.create(
-            model=self.settings.ollama_model,
-            messages=messages,
-            temperature=temperature,
-            max_tokens=max_tokens,
-        )
+        request_id = next(_REQUEST_COUNTER)
+        start_time = time.perf_counter()
 
-        content = response.choices[0].message.content
+        try:
+            response = self.client.chat.completions.create(
+                model=self.settings.ollama_model,
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
 
-        if not content:
-            raise RuntimeError("Ollama returned an empty response.")
+            content = response.choices[0].message.content
 
-        return content.strip()
+            if not content:
+                raise RuntimeError("Ollama returned an empty response.")
+
+            return content.strip()
+
+        finally:
+            elapsed = time.perf_counter() - start_time
+
+            print(
+                f"[OLLAMA] Request #{request_id} "
+                f"completed in {elapsed:.2f} seconds"
+            )

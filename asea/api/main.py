@@ -1,3 +1,4 @@
+import logging
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -5,6 +6,7 @@ from typing import Literal
 from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.types import Command
 from pydantic import BaseModel, Field
@@ -102,6 +104,11 @@ def run_repair_job(job_id: str, repository: str):
             )
 
     except Exception:
+        logging.exception(
+            "ASEA repair job failed. Job ID: %s",
+            job_id,
+        )
+
         repair_jobs.update_job(
             job_id,
             status="failed",
@@ -172,6 +179,16 @@ app = FastAPI(
     description="Autonomous Software Engineering Agent REST API",
     version="0.1.0",
     lifespan=lifespan,
+)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 

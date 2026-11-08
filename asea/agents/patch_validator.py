@@ -67,6 +67,7 @@ class PatchValidatorAgent:
     ) -> None:
         """Safely apply a patch to a candidate repository."""
 
+        repository_path = repository_path.resolve()
         target_relative = self.get_patch_target(patch)
 
         target_file = (
@@ -74,24 +75,65 @@ class PatchValidatorAgent:
         ).resolve()
 
         try:
-            target_file.relative_to(repository_path.resolve())
+            target_file.relative_to(repository_path)
         except ValueError as error:
             raise ValueError(
                 "Patch target is outside the repository."
             ) from error
 
         if not target_file.is_file():
-            raise FileNotFoundError(
-                f"Patch target not found: {target_relative}"
-            )
+
+            matches = [
+                match.resolve()
+                for match in repository_path.rglob(
+                    Path(target_relative).name
+                )
+                if match.is_file()
+            ]
+
+            matches = [
+                match
+                for match in matches
+                if repository_path in match.parents
+            ]
+
+            if len(matches) == 1:
+                target_file = matches[0]
+
+            elif len(matches) > 1:
+                raise ValueError(
+                    f"Multiple files match patch target: "
+                    f"{target_relative}"
+                )
+
+            else:
+                raise FileNotFoundError(
+                    f"Patch target not found: {target_relative}"
+                )
+
+        actual_relative = target_file.relative_to(
+            repository_path
+        ).as_posix()
+
+        updated_lines = []
+
+        for line in patch.splitlines():
+
+            if line.startswith("--- a/"):
+                line = f"--- a/{actual_relative}"
+
+            elif line.startswith("+++ b/"):
+                line = f"+++ b/{actual_relative}"
+
+            updated_lines.append(line)
+
+        patch = "\n".join(updated_lines) + "\n"
 
         source = target_file.read_bytes()
 
         target_file.write_bytes(
             source.replace(b"\r\n", b"\n")
         )
-
-        patch = patch.replace("\r\n", "\n")
 
         init_result = subprocess.run(
             ["git", "init"],
@@ -172,18 +214,15 @@ class PatchValidatorAgent:
         baseline_errors = baseline.get("errors", 0)
         candidate_errors = candidate.get("errors", 0)
 
-        # Do not accept an increase in failed tests or errors.
         if candidate_count > baseline_count:
             return False
 
         if candidate_errors > baseline_errors:
             return False
 
-        # When test identifiers are available, ensure no new
-        # failing test has appeared.
         return not candidate_failed or candidate_failed.issubset(
-    baseline_failed
-)
+            baseline_failed
+        )
 
     def validate_patch(
         self,
@@ -229,8 +268,6 @@ class PatchValidatorAgent:
 
         baseline = baseline_test_results or {}
 
-        # Create the candidate on the same filesystem so it can
-        # be promoted to the working repository using rename.
         working_repo_path.parent.mkdir(
             parents=True,
             exist_ok=True
@@ -262,6 +299,7 @@ class PatchValidatorAgent:
                 OSError,
                 subprocess.SubprocessError,
             ) as error:
+
                 return {
                     "status": "PATCH_REJECTED",
                     "patch_applied": False,
@@ -285,6 +323,7 @@ class PatchValidatorAgent:
             )
 
             if not regression_free:
+
                 return {
                     "status": "PATCH_REJECTED",
                     "patch_applied": True,
@@ -297,8 +336,6 @@ class PatchValidatorAgent:
                     "test_results": test_results
                 }
 
-            # Preserve the accepted patch by replacing the
-            # current working repository with the candidate.
             backup_repo = (
                 working_repo_path.parent
                 / f"{working_repo_path.name}_backup"

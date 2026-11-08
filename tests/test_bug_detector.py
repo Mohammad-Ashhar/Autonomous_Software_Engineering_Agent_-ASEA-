@@ -84,3 +84,31 @@ def test_repository_level_status_preserves_partial_file_failures(tmp_path):
     assert result["analysis_summary"]["files_partial"] == 1
     assert result["analysis_summary"]["files_completed"] == 1
     assert len(result["analysis_errors"]) == 1
+
+def test_detector_analyzes_javascript_with_registered_adapter(tmp_path):
+    agent = BugDetectorAgent()
+    source = tmp_path / "logic.js"
+    source.write_text(
+        "export function divide(a, b) {\\n"
+        "  return a / b;\\n"
+        "}\\n",
+        encoding="utf-8",
+    )
+    response = {
+        "bugs": [{
+            "title": "Division may receive zero",
+            "line": 2,
+            "severity": "medium",
+            "classification": "potential_issue",
+            "confidence": 0.7,
+            "description": "The divisor is used without a guard.",
+            "suggestion": "Validate the divisor where required.",
+        }]
+    }
+
+    with patch.object(agent.llm, "chat", return_value=__import__("json").dumps(response)):
+        result = agent.analyze_file_with_status(source)
+
+    assert result["status"] == "completed"
+    assert result["language"] == "JavaScript"
+    assert result["findings"][0]["line"] == 2

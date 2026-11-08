@@ -115,10 +115,11 @@ If no issue is supported, return {"bugs":[]}.
             {
                 "role": "user",
                 "content": (
+                    f"Language: {adapter.name}\n"
                     f"File type: {file_type}\n"
                     f"Filename: {file_path.name}\n"
                     "Analyze only the supplied source as evidence.\n"
-                    f"```python\n{source_code[:12000]}\n```"
+                    f"```{adapter.name.lower()}\n{source_code[:12000]}\n```"
                 ),
             },
         ]

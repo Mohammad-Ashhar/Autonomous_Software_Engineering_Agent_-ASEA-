@@ -1,5 +1,7 @@
 """Select a test runner only when the repository has one clear runtime."""
 
+# ruff: noqa: I001
+
 from pathlib import Path
 
 from asea.tools.node_test_runner import NodeTestRunner

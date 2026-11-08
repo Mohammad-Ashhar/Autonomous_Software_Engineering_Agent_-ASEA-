@@ -55,7 +55,7 @@ def test_successful_empty_llm_result_is_completed(tmp_path):
     assert result["error"] is None
 
 def test_repository_without_python_files_is_unsupported(tmp_path):
-    (tmp_path / "index.ts").write_text("export const value = 1;\n")
+    (tmp_path / "Main.java").write_text("export const value = 1;\n")
     agent = BugDetectorAgent()
 
     result = agent.run({"repo_path": str(tmp_path)})

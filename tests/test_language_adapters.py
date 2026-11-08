@@ -28,6 +28,11 @@ def test_python_and_plain_javascript_adapters_advertise_repair_support():
     assert registry.resolve("app.ts").supports_repair is False
 
 
+def test_javascript_adapter_provides_repair_instructions():
+    adapter = get_default_registry().resolve("app.js")
+    assert "plain JavaScript" in adapter.repair_instructions()
+
+
 def test_patch_generator_fails_closed_for_unvalidated_language():
     from asea.agents.patch_generator import PatchGeneratorAgent
 

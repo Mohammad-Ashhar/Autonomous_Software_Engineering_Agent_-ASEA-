@@ -6,6 +6,7 @@ on:
     branches:
       - main
       - MohammadAshhar/deepseek-langraph
+      - feat/repository-intelligence-v2
 
   pull_request:
     branches:

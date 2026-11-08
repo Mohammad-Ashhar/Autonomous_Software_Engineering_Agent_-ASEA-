@@ -53,7 +53,7 @@ def test_parser_handles_javascript_and_typescript(tmp_path):
     assert by_file["app.js"]["syntax_valid"] is True
     assert by_file["app.js"]["functions"][0]["name"] == "run"
     assert by_file["app.js"]["classes"][0]["name"] == "Worker"
-    assert by_file["app.js"]["repair_supported"] is False
+    assert by_file["app.js"]["repair_supported"] is True
     assert by_file["app.ts"]["language"] == "TypeScript"
     assert by_file["app.ts"]["syntax_valid"] is True
 

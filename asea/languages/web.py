@@ -94,6 +94,14 @@ def javascript_adapter() -> TreeSitterWebAdapter:
 def typescript_adapter() -> TreeSitterWebAdapter:
     return TreeSitterWebAdapter(
         "TypeScript",
-        (".ts", ".tsx"),
+        (".ts",),
         tree_sitter_typescript.language_typescript,
+    )
+
+
+def tsx_adapter() -> TreeSitterWebAdapter:
+    return TreeSitterWebAdapter(
+        "TypeScript",
+        (".tsx",),
+        tree_sitter_typescript.language_tsx,
     )

@@ -11,7 +11,10 @@ from asea.agents.patch_generator import PatchGeneratorAgent
 from asea.agents.patch_validator import PatchValidatorAgent
 from asea.core.state import ASEAState
 from asea.tools.analyzer import RepositoryAnalyzer
-from asea.tools.test_runner import DockerTestRunner
+from asea.tools.runner_factory import (
+    UnsupportedTestEnvironment,
+    get_repository_test_runner,
+)
 
 # --------------------------------------------------
 # 1. REPOSITORY ANALYSIS
@@ -72,8 +75,15 @@ def test_execution_node(state: ASEAState) -> dict[str, Any]:
 
     repo_path = Path(state["repo_path"]).resolve()
 
-    runner = DockerTestRunner()
-    results = runner.run_tests(repo_path)
+    try:
+        runner = get_repository_test_runner(repo_path)
+        results = runner.run_tests(repo_path)
+    except UnsupportedTestEnvironment as error:
+        results = {
+            "status": "UNSUPPORTED",
+            "success": False,
+            "reason": str(error),
+        }
 
     return {
         "test_results": results,
@@ -718,9 +728,15 @@ def final_validation_node(state: ASEAState) -> dict[str, Any]:
         state["working_repo_path"]
     ).resolve()
 
-    runner = DockerTestRunner()
-
-    results = runner.run_tests(working_repo)
+    try:
+        runner = get_repository_test_runner(working_repo)
+        results = runner.run_tests(working_repo)
+    except UnsupportedTestEnvironment as error:
+        results = {
+            "status": "UNSUPPORTED",
+            "success": False,
+            "reason": str(error),
+        }
 
     if state.get("analysis_status") == "partial":
         final_status = (

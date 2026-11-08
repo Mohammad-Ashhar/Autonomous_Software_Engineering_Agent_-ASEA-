@@ -154,14 +154,21 @@ def prioritize_bugs_node(state: ASEAState) -> dict[str, Any]:
     repairable = {}
     repair_blocked = []
 
+    baseline = state.get("test_results", {})
+    runtime_blocked = baseline.get("status") == "UNSUPPORTED"
+
     for bug in state.get("detected_bugs", []):
         if bug.get("classification") != "confirmed_bug":
             continue
         adapter = registry.resolve(bug.get("file", ""))
-        if adapter is None or not adapter.supports_repair:
+        if runtime_blocked or adapter is None or not adapter.supports_repair:
             repair_blocked.append({
                 **bug,
-                "repair_status": "unsupported_language_repair",
+                "repair_status": (
+                    "unsupported_repository_test_environment"
+                    if runtime_blocked
+                    else "unsupported_language_repair"
+                ),
             })
             continue
         repairable[get_bug_key(bug)] = bug

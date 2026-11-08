@@ -37,7 +37,7 @@ import math
     )
 
     # Verify statistics
-    assert result["total_files"] == 2
+    assert result["total_files"] == 1
     assert result["total_functions"] == 2
     assert result["total_classes"] == 1
     assert result["total_imports"] == 1
@@ -81,5 +81,5 @@ def test_repository_inventory_reports_languages_without_claiming_parser_support(
     assert result["repair_supported_languages"] == ["Python"]
     assert result["inventory_only_languages"] == ["Java"]
     assert result["manifests"] == ["package.json"]
-    assert result["total_files"] == 1
+    assert result["total_files"] == 2
     assert result["repository_file_count"] == 4

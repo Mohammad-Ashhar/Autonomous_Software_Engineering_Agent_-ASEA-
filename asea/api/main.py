@@ -97,9 +97,11 @@ def run_repair_job(job_id: str, repository: str):
 
         else:
             analysis_status = result.get("analysis_status")
-            job_status = "failed" if analysis_status == "failed" else "completed"
+            job_status = "failed" if analysis_status in {"failed", "unsupported"} else "completed"
             message = (
-                "ASEA analysis could not complete; no repair was attempted."
+                "ASEA has no supported source files in this repository yet."
+                if analysis_status == "unsupported"
+                else "ASEA analysis could not complete; no repair was attempted."
                 if analysis_status == "failed"
                 else "ASEA completed with analysis warnings."
                 if analysis_status == "partial"

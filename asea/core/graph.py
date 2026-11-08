@@ -42,13 +42,21 @@ def repository_analysis_node(state: ASEAState) -> dict[str, Any]:
     return {
         "repo_map": repo_map,
         "repo_inventory": {
-            "repository_file_count": result.get(\n                "repository_file_count", result["total_files"]\n            ),
-            "total_source_files": result.get(\n                "total_source_files", result["total_files"]\n            ),
+            "repository_file_count": result.get(
+                "repository_file_count", result["total_files"]
+            ),
+            "total_source_files": result.get(
+                "total_source_files", result["total_files"]
+            ),
             "language_count": result.get("language_count", 1),
-            "languages": result.get(\n                "languages", {"Python": result["total_files"]}\n            ),
+            "languages": result.get(
+                "languages", {"Python": result["total_files"]}
+            ),
             "manifests": result.get("manifests", []),
             "parsed_languages": result.get("parsed_languages", ["Python"]),
-            "inventory_only_languages": result.get(\n                "inventory_only_languages", []\n            ),
+            "inventory_only_languages": result.get(
+                "inventory_only_languages", []
+            ),
         },
         "baseline_results": result,
         "current_agent": "repository_analysis",
@@ -156,7 +164,8 @@ def prioritize_bugs_node(state: ASEAState) -> dict[str, Any]:
         )
     )
 
-    print("\nPRIORITIZED BUGS:")
+    print("
+PRIORITIZED BUGS:")
 
     for index, bug in enumerate(prioritized_bugs, start=1):
         print(
@@ -187,7 +196,8 @@ def select_next_bug_node(state: ASEAState) -> dict[str, Any]:
 
         if bug_key not in processed_keys:
 
-            print("\nSELECTED BUG:", bug.get("title"))
+            print("
+SELECTED BUG:", bug.get("title"))
 
             return {
                 "current_bug": bug,
@@ -393,23 +403,27 @@ def human_patch_review_node(state: ASEAState) -> dict[str, Any]:
             )
 
     else:
-        print("\n" + "=" * 65)
+        print("
+" + "=" * 65)
         print("                 ASEA HUMAN CODE REVIEW")
         print("=" * 65)
 
-        print("\nBUG:", bug.get("title", "Unknown bug"))
+        print("
+BUG:", bug.get("title", "Unknown bug"))
         print("SEVERITY:", bug.get("severity", "Unknown").upper())
         print("FILE:", patch.get("file", "Unknown"))
         print("ATTEMPT:", patch.get("attempt", 1))
 
-        print("\nPROPOSED PATCH")
+        print("
+PROPOSED PATCH")
         print("-" * 65)
         print(patch.get("patch", "No patch content available."))
         print("-" * 65)
 
         while True:
             decision = input(
-                "\nApprove this patch? [A]pprove / [R]eject: "
+                "
+Approve this patch? [A]pprove / [R]eject: "
             ).strip().lower()
 
             if decision in ("a", "approve"):
@@ -454,7 +468,8 @@ def human_patch_review_node(state: ASEAState) -> dict[str, Any]:
         **review_record,
     })
 
-    print("\nREVIEW DECISION:", decision.upper())
+    print("
+REVIEW DECISION:", decision.upper())
 
     updates = {
         "patch_review_decision": decision,
@@ -803,7 +818,9 @@ def build_asea_graph(checkpointer=None):
     workflow.add_conditional_edges(
         "bug_detector",
         lambda state: (
-            "continue"\n            if state.get("analysis_status") in {"completed", "partial"}\n            else "stop"
+            "continue"
+            if state.get("analysis_status") in {"completed", "partial"}
+            else "stop"
         ),
         {"continue": "test_execution", "stop": END},
     )

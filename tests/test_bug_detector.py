@@ -52,3 +52,35 @@ def test_successful_empty_llm_result_is_completed(tmp_path):
     assert result["status"] == "completed"
     assert result["findings"] == []
     assert result["error"] is None
+
+def test_repository_without_python_files_is_unsupported(tmp_path):
+    (tmp_path / "index.ts").write_text("export const value = 1;\n")
+    agent = BugDetectorAgent()
+
+    result = agent.run({"repo_path": str(tmp_path)})
+
+    assert result["analysis_status"] == "unsupported"
+    assert result["analysis_summary"]["files_discovered"] == 0
+    assert result["detected_bugs"] == []
+
+
+def test_repository_level_status_preserves_partial_file_failures(tmp_path):
+    (tmp_path / "one.py").write_text("def one():\n    return 1\n")
+    (tmp_path / "two.py").write_text("def two():\n    return 2\n")
+    agent = BugDetectorAgent()
+
+    def partial_result(path):
+        return {
+            "file": str(path),
+            "findings": [],
+            "status": "partial" if path.name == "one.py" else "completed",
+            "error": "LLM unavailable" if path.name == "one.py" else None,
+        }
+
+    with patch.object(agent, "analyze_file_with_status", side_effect=partial_result):
+        result = agent.run({"repo_path": str(tmp_path)})
+
+    assert result["analysis_status"] == "partial"
+    assert result["analysis_summary"]["files_partial"] == 1
+    assert result["analysis_summary"]["files_completed"] == 1
+    assert len(result["analysis_errors"]) == 1

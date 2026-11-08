@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from asea.tools.parser import PythonRepositoryParser
+from asea.tools.parser import RepositoryParser
 from asea.tools.repository import RepositoryManager
 from asea.tools.repository_inventory import build_repository_inventory
 
@@ -15,7 +15,7 @@ class RepositoryAnalyzer:
 
     def __init__(self, workspace="workspaces"):
         self.repository_manager = RepositoryManager(workspace)
-        self.parser = PythonRepositoryParser()
+        self.parser = RepositoryParser()
 
     def analyze_local_repository(
         self, folder, output_file="artifacts/repo_map.json"
@@ -52,7 +52,16 @@ class RepositoryAnalyzer:
             "language_count": inventory["language_count"],
             "languages": inventory["languages"],
             "manifests": inventory["manifests"],
-            "parsed_languages": inventory["parsed_languages"],
-            "inventory_only_languages": inventory["inventory_only_languages"],
+            "parsed_languages": sorted({
+                item["language"] for item in python_files
+            }),
+            "inventory_only_languages": sorted(
+                set(inventory["languages"])
+                - {item["language"] for item in python_files}
+            ),
+            "repair_supported_languages": sorted({
+                item["language"] for item in python_files
+                if item["repair_supported"]
+            }),
             "output_file": str(Path(output_file).resolve()),
         }

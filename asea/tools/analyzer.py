@@ -6,7 +6,7 @@ from asea.tools.repository_inventory import build_repository_inventory
 
 
 class RepositoryAnalyzer:
-    """Build a Python symbol map alongside a repository-wide inventory.
+    """Build a multi-language symbol map alongside a repository-wide inventory.
 
     Inventory coverage and parser coverage are intentionally reported
     separately: discovering a language does not imply that ASEA can analyze
@@ -42,7 +42,7 @@ class RepositoryAnalyzer:
         return {
             "repository": repo_map["repository"],
             "path": str(repo_path),
-            # Backward-compatible field: this is the Python parser file count.
+            # Count of source files parsed by a registered adapter.
             "total_files": len(python_files),
             "total_source_files": inventory["total_source_files"],
             "repository_file_count": inventory["total_files"],

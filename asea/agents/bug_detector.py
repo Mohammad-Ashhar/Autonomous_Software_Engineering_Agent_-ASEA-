@@ -4,8 +4,8 @@ from pathlib import Path
 from typing import Any
 
 from asea.core.state import ASEAState
-from asea.tools.llm_client import OllamaClient
 from asea.languages.registry import get_default_registry
+from asea.tools.llm_client import OllamaClient
 
 
 def parse_json_response(response: str) -> dict:

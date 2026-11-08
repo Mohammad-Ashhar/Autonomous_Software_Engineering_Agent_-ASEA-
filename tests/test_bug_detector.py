@@ -21,9 +21,14 @@ def is_positive(number: int) -> bool:
 def test_llm_failure_is_reported_as_partial_not_no_bugs(tmp_path):
     agent = BugDetectorAgent()
     source = tmp_path / "logic.py"
-    source.write_text("def calculate(value):\n    return value * 2\n", encoding="utf-8")
+    source.write_text(
+        "def calculate(value):\n    return value * 2\n",
+        encoding="utf-8",
+    )
 
-    with patch.object(agent.llm, "chat", side_effect=RuntimeError("model unavailable")):
+    with patch.object(
+        agent.llm, "chat", side_effect=RuntimeError("model unavailable")
+    ):
         result = agent.analyze_file_with_status(source)
 
     assert result["status"] == "partial"
@@ -45,7 +50,10 @@ def test_invalid_python_is_reported_as_failed(tmp_path):
 def test_successful_empty_llm_result_is_completed(tmp_path):
     agent = BugDetectorAgent()
     source = tmp_path / "clean.py"
-    source.write_text("def double(value):\n    return value * 2\n", encoding="utf-8")
+    source.write_text(
+        "def double(value):\n    return value * 2\n",
+        encoding="utf-8",
+    )
 
     with patch.object(agent.llm, "chat", return_value='{"bugs": []}'):
         result = agent.analyze_file_with_status(source)
@@ -54,8 +62,9 @@ def test_successful_empty_llm_result_is_completed(tmp_path):
     assert result["findings"] == []
     assert result["error"] is None
 
-def test_repository_without_python_files_is_unsupported(tmp_path):
-    (tmp_path / "Main.java").write_text("export const value = 1;\n")
+
+def test_repository_without_registered_source_language_is_unsupported(tmp_path):
+    (tmp_path / "Main.java").write_text("class Main {}\n")
     agent = BugDetectorAgent()
 
     result = agent.run({"repo_path": str(tmp_path)})
@@ -78,7 +87,9 @@ def test_repository_level_status_preserves_partial_file_failures(tmp_path):
             "error": "LLM unavailable" if path.name == "one.py" else None,
         }
 
-    with patch.object(agent, "analyze_file_with_status", side_effect=partial_result):
+    with patch.object(
+        agent, "analyze_file_with_status", side_effect=partial_result
+    ):
         result = agent.run({"repo_path": str(tmp_path)})
 
     assert result["analysis_status"] == "partial"
@@ -86,13 +97,14 @@ def test_repository_level_status_preserves_partial_file_failures(tmp_path):
     assert result["analysis_summary"]["files_completed"] == 1
     assert len(result["analysis_errors"]) == 1
 
+
 def test_detector_analyzes_javascript_with_registered_adapter(tmp_path):
     agent = BugDetectorAgent()
     source = tmp_path / "logic.js"
     source.write_text(
-        "export function divide(a, b) {\\n"
-        "  return a / b;\\n"
-        "}\\n",
+        "export function divide(a, b) {\n"
+        "  return a / b;\n"
+        "}\n",
         encoding="utf-8",
     )
     response = {

@@ -96,10 +96,19 @@ def run_repair_job(job_id: str, repository: str):
             )
 
         else:
+            analysis_status = result.get("analysis_status")
+            job_status = "failed" if analysis_status == "failed" else "completed"
+            message = (
+                "ASEA analysis could not complete; no repair was attempted."
+                if analysis_status == "failed"
+                else "ASEA completed with analysis warnings."
+                if analysis_status == "partial"
+                else "ASEA repair workflow completed."
+            )
             repair_jobs.update_job(
                 job_id,
-                status="completed",
-                message="ASEA repair workflow completed.",
+                status=job_status,
+                message=message,
                 result=result,
             )
 
@@ -160,10 +169,19 @@ def resume_repair_job(
             )
 
         else:
+            analysis_status = result.get("analysis_status")
+            job_status = "failed" if analysis_status == "failed" else "completed"
+            message = (
+                "ASEA analysis could not complete; no repair was attempted."
+                if analysis_status == "failed"
+                else "ASEA completed with analysis warnings."
+                if analysis_status == "partial"
+                else "ASEA repair workflow completed."
+            )
             repair_jobs.update_job(
                 job_id,
-                status="completed",
-                message="ASEA repair workflow completed.",
+                status=job_status,
+                message=message,
                 result=result,
             )
 

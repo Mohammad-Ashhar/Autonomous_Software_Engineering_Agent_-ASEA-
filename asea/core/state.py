@@ -26,6 +26,7 @@ class ASEAState(TypedDict, total=False):
 
     # Multi-bug prioritization and tracking
     prioritized_bugs: list[dict[str, Any]]
+    repair_blocked_bugs: list[dict[str, Any]]
     current_bug: dict[str, Any]
     processed_bug_keys: list[str]
     repaired_bugs: list[dict[str, Any]]

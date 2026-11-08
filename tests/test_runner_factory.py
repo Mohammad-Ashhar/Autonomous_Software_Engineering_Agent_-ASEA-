@@ -1,5 +1,3 @@
-from pathlib import Path
-
 import pytest
 
 from asea.tools import runner_factory

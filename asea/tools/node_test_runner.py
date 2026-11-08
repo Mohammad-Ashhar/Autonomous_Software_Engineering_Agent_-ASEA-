@@ -131,7 +131,9 @@ class NodeTestRunner:
                     break
                 time.sleep(0.25)
 
-            raw = container.logs(stdout=True, stderr=True).decode("utf-8", errors="replace")
+            raw = container.logs(
+                stdout=True, stderr=True
+            ).decode("utf-8", errors="replace")
             duration = round(time.monotonic() - started, 2)
             if timed_out:
                 return {"status": "TIMEOUT", "success": False, "timed_out": True,

@@ -17,11 +17,14 @@ def test_default_registry_resolves_python_javascript_and_typescript():
     assert registry.resolve(Path("Main.java")) is None
 
 
-def test_only_python_adapter_advertises_repair_support():
+def test_python_and_plain_javascript_adapters_advertise_repair_support():
     registry = get_default_registry()
 
     assert registry.resolve("main.py").supports_repair is True
-    assert registry.resolve("app.js").supports_repair is False
+    assert registry.resolve("app.js").supports_repair is True
+    assert registry.resolve("app.mjs").supports_repair is True
+    assert registry.resolve("app.cjs").supports_repair is True
+    assert registry.resolve("app.jsx").supports_repair is False
     assert registry.resolve("app.ts").supports_repair is False
 
 
@@ -52,4 +55,4 @@ def test_repository_parser_keeps_language_and_capability_metadata(tmp_path):
     by_language = {item["language"]: item for item in parsed["files"]}
 
     assert by_language["Python"]["repair_supported"] is True
-    assert by_language["JavaScript"]["repair_supported"] is False
+    assert by_language["JavaScript"]["repair_supported"] is True

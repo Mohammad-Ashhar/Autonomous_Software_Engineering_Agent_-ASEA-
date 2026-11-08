@@ -3,8 +3,8 @@
 This module identifies repository composition without executing project code.
 It does not claim that every inventoried language is currently analyzable.
 """
-from collections import Counter
 import os
+from collections import Counter
 from pathlib import Path
 
 IGNORED_DIRECTORIES = {

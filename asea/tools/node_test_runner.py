@@ -4,7 +4,7 @@ It performs Node syntax checks and runs native Node test files. It never runs
 package-manager lifecycle hooks or installs repository dependencies.
 """
 
-import json
+import json  # noqa: I001
 import time
 from pathlib import Path
 

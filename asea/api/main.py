@@ -140,7 +140,9 @@ def resume_repair_job(
         job = repair_jobs.get_job(job_id)
         if job is None:
             raise KeyError(f"Repair job not found: {job_id}")
-        publish = bool((job.get("result") or {}).get("publish_requested", False))
+        publish = bool(
+            (job.get("result") or {}).get("publish_requested", False)
+        )
 
         repair_jobs.update_job(
             job_id,

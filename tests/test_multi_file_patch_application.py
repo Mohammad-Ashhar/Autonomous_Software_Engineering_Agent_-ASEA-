@@ -1,5 +1,3 @@
-from pathlib import Path
-
 import pytest
 
 from asea.agents.patch_validator import PatchValidatorAgent

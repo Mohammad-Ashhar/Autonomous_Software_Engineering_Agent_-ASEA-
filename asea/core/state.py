@@ -37,6 +37,7 @@ class ASEAState(TypedDict, total=False):
 
     # Test execution
     test_results: dict[str, Any]
+    test_generation_results: dict[str, Any]
 
     # Patch validation
     validation_results: list[dict[str, Any]]

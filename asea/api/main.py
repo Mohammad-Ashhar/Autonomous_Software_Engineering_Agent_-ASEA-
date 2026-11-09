@@ -373,12 +373,19 @@ def review_repair_patch(
             detail="This repair job review has already been submitted.",
         )
 
-    executor.submit(
-        resume_repair_job,
-        job_id,
-        request.decision,
-        request.feedback.strip(),
-    )
+    try:
+        executor.submit(
+            resume_repair_job,
+            job_id,
+            request.decision,
+            request.feedback.strip(),
+        )
+    except RuntimeError as error:
+        repair_jobs.release_review_claim(job_id)
+        raise HTTPException(
+            status_code=503,
+            detail="ASEA is temporarily unable to schedule this review. Please retry.",
+        ) from error
 
     return {
         "message": "Patch review decision submitted successfully.",

@@ -38,7 +38,9 @@ def _resolve_from_module(module: str, package: str, level: int) -> str:
         return ""
 
 
-def _function_definitions(tree: ast.Module) -> dict[str, ast.FunctionDef | ast.AsyncFunctionDef]:
+def _function_definitions(
+    tree: ast.Module
+) -> dict[str, ast.FunctionDef | ast.AsyncFunctionDef]:
     definitions = {}
     for node in ast.walk(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -77,7 +79,9 @@ def _call_argument_issue(
     ]
     required_keyword_only = [
         argument.arg
-        for argument, default in zip(\n            args.kwonlyargs, args.kw_defaults, strict=True\n        )
+        for argument, default in zip(
+            args.kwonlyargs, args.kw_defaults, strict=True
+        )
         if default is None and argument.arg not in keyword_names
     ]
     if missing or required_keyword_only:

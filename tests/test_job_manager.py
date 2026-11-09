@@ -197,3 +197,25 @@ def test_claim_review_allows_only_one_submission(tmp_path):
     job = manager.get_job("review-claim-001")
     assert job["status"] == "running"
     assert job["review_request"] is None
+
+
+def test_release_review_claim_restores_waiting_state_and_checkpoint(tmp_path):
+    manager = create_test_manager(tmp_path / "review_release.db")
+    manager.create_job("review-release-001", "demo_repo")
+    request = {"patch": "diff", "summary": "candidate"}
+    manager.update_job(
+        "review-release-001",
+        status="waiting_for_review",
+        review_request=request,
+    )
+
+    assert manager.claim_review("review-release-001") is True
+    claimed = manager.get_job("review-release-001")
+    assert claimed["status"] == "running"
+    assert claimed["review_request"] == request
+
+    assert manager.release_review_claim("review-release-001") is True
+    assert manager.release_review_claim("review-release-001") is False
+    restored = manager.get_job("review-release-001")
+    assert restored["status"] == "waiting_for_review"
+    assert restored["review_request"] == request

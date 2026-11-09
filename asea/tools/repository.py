@@ -14,17 +14,30 @@ class RepositoryManager:
     def validate_github_url(self, url):
         parsed = urlparse(url)
 
+        try:
+            port = parsed.port
+        except ValueError as error:
+            raise ValueError("Invalid GitHub repository URL.") from error
+
         if (
             parsed.scheme != "https"
             or parsed.hostname != "github.com"
             or parsed.username
             or parsed.password
+            or port not in (None, 443)
+            or parsed.query
+            or parsed.fragment
         ):
-            raise ValueError("Only HTTPS GitHub repository URLs are allowed.")
+            raise ValueError("Only plain HTTPS GitHub repository URLs are allowed.")
 
         parts = parsed.path.strip("/").split("/")
 
-        if len(parts) != 2 or not all(parts):
+        if (
+            len(parts) != 2
+            or not all(parts)
+            or any(part in {".", ".."} for part in parts)
+            or any("%" in part or "\\\\" in part for part in parts)
+        ):
             raise ValueError("Invalid GitHub repository URL.")
 
         return True

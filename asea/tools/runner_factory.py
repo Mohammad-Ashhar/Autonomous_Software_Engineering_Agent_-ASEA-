@@ -1,6 +1,4 @@
-"""Select a test runner only when the repository has one clear runtime."""
-
-# ruff: noqa: I001
+"""Select isolated test runners for all supported repository runtimes."""
 
 from pathlib import Path
 
@@ -20,12 +18,56 @@ class UnsupportedTestEnvironment(ValueError):
     """Raised when a repository needs a runner ASEA cannot safely select."""
 
 
-def get_repository_test_runner(repository_path: str | Path):
-    """Return the isolated runner for a Python-only or plain-JS repository.
+class CompositeTestRunner:
+    """Run every supported runtime and require every suite to pass."""
 
-    Mixed-runtime repositories are deliberately blocked until ASEA can
-    orchestrate both test ecosystems and compare their combined outcomes.
-    """
+    def __init__(self, python_runner=None, node_runner=None):
+        self.python_runner = python_runner or DockerTestRunner()
+        self.node_runner = node_runner or NodeTestRunner()
+
+    def run_tests(self, repository_path):
+        python_result = self.python_runner.run_tests(repository_path)
+        node_result = self.node_runner.run_tests(repository_path)
+        runtimes = {
+            "python": python_result,
+            "javascript": node_result,
+        }
+        success = (
+            python_result.get("success", False)
+            and node_result.get("success", False)
+        )
+        failed_tests = [
+            f"python::{item}"
+            for item in python_result.get("failed_tests", [])
+        ] + [
+            f"javascript::{item}"
+            for item in node_result.get("failed_tests", [])
+        ]
+        failed = (
+            python_result.get("failed", 0)
+            + node_result.get("failed", 0)
+        )
+        errors = (
+            python_result.get("errors", 0)
+            + node_result.get("errors", 0)
+        )
+        return {
+            "status": "PASSED" if success else "FAILED",
+            "success": success,
+            "runtimes": runtimes,
+            "failed": failed,
+            "errors": errors,
+            "failed_tests": failed_tests,
+            "duration": round(
+                python_result.get("duration", 0)
+                + node_result.get("duration", 0),
+                2,
+            ),
+        }
+
+
+def get_repository_test_runner(repository_path: str | Path):
+    """Return a single or composite isolated runner for repository runtimes."""
     root = Path(repository_path).resolve()
     if not root.is_dir():
         raise NotADirectoryError(root)
@@ -35,17 +77,19 @@ def get_repository_test_runner(repository_path: str | Path):
     for path in root.rglob("*"):
         if not path.is_file():
             continue
-        if any(part in IGNORED_DIRECTORIES for part in path.relative_to(root).parts):
+        if any(
+            part in IGNORED_DIRECTORIES
+            for part in path.relative_to(root).parts
+        ):
             continue
         suffix = path.suffix.lower()
         has_python = has_python or suffix in PYTHON_EXTENSIONS
-        has_javascript = has_javascript or suffix in JAVASCRIPT_EXTENSIONS
+        has_javascript = (
+            has_javascript or suffix in JAVASCRIPT_EXTENSIONS
+        )
 
     if has_python and has_javascript:
-        raise UnsupportedTestEnvironment(
-            "Mixed Python/JavaScript repositories are not yet supported "
-            "for automated repair validation."
-        )
+        return CompositeTestRunner()
     if has_javascript:
         return NodeTestRunner()
     if has_python:

@@ -17,9 +17,9 @@ from asea.core.graph import (
     build_asea_graph,
     create_initial_state,
 )
+from asea.integrations.repair_publisher import publish_validated_repairs
 from asea.tools.analyzer import RepositoryAnalyzer
 from asea.tools.repository import RepositoryManager
-from asea.integrations.repair_publisher import publish_validated_repairs
 
 CHECKPOINT_DB_PATH = (
     Path(__file__).resolve().parents[2]
@@ -219,7 +219,10 @@ class RepairRequest(BaseModel):
     )
     publish: bool = Field(
         default=False,
-        description="Create a GitHub pull request after all repairs are approved and validated.",
+        description=(
+            "Create a GitHub pull request after all repairs are approved "
+            "and validated."
+        ),
     )
 class ReviewRequest(BaseModel):
     decision: Literal["approved", "rejected"]

@@ -276,3 +276,30 @@ def test_start_repair_marks_job_failed_when_scheduling_fails(monkeypatch):
             },
         )
     ]
+
+
+def test_repair_request_rejects_unknown_fields():
+    try:
+        main.RepairRequest(
+            repository="/tmp/example-repository",
+            unexpected=True,
+        )
+    except Exception as error:
+        assert "unexpected" in str(error).lower()
+    else:
+        raise AssertionError("Unknown request fields must be rejected")
+
+
+def test_repair_request_rejects_oversized_repository_value():
+    try:
+        main.RepairRequest(repository="x" * 2049)
+    except Exception as error:
+        assert "2048" in str(error)
+    else:
+        raise AssertionError("Oversized repository values must be rejected")
+
+
+def test_repair_request_strips_repository_whitespace():
+    request = main.RepairRequest(repository="  /tmp/example-repository  ")
+
+    assert request.repository == "/tmp/example-repository"

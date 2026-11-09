@@ -161,12 +161,22 @@ def prioritize_bugs_node(state: ASEAState) -> dict[str, Any]:
         if bug.get("classification") != "confirmed_bug":
             continue
         adapter = registry.resolve(bug.get("file", ""))
-        if runtime_blocked or adapter is None or not adapter.supports_repair:
+        javascript_baseline_blocked = (
+            adapter is not None
+            and adapter.name == "JavaScript"
+            and not baseline.get("success", False)
+        )
+        if (
+            runtime_blocked
+            or javascript_baseline_blocked
+            or adapter is None
+            or not adapter.supports_repair
+        ):
             repair_blocked.append({
                 **bug,
                 "repair_status": (
                     "unsupported_repository_test_environment"
-                    if runtime_blocked
+                    if runtime_blocked or javascript_baseline_blocked
                     else "unsupported_language_repair"
                 ),
             })

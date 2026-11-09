@@ -37,103 +37,125 @@ class PatchValidatorAgent:
             ignore=ignored
         )
 
-    def get_patch_target(self, patch: str) -> str:
-        """Extract the target file path from a unified diff."""
+    @staticmethod
+    def _resolve_patch_target(
+        repository_path: Path,
+        patch_path: str,
+    ) -> Path:
+        """Resolve one diff path without allowing repository traversal."""
 
-        for line in patch.splitlines():
+        if patch_path == "/dev/null":
+            raise ValueError(
+                "Creating or deleting files is not supported yet."
+            )
 
-            if line.startswith("+++ "):
+        normalized = patch_path.removeprefix("a/").removeprefix("b/")
+        relative_path = Path(normalized)
 
-                target = line[4:].split("\t")[0].strip()
+        if relative_path.is_absolute() or ".." in relative_path.parts:
+            raise ValueError("Patch target is outside the repository.")
 
-                if target == "/dev/null":
-                    raise ValueError(
-                        "Creating new files is not supported yet."
-                    )
+        target = (repository_path / relative_path).resolve()
 
-                target = target.removeprefix("b/")
+        try:
+            target.relative_to(repository_path)
+        except ValueError as error:
+            raise ValueError(
+                "Patch target is outside the repository."
+            ) from error
 
-                if not target:
-                    raise ValueError("Invalid patch target.")
+        if target.is_file():
+            return target
 
-                return target
+        matches = [
+            match.resolve()
+            for match in repository_path.rglob(relative_path.name)
+            if match.is_file()
+            and repository_path in match.resolve().parents
+        ]
 
-        raise ValueError("Could not identify the patch target.")
+        if len(matches) == 1:
+            return matches[0]
+
+        if len(matches) > 1:
+            raise ValueError(
+                f"Multiple files match patch target: {patch_path}"
+            )
+
+        raise FileNotFoundError(
+            f"Patch target not found: {patch_path}"
+        )
 
     def apply_patch(
         self,
         repository_path: Path,
         patch: str
     ) -> None:
-        """Safely apply a patch to a candidate repository."""
+        """Apply a multi-file patch after validating every target path."""
 
         repository_path = repository_path.resolve()
-        target_relative = self.get_patch_target(patch)
+        if not repository_path.is_dir():
+            raise FileNotFoundError(
+                f"Repository not found: {repository_path}"
+            )
 
-        target_file = (
-            repository_path / target_relative
-        ).resolve()
+        lines = patch.splitlines()
+        rewritten_lines = []
+        target_files = []
+        index = 0
 
-        try:
-            target_file.relative_to(repository_path)
-        except ValueError as error:
-            raise ValueError(
-                "Patch target is outside the repository."
-            ) from error
+        while index < len(lines):
+            line = lines[index]
 
-        if not target_file.is_file():
+            if line.startswith("--- "):
+                if index + 1 >= len(lines) or not lines[index + 1].startswith("+++ "):
+                    raise ValueError("Malformed unified diff file headers.")
 
-            matches = [
-                match.resolve()
-                for match in repository_path.rglob(
-                    Path(target_relative).name
+                old_path = line[4:].split("\\t")[0].strip()
+                new_path = lines[index + 1][4:].split("\\t")[0].strip()
+
+                if old_path == "/dev/null" or new_path == "/dev/null":
+                    raise ValueError(
+                        "Creating or deleting files is not supported yet."
+                    )
+
+                old_target = self._resolve_patch_target(
+                    repository_path,
+                    old_path,
                 )
-                if match.is_file()
-            ]
-
-            matches = [
-                match
-                for match in matches
-                if repository_path in match.parents
-            ]
-
-            if len(matches) == 1:
-                target_file = matches[0]
-
-            elif len(matches) > 1:
-                raise ValueError(
-                    f"Multiple files match patch target: "
-                    f"{target_relative}"
+                new_target = self._resolve_patch_target(
+                    repository_path,
+                    new_path,
                 )
 
-            else:
-                raise FileNotFoundError(
-                    f"Patch target not found: {target_relative}"
-                )
+                if old_target != new_target:
+                    raise ValueError(
+                        "File renames are not supported in repair patches."
+                    )
 
-        actual_relative = target_file.relative_to(
-            repository_path
-        ).as_posix()
+                actual_path = old_target.relative_to(
+                    repository_path
+                ).as_posix()
+                rewritten_lines.extend([
+                    f"--- a/{actual_path}",
+                    f"+++ b/{actual_path}",
+                ])
+                target_files.append(old_target)
+                index += 2
+                continue
 
-        updated_lines = []
+            rewritten_lines.append(line)
+            index += 1
 
-        for line in patch.splitlines():
+        if not target_files:
+            raise ValueError("Patch contains no supported file changes.")
 
-            if line.startswith("--- a/"):
-                line = f"--- a/{actual_relative}"
+        normalized_patch = "\n".join(rewritten_lines) + "\n"
 
-            elif line.startswith("+++ b/"):
-                line = f"+++ b/{actual_relative}"
-
-            updated_lines.append(line)
-
-        patch = "\n".join(updated_lines) + "\n"
-
-        source = target_file.read_bytes()
-
-        target_file.write_bytes(
-            source.replace(b"\r\n", b"\n")
-        )
+        # Normalize line endings only inside the isolated candidate copy.
+        for target_file in set(target_files):
+            source = target_file.read_bytes()
+            target_file.write_bytes(source.replace(b"\\r\\n", b"\\n"))
 
         init_result = subprocess.run(
             ["git", "init"],
@@ -146,7 +168,7 @@ class PatchValidatorAgent:
 
         if init_result.returncode != 0:
             raise RuntimeError(
-                f"Could not initialize temporary Git repository: "
+                "Could not initialize temporary Git repository: "
                 f"{init_result.stderr}"
             )
 
@@ -161,7 +183,7 @@ class PatchValidatorAgent:
             ],
             check=False,
             cwd=repository_path,
-            input=patch,
+            input=normalized_patch,
             capture_output=True,
             text=True,
             timeout=30
@@ -169,7 +191,7 @@ class PatchValidatorAgent:
 
         if check_result.returncode != 0:
             raise ValueError(
-                f"Patch cannot be applied:\n{check_result.stderr}"
+                f"Patch cannot be applied:\\n{check_result.stderr}"
             )
 
         apply_result = subprocess.run(
@@ -182,7 +204,7 @@ class PatchValidatorAgent:
             ],
             check=False,
             cwd=repository_path,
-            input=patch,
+            input=normalized_patch,
             capture_output=True,
             text=True,
             timeout=30
@@ -190,7 +212,7 @@ class PatchValidatorAgent:
 
         if apply_result.returncode != 0:
             raise RuntimeError(
-                f"Patch application failed:\n{apply_result.stderr}"
+                f"Patch application failed:\\n{apply_result.stderr}"
             )
 
     @staticmethod

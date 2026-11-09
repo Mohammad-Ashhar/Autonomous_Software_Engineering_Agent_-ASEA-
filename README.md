@@ -20,7 +20,7 @@ JavaScript repair is intentionally limited to dependency-free Node.js projects. 
 2. **Language adapters** — resolve each source file to a parser and report normalized functions, classes, imports, and syntax status.
 3. **Issue analysis** — asks the configured local LLM to report evidence-backed findings. Analysis failures are surfaced separately from successful zero-finding results.
 4. **Baseline tests** — selects the isolated Python or Node.js runner. JavaScript repairs require a passing baseline test run.
-5. **Prioritization** — sends only findings with an enabled repair adapter and a supported test environment into the repair workflow.
+5. **Prioritization** — sends only findings with an enabled repair adapter and a supported, passing baseline into the repair workflow. Mixed Python/JavaScript repositories require both baselines to pass.
 6. **Patch generation and review** — generates a focused patch and pauses for human approval.
 7. **Validation** — applies the patch to a candidate copy, runs syntax checks and tests in the matching Docker sandbox, and preserves only validated changes.
 
@@ -30,8 +30,8 @@ JavaScript repair is intentionally limited to dependency-free Node.js projects. 
 - Declared `dependencies`, `devDependencies`, `optionalDependencies`, or `peerDependencies` cause the Node runner to return an explicit unsupported status.
 - If a package test script exists, only the exact `node --test` command is accepted. ASEA invokes Node directly; it does not invoke npm scripts.
 - Repositories without a package manifest can use Node's native test discovery.
-- Test execution uses a network-disabled, read-only, unprivileged Docker container with CPU, memory, PID, and time limits.
-- Jest, Vitest, Mocha, third-party dependencies, JSX, TypeScript, and mixed Python/JavaScript repair are not enabled yet.
+- Test execution uses network-disabled, read-only, unprivileged Docker containers with CPU, memory, PID, and time limits. Mixed-runtime repositories run both test environments and require both to pass.
+- Jest, Vitest, Mocha, third-party dependencies, JSX, and TypeScript repair are not enabled yet. Mixed Python/JavaScript repair is enabled only when both native test environments are supported and both baseline suites pass.
 
 This is a deliberate first step toward safe npm support, not general npm compatibility. A project that requires dependencies or a third-party framework must be reported as unsupported rather than treated as successfully tested.
 

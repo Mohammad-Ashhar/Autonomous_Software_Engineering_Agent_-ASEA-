@@ -1,5 +1,3 @@
-from pathlib import Path
-
 import asea.core.graph as graph
 
 

@@ -6,6 +6,10 @@ from typing import Any
 
 from asea.tools.node_test_runner import NodeTestRunner
 from asea.tools.test_runner import DockerTestRunner
+from asea.tools.runner_factory import (
+    CompositeTestRunner,
+    detect_repository_runtimes,
+)
 
 
 class PatchValidatorAgent:
@@ -317,39 +321,48 @@ class PatchValidatorAgent:
                 ".js", ".mjs", ".cjs"
             }
 
-            if is_javascript and not baseline.get("success", False):
+            runtimes = detect_repository_runtimes(candidate_repo)
+            if (
+                (is_javascript or len(runtimes) > 1)
+                and not baseline.get("success", False)
+            ):
                 return {
                     "status": "PATCH_REJECTED",
                     "patch_applied": True,
                     "tests_passed": False,
                     "regression_free": False,
                     "reason": (
-                        "JavaScript repair requires a passing baseline "
-                        "Node test run. Missing tests or baseline failures "
-                        "cannot establish a safe comparison."
+                        "JavaScript and mixed-runtime repairs require a "
+                        "passing baseline for every supported runtime. "
+                        "Missing tests or baseline failures cannot establish "
+                        "a safe comparison."
                     ),
                 }
 
-            runner = (
-                self.node_test_runner
-                if is_javascript
-                else self.test_runner
-            )
+            if runtimes == {"python", "javascript"}:
+                runner = CompositeTestRunner(
+                    self.test_runner,
+                    self.node_test_runner,
+                )
+            elif "javascript" in runtimes:
+                runner = self.node_test_runner
+            else:
+                runner = self.test_runner
             test_results = runner.run_tests(candidate_repo)
 
             tests_passed = test_results.get(
                 "success",
                 False
             )
-            if is_javascript and not tests_passed:
+            if (is_javascript or len(runtimes) > 1) and not tests_passed:
                 return {
                     "status": "PATCH_REJECTED",
                     "patch_applied": True,
                     "tests_passed": False,
                     "regression_free": False,
                     "reason": (
-                        "JavaScript candidate did not pass Node syntax "
-                        "checks and its native test suite."
+                        "Candidate did not pass every required runtime "
+                        "syntax check and test suite."
                     ),
                     "test_results": test_results,
                 }

@@ -142,14 +142,14 @@ def test_detects_duplicate_values_for_imported_function(tmp_path):
     _write_module(
         tmp_path,
         "sample/api.py",
-        "def send(user):\\n    return user\\n",
+        "def send(user):\n    return user\n",
     )
     _write_module(
         tmp_path,
         "sample/service.py",
-        "from .api import send\\n"
-        "def run():\\n"
-        "    return send('alice', user='bob')\\n",
+        "from .api import send\n"
+        "def run():\n"
+        "    return send('alice', user='bob')\n",
     )
 
     result = PythonDependencyAnalyzer().analyze(tmp_path)
@@ -163,14 +163,14 @@ def test_detects_positional_only_argument_passed_as_keyword(tmp_path):
     _write_module(
         tmp_path,
         "sample/api.py",
-        "def send(user, /):\\n    return user\\n",
+        "def send(user, /):\n    return user\n",
     )
     _write_module(
         tmp_path,
         "sample/service.py",
-        "from .api import send\\n"
-        "def run():\\n"
-        "    return send(user='alice')\\n",
+        "from .api import send\n"
+        "def run():\n"
+        "    return send(user='alice')\n",
     )
 
     result = PythonDependencyAnalyzer().analyze(tmp_path)
@@ -186,14 +186,14 @@ def test_resolves_unaliased_dotted_module_import(tmp_path):
     _write_module(
         tmp_path,
         "sample/api.py",
-        "def send(user):\\n    return user\\n",
+        "def send(user):\n    return user\n",
     )
     _write_module(
         tmp_path,
         "sample/service.py",
-        "import sample.api\\n"
-        "def run():\\n"
-        "    return sample.api.send('alice', 'email')\\n",
+        "import sample.api\n"
+        "def run():\n"
+        "    return sample.api.send('alice', 'email')\n",
     )
 
     result = PythonDependencyAnalyzer().analyze(tmp_path)

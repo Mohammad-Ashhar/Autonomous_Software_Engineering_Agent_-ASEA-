@@ -176,7 +176,7 @@ def test_bug_detector_integrates_cross_file_findings(tmp_path):
     with patch.object(agent, "analyze_file", return_value=[]):
         result = agent.run({"repo_path": str(tmp_path)})
 
-    assert result["dependency_analysis"]["module_count"] == 2
+    assert result["dependency_analysis"]["module_count"] == 3
     assert result["dependency_analysis"]["dependency_count"] == 1
     assert result["dependency_analysis"]["cross_file_issue_count"] == 1
     assert result["confirmed_bug_count"] == 1

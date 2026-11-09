@@ -111,3 +111,47 @@ def test_zero_is_even():
         findings = agent.analyze_file(test_file)
 
     assert findings == []
+
+
+def test_mutable_default_argument_is_detected():
+    agent = BugDetectorAgent()
+    tree = ast.parse(
+        "def collect(items=[]):\n    items.append(1)\n    return items\n"
+    )
+
+    findings = agent.detect_ast_bugs(tree, Path("logic.py"))
+
+    assert any(item["title"] == "Mutable default argument" for item in findings)
+    assert next(
+        item for item in findings
+        if item["title"] == "Mutable default argument"
+    )["classification"] == "confirmed_bug"
+
+
+def test_unreachable_statement_is_reported():
+    agent = BugDetectorAgent()
+    tree = ast.parse(
+        "def calculate(value):\n"
+        "    return value\n"
+        "    print('unreachable')\n"
+    )
+
+    findings = agent.detect_ast_bugs(tree, Path("logic.py"))
+
+    assert any(item["title"] == "Unreachable statement" for item in findings)
+
+
+def test_assert_false_is_reported_as_potential_issue():
+    agent = BugDetectorAgent()
+    tree = ast.parse(
+        "def process():\n"
+        "    assert False, 'not implemented'\n"
+    )
+
+    findings = agent.detect_ast_bugs(tree, Path("logic.py"))
+
+    finding = next(
+        item for item in findings
+        if item["title"] == "Unconditional assertion failure"
+    )
+    assert finding["classification"] == "potential_issue"

@@ -135,3 +135,68 @@ def test_external_imports_do_not_create_project_dependencies(tmp_path):
 
     assert result["dependency_map"] == {"sample": []}
     assert result["cross_file_findings"] == []
+
+
+def test_detects_duplicate_values_for_imported_function(tmp_path):
+    _write_module(tmp_path, "sample/__init__.py", "")
+    _write_module(
+        tmp_path,
+        "sample/api.py",
+        "def send(user):\\n    return user\\n",
+    )
+    _write_module(
+        tmp_path,
+        "sample/service.py",
+        "from .api import send\\n"
+        "def run():\\n"
+        "    return send('alice', user='bob')\\n",
+    )
+
+    result = PythonDependencyAnalyzer().analyze(tmp_path)
+
+    assert len(result["cross_file_findings"]) == 1
+    assert "multiple values" in result["cross_file_findings"][0]["description"]
+
+
+def test_detects_positional_only_argument_passed_as_keyword(tmp_path):
+    _write_module(tmp_path, "sample/__init__.py", "")
+    _write_module(
+        tmp_path,
+        "sample/api.py",
+        "def send(user, /):\\n    return user\\n",
+    )
+    _write_module(
+        tmp_path,
+        "sample/service.py",
+        "from .api import send\\n"
+        "def run():\\n"
+        "    return send(user='alice')\\n",
+    )
+
+    result = PythonDependencyAnalyzer().analyze(tmp_path)
+
+    assert len(result["cross_file_findings"]) == 1
+    assert "missing required argument" in (
+        result["cross_file_findings"][0]["description"]
+    )
+
+
+def test_resolves_unaliased_dotted_module_import(tmp_path):
+    _write_module(tmp_path, "sample/__init__.py", "")
+    _write_module(
+        tmp_path,
+        "sample/api.py",
+        "def send(user):\\n    return user\\n",
+    )
+    _write_module(
+        tmp_path,
+        "sample/service.py",
+        "import sample.api\\n"
+        "def run():\\n"
+        "    return sample.api.send('alice', 'email')\\n",
+    )
+
+    result = PythonDependencyAnalyzer().analyze(tmp_path)
+
+    assert len(result["cross_file_findings"]) == 1
+    assert result["cross_file_findings"][0]["dependency"] == "sample.api"

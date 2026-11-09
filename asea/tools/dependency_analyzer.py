@@ -1,7 +1,7 @@
 """Build a lightweight Python dependency graph and detect cross-file call errors."""
 
 import ast
-import importlib.util
+from importlib import util
 from pathlib import Path
 from typing import Any
 
@@ -33,7 +33,7 @@ def _resolve_from_module(module: str, package: str, level: int) -> str:
         return module
     relative_name = "." * level + module
     try:
-        return importlib.util.resolve_name(relative_name, package)
+        return util.resolve_name(relative_name, package)
     except ImportError:
         return ""
 

@@ -150,13 +150,6 @@ def resume_repair_job(
             job.get("publish_requested", False)
         )
 
-        repair_jobs.update_job(
-            job_id,
-            status="running",
-            message="Processing patch review decision.",
-            review_request=None,
-        )
-
         config = {
             "configurable": {
                 "thread_id": job_id,
@@ -369,6 +362,15 @@ def review_repair_patch(
         raise HTTPException(
             status_code=400,
             detail="Feedback is required when rejecting a patch.",
+        )
+
+    # Claim the review transition atomically before scheduling work.
+    # This closes the race where duplicate requests both observe the
+    # waiting_for_review state and enqueue concurrent graph resumes.
+    if not repair_jobs.claim_review(job_id):
+        raise HTTPException(
+            status_code=409,
+            detail="This repair job review has already been submitted.",
         )
 
     executor.submit(

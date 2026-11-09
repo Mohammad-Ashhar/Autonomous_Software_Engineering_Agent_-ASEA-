@@ -98,6 +98,7 @@ def run_repair_job(
                 status="waiting_for_review",
                 message="ASEA is waiting for patch approval.",
                 review_request=review_request,
+                result={"publish_requested": publish},
             )
 
         else:
@@ -136,6 +137,11 @@ def resume_repair_job(
     """Resume a paused ASEA workflow after human patch review."""
 
     try:
+        job = repair_jobs.get_job(job_id)
+        if job is None:
+            raise KeyError(f"Repair job not found: {job_id}")
+        publish = bool((job.get("result") or {}).get("publish_requested", False))
+
         repair_jobs.update_job(
             job_id,
             status="running",
@@ -170,14 +176,20 @@ def resume_repair_job(
                 status="waiting_for_review",
                 message="ASEA generated another patch requiring approval.",
                 review_request=review_request,
+                result={"publish_requested": publish},
             )
 
         else:
+            job_result = {"workflow": result}
+            message = "ASEA repair workflow completed."
+            if publish:
+                job_result["publishing"] = publish_validated_repairs(result)
+                message = "ASEA repair completed and pull request created."
             repair_jobs.update_job(
                 job_id,
                 status="completed",
-                message="ASEA repair workflow completed.",
-                result=result,
+                message=message,
+                result=job_result,
             )
 
     except Exception:

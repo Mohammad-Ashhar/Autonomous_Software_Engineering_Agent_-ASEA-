@@ -6,6 +6,7 @@ import {
   analyzeRepository,
   startRepair,
   getRepairStatus,
+  getRepairHistory,
   submitPatchReview,
   type AnalyzeResponse,
   type RepairResponse,
@@ -115,6 +116,29 @@ useEffect(() => {
   document.documentElement.dataset.theme = theme;
   localStorage.setItem("asea-theme", theme);
 }, [theme, themeLoaded]);
+
+useEffect(() => {
+  let cancelled = false;
+
+  async function loadRepairHistory() {
+    try {
+      const history = await getRepairHistory(20, 0);
+      if (cancelled) return;
+      setRepairHistory(history.items);
+      setHistoryTotal(history.total);
+    } catch {
+      // Keep the dashboard usable if history is temporarily unavailable.
+    }
+  }
+
+  void loadRepairHistory();
+  const timer = setInterval(loadRepairHistory, 5000);
+
+  return () => {
+    cancelled = true;
+    clearInterval(timer);
+  };
+}, [repairJob?.job_id, repairStatus?.status]);
 
 useEffect(() => {
   const jobId = repairJob?.job_id;
@@ -264,32 +288,20 @@ async function handlePatchReview(decision: "approved" | "rejected") {
   const bugsDetected = reviewBug ? 1 : 0;
   const bugsRepaired = auditLog.filter((entry) => entry.event === "bug_repaired").length;
   const pendingReviews = repairStatus?.status === "waiting_for_review" ? 1 : 0;
-  const currentJobs = [
-    ...(analysisResult
-      ? [{
-          key: "analysis",
-          name: String(analysis?.repository ?? "Repository analysis"),
-          detail: `${readNumber(analysis?.total_files) ?? "—"} files · ${readNumber(analysis?.total_functions) ?? "—"} functions`,
-          status: "Analysis complete",
-          color: "green",
-        }]
-      : []),
-    ...(repairJob
-      ? [{
-          key: "repair",
-          name: repairStatus?.repository?.split("/").pop() || "Repair job",
-          detail: reviewBug?.title
-            ? String(reviewBug.title)
-            : `${bugsRepaired} issue${bugsRepaired === 1 ? "" : "s"} repaired`,
-          status: formatStatus(repairStatus?.status || repairJob.status),
-          color: repairStatus?.status === "completed"
-            ? "green"
-            : repairStatus?.status === "failed"
-              ? "red"
-              : "yellow",
-        }]
-      : []),
-  ];
+  const currentJobs = repairHistory.map((job) => ({
+    key: job.job_id,
+    name: job.repository.split(/[\\/]/).filter(Boolean).pop() || job.repository,
+    detail: job.message || job.error || "Repair workflow",
+    status: formatStatus(job.status),
+    color: job.status === "completed"
+      ? "green"
+      : job.status === "failed"
+        ? "red"
+        : "yellow",
+    time: job.created_at
+      ? new Date(job.created_at).toLocaleString()
+      : "Recently",
+  }));
 
 
   return (
@@ -564,13 +576,13 @@ async function handlePatchReview(decision: "approved" | "rejected") {
                   <h2>Recent repair jobs</h2>
                   <p>Latest repository analysis and repair activity.</p>
                 </div>
-                <a href="#history" className="view-all">View all <Icon name="arrow" size={14} /></a>
+                <span className="view-all">{historyTotal} total jobs</span>
               </div>
 
               <div className="jobs-list">
                 {currentJobs.length === 0 ? (
                   <div className="empty-jobs">
-                    No activity yet. Analyze a GitHub repository to see real jobs here.
+                    No repair jobs yet. Start an autonomous repair to build your history.
                   </div>
                 ) : (
                   currentJobs.map((job) => (
@@ -583,7 +595,7 @@ async function handlePatchReview(decision: "approved" | "rejected") {
                       <div className="job-result">
                         <span className={`status-badge ${job.color}`}>{job.status}</span>
                       </div>
-                      <span className="job-time">This session</span>
+                      <span className="job-time">{job.time}</span>
                     </article>
                   ))
                 )}

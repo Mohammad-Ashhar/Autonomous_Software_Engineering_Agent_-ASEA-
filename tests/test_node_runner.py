@@ -94,3 +94,64 @@ def test_node_runner_rejects_missing_repository(tmp_path):
         pass
     else:
         raise AssertionError("Missing repository should be rejected")
+
+
+
+def test_package_manifest_allows_dependency_free_node_test_script(tmp_path):
+    (tmp_path / "package.json").write_text(
+        '{"name":"fixture","scripts":{"test":"node --test"}}',
+        encoding="utf-8",
+    )
+
+    result = node_test_runner.NodeTestRunner.inspect_package_manifest(tmp_path)
+
+    assert result["package_manifest"] is True
+    assert result["package_manager"] == "npm"
+    assert result["test_script"] == "node --test"
+    assert result["dependency_installation"] == "not_required"
+
+
+def test_package_manifest_blocks_declared_dependencies(tmp_path):
+    (tmp_path / "package.json").write_text(
+        '{"dependencies":{"left-pad":"1.3.0"}}',
+        encoding="utf-8",
+    )
+
+    result = node_test_runner.NodeTestRunner.inspect_package_manifest(tmp_path)
+
+    assert result["status"] == "UNSUPPORTED_DEPENDENCIES"
+    assert result["success"] is False
+    assert result["declared_dependencies"] == ["left-pad"]
+
+
+def test_package_manifest_blocks_arbitrary_test_scripts(tmp_path):
+    (tmp_path / "package.json").write_text(
+        '{"scripts":{"test":"jest --runInBand"}}',
+        encoding="utf-8",
+    )
+
+    result = node_test_runner.NodeTestRunner.inspect_package_manifest(tmp_path)
+
+    assert result["status"] == "UNSUPPORTED_TEST_SCRIPT"
+    assert result["success"] is False
+
+
+def test_package_manifest_blocks_lifecycle_hooks(tmp_path):
+    (tmp_path / "package.json").write_text(
+        '{"scripts":{"pretest":"node setup.js","test":"node --test"}}',
+        encoding="utf-8",
+    )
+
+    result = node_test_runner.NodeTestRunner.inspect_package_manifest(tmp_path)
+
+    assert result["status"] == "UNSUPPORTED_LIFECYCLE"
+    assert result["success"] is False
+
+
+def test_package_manifest_rejects_invalid_json(tmp_path):
+    (tmp_path / "package.json").write_text("{invalid", encoding="utf-8")
+
+    result = node_test_runner.NodeTestRunner.inspect_package_manifest(tmp_path)
+
+    assert result["status"] == "INVALID_MANIFEST"
+    assert result["success"] is False

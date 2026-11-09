@@ -5,11 +5,11 @@ from pathlib import Path
 from typing import Any
 
 from asea.tools.node_test_runner import NodeTestRunner
-from asea.tools.test_runner import DockerTestRunner
 from asea.tools.runner_factory import (
     CompositeTestRunner,
     detect_repository_runtimes,
 )
+from asea.tools.test_runner import DockerTestRunner
 
 
 class PatchValidatorAgent:

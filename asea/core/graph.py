@@ -478,6 +478,7 @@ def human_patch_review_node(state: ASEAState) -> dict[str, Any]:
             "patch_applied": False,
             "tests_passed": False,
             "reason": feedback,
+            "review_feedback": feedback,
         }
 
     return updates

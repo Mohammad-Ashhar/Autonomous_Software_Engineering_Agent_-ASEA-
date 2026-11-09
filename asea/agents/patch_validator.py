@@ -194,6 +194,18 @@ class PatchValidatorAgent:
             )
 
     @staticmethod
+    def has_reliable_test_execution(
+        results: dict[str, Any]
+    ) -> bool:
+        """Reject test runs that did not execute a usable test suite."""
+
+        return (
+            results.get("status") in {"PASSED", "FAILED"}
+            and results.get("total", 0) > 0
+            and not results.get("timed_out", False)
+        )
+
+    @staticmethod
     def has_no_new_failures(
         baseline: dict[str, Any],
         candidate: dict[str, Any]
@@ -316,6 +328,20 @@ class PatchValidatorAgent:
                 "success",
                 False
             )
+
+            if not self.has_reliable_test_execution(test_results):
+                return {
+                    "status": "PATCH_REJECTED",
+                    "patch_applied": True,
+                    "tests_passed": False,
+                    "regression_free": False,
+                    "reason": (
+                        "Candidate validation did not execute a usable "
+                        "test suite. Add or repair tests before accepting "
+                        "this patch."
+                    ),
+                    "test_results": test_results
+                }
 
             regression_free = self.has_no_new_failures(
                 baseline,

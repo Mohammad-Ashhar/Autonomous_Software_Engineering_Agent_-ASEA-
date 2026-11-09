@@ -77,7 +77,7 @@ def _call_argument_issue(
     ]
     required_keyword_only = [
         argument.arg
-        for argument, default in zip(args.kwonlyargs, args.kw_defaults)
+        for argument, default in zip(\n            args.kwonlyargs, args.kw_defaults, strict=True\n        )
         if default is None and argument.arg not in keyword_names
     ]
     if missing or required_keyword_only:
@@ -90,7 +90,11 @@ def _call_argument_issue(
             argument.arg for argument in args.kwonlyargs
         })
         if unexpected:
-            return "Call uses unexpected keyword argument(s): " + ", ".join(unexpected) + "."
+            return (
+                "Call uses unexpected keyword argument(s): "
+                + ", ".join(unexpected)
+                + "."
+            )
     return None
 
 
@@ -137,7 +141,11 @@ class PythonDependencyAnalyzer:
 
         for module, source in module_files.items():
             tree = trees[source]
-            package = module if source.name == "__init__.py" else module.rpartition(".")[0]
+            package = (
+                module
+                if source.name == "__init__.py"
+                else module.rpartition(".")[0]
+            )
             imported_symbols: dict[str, tuple[str, str]] = {}
             imported_modules: dict[str, str] = {}
 

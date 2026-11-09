@@ -39,7 +39,10 @@ class FakeGraph:
 
 def test_completed_repair_cleans_workspace(monkeypatch):
     jobs = FakeRepairJobs()
-    result = {"repo_path": "/source", "working_repo_path": "/workspaces/asea_run_1/repository"}
+    result = {
+        "repo_path": "/source",
+        "working_repo_path": "/workspaces/asea_run_1/repository",
+    }
     graph = FakeGraph(result)
     cleanups = []
     monkeypatch.setattr(main, "repair_jobs", jobs)
@@ -60,7 +63,10 @@ def test_completed_repair_cleans_workspace(monkeypatch):
 
 def test_review_pause_preserves_workspace(monkeypatch):
     jobs = FakeRepairJobs()
-    result = {"repo_path": "/source", "working_repo_path": "/workspaces/asea_run_2/repository"}
+    result = {
+        "repo_path": "/source",
+        "working_repo_path": "/workspaces/asea_run_2/repository",
+    }
     graph = FakeGraph(
         result,
         interrupts=[SimpleNamespace(value={"patch": "diff"})],

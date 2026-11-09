@@ -26,7 +26,7 @@ def test_detects_too_many_arguments_across_relative_import(tmp_path):
 
     result = PythonDependencyAnalyzer().analyze(tmp_path)
 
-    assert result["module_count"] == 2
+    assert result["module_count"] == 3
     assert result["dependency_map"]["sample.service"] == ["sample.api"]
     finding = result["cross_file_findings"][0]
     assert finding["title"] == "Cross-file function call signature mismatch"

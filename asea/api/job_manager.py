@@ -238,7 +238,10 @@ class RepairJobManager:
                     """
                     UPDATE repair_jobs
                     SET status = 'waiting_for_review',
-                        message = 'Review submission could not be scheduled; awaiting review.',
+                        message = (
+                            'Review submission could not be scheduled; '
+                            'awaiting review.'
+                        ),
                         updated_at = ?
                     WHERE job_id = ?
                       AND status = 'running'

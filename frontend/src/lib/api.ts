@@ -73,10 +73,11 @@ export function analyzeRepository(
 
 export function startRepair(
   repository: string,
+  publish = false,
 ): Promise<RepairResponse> {
   return request<RepairResponse>("/repair", {
     method: "POST",
-    body: JSON.stringify({ repository }),
+    body: JSON.stringify({ repository, publish }),
   });
 }
 

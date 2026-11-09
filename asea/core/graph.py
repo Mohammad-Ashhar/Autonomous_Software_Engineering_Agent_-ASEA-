@@ -27,9 +27,21 @@ def repository_analysis_node(state: ASEAState) -> dict[str, Any]:
 
     analyzer = RepositoryAnalyzer()
 
-    result = analyzer.analyze_cloned_repository(
-        folder=str(repo_path)
+    # GitHub clones created by ASEA live directly inside the manager's
+    # workspace. Any other valid local directory must use the local path.
+    managed_clone = (
+        repo_path.parent == analyzer.repository_manager.workspace
+        and (repo_path / ".git").exists()
     )
+
+    if managed_clone:
+        result = analyzer.analyze_cloned_repository(
+            folder=str(repo_path)
+        )
+    else:
+        result = analyzer.analyze_local_repository(
+            folder=str(repo_path)
+        )
 
     output_file = Path(result["output_file"])
 

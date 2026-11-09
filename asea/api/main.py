@@ -275,12 +275,28 @@ def start_repair(request: RepairRequest):
         publish_requested=request.publish,
     )
 
-    executor.submit(
-        run_repair_job,
-        job_id,
-        repository,
-        request.publish,
-    )
+    try:
+        executor.submit(
+            run_repair_job,
+            job_id,
+            repository,
+            request.publish,
+        )
+    except RuntimeError as error:
+        logging.exception(
+            "ASEA could not schedule repair job %s.",
+            job_id,
+        )
+        repair_jobs.update_job(
+            job_id,
+            status="failed",
+            message="ASEA could not schedule the repair job.",
+            error="The repair could not be scheduled. Please retry.",
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="ASEA is temporarily unable to schedule this repair. Please retry.",
+        ) from error
 
     return {
         "message": "Repair job submitted successfully.",

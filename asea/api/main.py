@@ -253,6 +253,41 @@ def start_repair(request: RepairRequest):
         "status": job["status"],
     }
 
+@app.get("/repairs")
+def list_repair_jobs(
+    limit: int = 50,
+    offset: int = 0,
+    status: str | None = None,
+):
+    """List persisted repair jobs, newest first."""
+    if not 1 <= limit <= 100:
+        raise HTTPException(
+            status_code=400,
+            detail="limit must be between 1 and 100.",
+        )
+    if offset < 0:
+        raise HTTPException(
+            status_code=400,
+            detail="offset cannot be negative.",
+        )
+    if status is not None and status not in {
+        "queued",
+        "running",
+        "waiting_for_review",
+        "completed",
+        "failed",
+    }:
+        raise HTTPException(
+            status_code=400,
+            detail="Unsupported repair job status.",
+        )
+    return repair_jobs.list_jobs(
+        limit=limit,
+        offset=offset,
+        status=status,
+    )
+
+
 @app.get("/repair/{job_id}")
 def get_repair_status(job_id: str):
     """Retrieve the current status of a repair job."""

@@ -182,6 +182,10 @@ class PythonDependencyAnalyzer:
                                 imported_modules[alias.asname] = target
                             elif "." not in target:
                                 imported_modules[target] = target
+                            else:
+                                imported_modules[target.split(".")[0]] = (
+                                    target.split(".")[0]
+                                )
                 elif isinstance(node, ast.ImportFrom):
                     target_module = _resolve_from_module(
                         node.module or "", package, node.level

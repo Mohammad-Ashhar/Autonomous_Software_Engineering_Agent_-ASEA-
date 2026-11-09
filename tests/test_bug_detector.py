@@ -162,13 +162,13 @@ def test_bug_detector_integrates_cross_file_findings(tmp_path):
     package.mkdir()
     (package / "__init__.py").write_text("", encoding="utf-8")
     (package / "api.py").write_text(
-        "def send(user):\\n    return user\\n",
+        "def send(user):\n    return user\n",
         encoding="utf-8",
     )
     (package / "service.py").write_text(
-        "from .api import send\\n"
-        "def run():\\n"
-        "    return send('alice', 'email')\\n",
+        "from .api import send\n"
+        "def run():\n"
+        "    return send('alice', 'email')\n",
         encoding="utf-8",
     )
 

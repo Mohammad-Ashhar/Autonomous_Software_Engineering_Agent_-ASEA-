@@ -1,8 +1,9 @@
 import ast
 import json
-from asea.tools.llm_client import OllamaClient
 from pathlib import Path
 from typing import Any
+
+from asea.tools.llm_client import OllamaClient
 
 
 IGNORED_PARTS = {

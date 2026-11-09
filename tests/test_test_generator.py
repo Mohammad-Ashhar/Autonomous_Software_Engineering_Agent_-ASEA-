@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from asea.agents.test_generator import (
+from asea.agents.test_generation import (
     TestGenerationAgent,
     _parse_response,
     _validate_test_code,

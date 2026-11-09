@@ -1,4 +1,6 @@
 
+from pathlib import Path
+
 import pytest
 
 from asea.tools.repository import RepositoryManager
@@ -80,7 +82,6 @@ def test_github_clones_with_same_repository_name_use_distinct_paths(
         destinations.append(Path(destination))
         Path(destination).mkdir(parents=True)
 
-    from pathlib import Path
     import asea.tools.repository as repository_module
 
     monkeypatch.setattr(repository_module.Repo, "clone_from", fake_clone_from)

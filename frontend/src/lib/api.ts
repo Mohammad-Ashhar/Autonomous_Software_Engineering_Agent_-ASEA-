@@ -106,3 +106,21 @@ export function checkBackendHealth(): Promise<{
 }> {
   return request("/health");
 }
+
+export interface RepairHistoryResponse {
+  items: RepairJob[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export function getRepairHistory(
+  limit = 20,
+  offset = 0,
+): Promise<RepairHistoryResponse> {
+  const query = new URLSearchParams({
+    limit: String(limit),
+    offset: String(offset),
+  });
+  return request<RepairHistoryResponse>(`/repairs?${query.toString()}`);
+}

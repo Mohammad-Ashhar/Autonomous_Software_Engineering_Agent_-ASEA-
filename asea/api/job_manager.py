@@ -191,7 +191,6 @@ class RepairJobManager:
                 return self._row_to_dict(row) if row else None
 
 
-repair_jobs = RepairJobManager()
     def list_jobs(
         self,
         limit: int = 50,
@@ -228,3 +227,7 @@ repair_jobs = RepairJobManager()
             "limit": limit,
             "offset": offset,
         }
+
+
+
+repair_jobs = RepairJobManager()

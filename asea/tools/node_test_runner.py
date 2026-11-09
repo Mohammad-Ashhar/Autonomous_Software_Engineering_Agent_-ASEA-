@@ -132,10 +132,20 @@ class NodeTestRunner:
             "optionalDependencies",
             "peerDependencies",
         )
+        dependency_data = {}
+        for section in dependency_sections:
+            values = manifest.get(section, {}) or {}
+            if not isinstance(values, dict):
+                return {
+                    "status": "INVALID_MANIFEST",
+                    "success": False,
+                    "reason": f"package.json {section} must be an object.",
+                }
+            dependency_data[section] = values
         declared = sorted(
             name
-            for section in dependency_sections
-            for name in (manifest.get(section, {}) or {})
+            for values in dependency_data.values()
+            for name in values
         )
         if declared:
             return {

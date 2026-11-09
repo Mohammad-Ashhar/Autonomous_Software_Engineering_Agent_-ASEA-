@@ -536,7 +536,7 @@ async function handlePatchReview(decision: "approved" | "rejected") {
   </>
 )}
 
-    {Boolean(pullRequest?.url) && (
+    {pullRequest && typeof pullRequest.url === "string" && (
       <p className="pull-request-link">
         <strong>Pull request created:</strong>{" "}
         <a href={String(pullRequest.url)} target="_blank" rel="noreferrer">

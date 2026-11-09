@@ -42,10 +42,22 @@ class RepairJobManager:
                     updated_at TEXT NOT NULL,
                     review_request TEXT,
                     result TEXT,
-                    error TEXT
+                    error TEXT,
+                    publish_requested INTEGER NOT NULL DEFAULT 0
                 )
                 """
             )
+            columns = {
+                row["name"]
+                for row in connection.execute(
+                    "PRAGMA table_info(repair_jobs)"
+                ).fetchall()
+            }
+            if "publish_requested" not in columns:
+                connection.execute(
+                    "ALTER TABLE repair_jobs ADD COLUMN "
+                    "publish_requested INTEGER NOT NULL DEFAULT 0"
+                )
 
     @staticmethod
     def _serialize(value: Any) -> str | None:
@@ -65,6 +77,7 @@ class RepairJobManager:
 
         for field in ("review_request", "result", "error"):
             job[field] = RepairJobManager._deserialize(job[field])
+        job["publish_requested"] = bool(job.get("publish_requested", False))
 
         return job
 
@@ -72,6 +85,7 @@ class RepairJobManager:
         self,
         job_id: str,
         repository: str,
+        publish_requested: bool = False,
     ) -> dict[str, Any]:
         """Register a new repair job."""
 
@@ -87,6 +101,7 @@ class RepairJobManager:
             "review_request": None,
             "result": None,
             "error": None,
+            "publish_requested": bool(publish_requested),
         }
 
         with self.lock:
@@ -96,9 +111,9 @@ class RepairJobManager:
                     INSERT INTO repair_jobs (
                         job_id, repository, status, message,
                         created_at, updated_at,
-                        review_request, result, error
+                        review_request, result, error, publish_requested
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         job["job_id"],
@@ -110,6 +125,7 @@ class RepairJobManager:
                         None,
                         None,
                         None,
+                        int(job["publish_requested"]),
                     ),
                 )
 
@@ -128,6 +144,7 @@ class RepairJobManager:
             "review_request",
             "result",
             "error",
+            "publish_requested",
         }
 
         invalid_fields = set(updates) - allowed_fields
@@ -190,6 +207,32 @@ class RepairJobManager:
 
                 return self._row_to_dict(row) if row else None
 
+
+    def mark_interrupted_jobs(self) -> int:
+        """Mark queued/running jobs from a previous process as failed.
+
+        Review-paused jobs are intentionally preserved because their
+        LangGraph checkpoints can be resumed after the API restarts.
+        """
+        now = datetime.now(timezone.utc).isoformat()
+        with self.lock:
+            with self._connect() as connection:
+                cursor = connection.execute(
+                    """
+                    UPDATE repair_jobs
+                    SET status = 'failed',
+                        message = 'Repair interrupted by API process restart.',
+                        error = ?,
+                        updated_at = ?
+                    WHERE status IN ('queued', 'running')
+                    """,
+                    (
+                        "The API restarted before this repair completed. "
+                        "Start a new repair; jobs awaiting review are preserved.",
+                        now,
+                    ),
+                )
+                return cursor.rowcount
 
     def list_jobs(
         self,

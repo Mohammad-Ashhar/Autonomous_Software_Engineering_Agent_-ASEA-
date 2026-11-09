@@ -69,9 +69,9 @@ def _validate_test_code(source: str) -> ast.Module:
 
 
 class TestGenerationAgent:
-    __test__ = False
-
     """Generate conservative pytest coverage when a repository has no tests."""
+
+    __test__ = False
 
     def __init__(self, max_modules: int = 5):
         self.llm = OllamaClient()

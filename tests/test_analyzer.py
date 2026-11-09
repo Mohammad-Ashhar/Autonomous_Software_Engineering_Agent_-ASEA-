@@ -1,5 +1,6 @@
 
 import json
+from pathlib import Path
 
 from asea.tools.analyzer import RepositoryAnalyzer
 
@@ -49,3 +50,21 @@ import math
 
     assert data["repository"] == "sample_project"
     assert len(data["files"]) == 1
+
+
+def test_default_analysis_artifacts_are_unique_per_run(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    project = tmp_path / "sample_project"
+    project.mkdir()
+    (project / "module.py").write_text(
+        "def answer():\n    return 42\n",
+        encoding="utf-8",
+    )
+    analyzer = RepositoryAnalyzer(workspace=tmp_path / "workspace")
+
+    first = analyzer.analyze_local_repository(project)
+    second = analyzer.analyze_local_repository(project)
+
+    assert first["output_file"] != second["output_file"]
+    assert Path(first["output_file"]).is_file()
+    assert Path(second["output_file"]).is_file()

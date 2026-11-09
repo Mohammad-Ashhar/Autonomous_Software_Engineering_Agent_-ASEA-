@@ -60,23 +60,36 @@ def _call_argument_issue(
 
     args = definition.args
     positional = args.posonlyargs + args.args
-    has_varargs = args.vararg is not None
     supplied_positional = len(call.args)
-    if not has_varargs and supplied_positional > len(positional):
+    if args.vararg is None and supplied_positional > len(positional):
         return (
             f"Call supplies {supplied_positional} positional arguments, "
             f"but the target accepts at most {len(positional)}."
         )
 
     keyword_names = {keyword.arg for keyword in call.keywords}
-    positional_names = {argument.arg for argument in positional}
-    required_positional = len(positional) - len(args.defaults)
-    missing = [
+    positional_or_keyword = {argument.arg for argument in args.args}
+    keyword_only = {argument.arg for argument in args.kwonlyargs}
+    bound_positional = {
         argument.arg
-        for index, argument in enumerate(positional[:required_positional])
-        if index >= supplied_positional
-        and argument.arg not in keyword_names
-    ]
+        for argument in positional[:supplied_positional]
+    }
+    duplicate_values = sorted(bound_positional & keyword_names & positional_or_keyword)
+    if duplicate_values:
+        return (
+            "Call provides multiple values for argument(s): "
+            + ", ".join(duplicate_values)
+            + "."
+        )
+
+    required_positional = len(positional) - len(args.defaults)
+    missing = []
+    for index, argument in enumerate(positional[:required_positional]):
+        if index < supplied_positional:
+            continue
+        if argument in args.posonlyargs or argument.arg not in keyword_names:
+            missing.append(argument.arg)
+
     required_keyword_only = [
         argument.arg
         for argument, default in zip(
@@ -88,11 +101,8 @@ def _call_argument_issue(
         names = missing + required_keyword_only
         return "Call is missing required argument(s): " + ", ".join(names) + "."
 
-    # A keyword that is not a parameter is an error unless **kwargs exists.
     if args.kwarg is None:
-        unexpected = sorted(keyword_names - positional_names - {
-            argument.arg for argument in args.kwonlyargs
-        })
+        unexpected = sorted(keyword_names - positional_or_keyword - keyword_only)
         if unexpected:
             return (
                 "Call uses unexpected keyword argument(s): "
@@ -100,6 +110,15 @@ def _call_argument_issue(
                 + "."
             )
     return None
+
+
+def _attribute_parts(node: ast.AST) -> list[str]:
+    """Return dotted components for a simple name/attribute expression."""
+    if isinstance(node, ast.Name):
+        return [node.id]
+    if isinstance(node, ast.Attribute):
+        return _attribute_parts(node.value) + [node.attr]
+    return []
 
 
 class PythonDependencyAnalyzer:
@@ -187,13 +206,26 @@ class PythonDependencyAnalyzer:
                 target = None
                 if isinstance(call.func, ast.Name):
                     target = imported_symbols.get(call.func.id)
-                elif (
-                    isinstance(call.func, ast.Attribute)
-                    and isinstance(call.func.value, ast.Name)
-                ):
-                    target_module = imported_modules.get(call.func.value.id)
-                    if target_module:
-                        target = (target_module, call.func.attr)
+                elif isinstance(call.func, ast.Attribute):
+                    parts = _attribute_parts(call.func)
+                    if len(parts) >= 2:
+                        local_name = parts[0]
+                        imported_module = imported_modules.get(local_name)
+                        if imported_module:
+                            suffix = parts[1:]
+                            for split_at in range(len(suffix) - 1, -1, -1):
+                                module_suffix = suffix[:split_at]
+                                symbol_name = suffix[split_at]
+                                candidate_module = ".".join(
+                                    [imported_module, *module_suffix]
+                                )
+                                if (
+                                    candidate_module in module_files
+                                    and symbol_name
+                                    in definitions.get(candidate_module, {})
+                                ):
+                                    target = (candidate_module, symbol_name)
+                                    break
 
                 if not target:
                     continue

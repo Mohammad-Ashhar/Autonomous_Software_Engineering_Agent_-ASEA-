@@ -7,10 +7,10 @@ def _state(tmp_path, validation=None, retries=1, max_retries=3):
     repository.mkdir()
     workspace.mkdir()
     source = repository / "module.py"
-    source.write_text("def value():\\n    return 1\\n", encoding="utf-8")
+    source.write_text("def value():\n    return 1\n", encoding="utf-8")
     working_source = workspace / "module.py"
     working_source.write_text(
-        "def value():\\n    return 2\\n",
+        "def value():\n    return 2\n",
         encoding="utf-8",
     )
     bug = {
@@ -57,7 +57,7 @@ def test_retry_generation_uses_latest_workspace_and_validation_feedback(
 
     assert captured["file_path"] == working_source
     assert captured["file_path"].read_text(encoding="utf-8").endswith(
-        "return 2\\n"
+        "return 2\n"
     )
     assert captured["previous_feedback"] == feedback
     assert captured["attempt"] == 2

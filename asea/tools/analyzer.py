@@ -1,4 +1,5 @@
 from pathlib import Path
+from uuid import uuid4
 
 from asea.tools.parser import PythonRepositoryParser
 from asea.tools.repository import RepositoryManager
@@ -13,7 +14,7 @@ class RepositoryAnalyzer:
     def analyze_local_repository(
         self,
         folder,
-        output_file="artifacts/repo_map.json"
+        output_file=None
     ):
         repo_path = self.repository_manager.load_local_repository(folder)
 
@@ -29,6 +30,14 @@ class RepositoryAnalyzer:
         return self._analyze_repository(repo_path, output_file)
 
     def _analyze_repository(self, repo_path, output_file):
+        # Each analysis gets its own artifact path so simultaneous API/CLI
+        # requests cannot overwrite another run's repository map.
+        if output_file is None:
+            output_file = (
+                Path("artifacts")
+                / f"repo_map_{uuid4().hex}.json"
+            )
+
         repo_map = self.parser.build_repository_map(
             repo_path,
             output_file

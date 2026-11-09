@@ -17,6 +17,12 @@ class FakeRepairJobs:
         self.created.append(job)
         return job
 
+    def get_job(self, job_id):
+        return {
+            "job_id": job_id,
+            "result": {"publish_requested": True},
+        }
+
     def update_job(self, job_id, **updates):
         self.updates.append((job_id, updates))
         return {"job_id": job_id, **updates}
@@ -146,3 +152,42 @@ def test_run_repair_job_does_not_publish_by_default(monkeypatch):
     final_update = jobs.updates[-1][1]
     assert final_update["status"] == "completed"
     assert final_update["result"] == {"workflow": workflow_result}
+
+
+
+def test_resume_repair_publishes_after_final_human_approval(monkeypatch):
+    jobs = FakeRepairJobs()
+    monkeypatch.setattr(main, "repair_jobs", jobs)
+
+    workflow_result = {
+        "status": "COMPLETED",
+        "working_test_results": {"success": True},
+    }
+
+    class FakeGraph:
+        def invoke(self, command, config):
+            return workflow_result
+
+        def get_state(self, config):
+            return SimpleNamespace(interrupts=[])
+
+    monkeypatch.setattr(main.app.state, "graph", FakeGraph(), raising=False)
+
+    published = {"status": "PULL_REQUEST_CREATED"}
+    publish_calls = []
+    monkeypatch.setattr(
+        main,
+        "publish_validated_repairs",
+        lambda result: publish_calls.append(result) or published,
+    )
+
+    main.resume_repair_job("job-resume-publish", "approved", "")
+
+    assert publish_calls == [workflow_result]
+    final_update = jobs.updates[-1][1]
+    assert final_update["status"] == "completed"
+    assert final_update["result"] == {
+        "workflow": workflow_result,
+        "publishing": published,
+    }
+    assert "pull request created" in final_update["message"]

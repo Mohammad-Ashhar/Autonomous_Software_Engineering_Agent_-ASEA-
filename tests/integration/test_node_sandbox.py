@@ -1,4 +1,4 @@
-import os
+import os  # noqa: I001
 import shutil
 from pathlib import Path
 

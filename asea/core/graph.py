@@ -9,6 +9,7 @@ from langgraph.types import interrupt
 from asea.agents.bug_detector import bug_detector_node
 from asea.agents.patch_generator import PatchGeneratorAgent
 from asea.agents.patch_validator import PatchValidatorAgent
+from asea.agents.test_generator import test_generation_node
 from asea.core.state import ASEAState
 from asea.tools.analyzer import RepositoryAnalyzer
 from asea.tools.test_runner import DockerTestRunner
@@ -65,13 +66,16 @@ def repository_analysis_node(state: ASEAState) -> dict[str, Any]:
 def test_execution_node(state: ASEAState) -> dict[str, Any]:
     """Run the original repository tests before repairs."""
 
-    repo_path = Path(state["repo_path"]).resolve()
+    repo_path = Path(
+        state.get("working_repo_path") or state["repo_path"]
+    ).resolve()
 
     runner = DockerTestRunner()
     results = runner.run_tests(repo_path)
 
     return {
         "test_results": results,
+        "working_test_results": results,
         "current_agent": "test_execution",
         "status": "baseline_tests_completed"
     }
@@ -749,13 +753,18 @@ def build_asea_graph(checkpointer=None):
     )
 
     workflow.add_node(
-        "test_execution",
-        test_execution_node
+        "workspace_preparation",
+        prepare_workspace_node
     )
 
     workflow.add_node(
-        "workspace_preparation",
-        prepare_workspace_node
+        "test_generation",
+        test_generation_node
+    )
+
+    workflow.add_node(
+        "test_execution",
+        test_execution_node
     )
 
     workflow.add_node(
@@ -796,9 +805,10 @@ def build_asea_graph(checkpointer=None):
     # Initial workflow.
     workflow.add_edge(START, "repository_analysis")
     workflow.add_edge("repository_analysis", "bug_detector")
-    workflow.add_edge("bug_detector", "test_execution")
-    workflow.add_edge("test_execution", "workspace_preparation")
-    workflow.add_edge("workspace_preparation", "bug_prioritization")
+    workflow.add_edge("bug_detector", "workspace_preparation")
+    workflow.add_edge("workspace_preparation", "test_generation")
+    workflow.add_edge("test_generation", "test_execution")
+    workflow.add_edge("test_execution", "bug_prioritization")
     workflow.add_edge("bug_prioritization", "bug_selector")
 
     # Select the next bug.

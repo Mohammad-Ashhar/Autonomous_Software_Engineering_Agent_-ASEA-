@@ -10,7 +10,10 @@ def test_retry_feedback_includes_validation_and_test_failure_details():
             "failed": 2,
             "errors": 1,
             "total": 7,
-            "failed_tests": ["tests/test_math.py::test_add", "tests/test_math.py::test_subtract"],
+            "failed_tests": [
+                "tests/test_math.py::test_add",
+                "tests/test_math.py::test_subtract",
+            ],
             "output": "AssertionError: expected 4, got 5",
         },
     }

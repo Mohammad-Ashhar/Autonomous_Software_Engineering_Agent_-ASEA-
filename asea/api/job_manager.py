@@ -208,6 +208,28 @@ class RepairJobManager:
                 return self._row_to_dict(row) if row else None
 
 
+    def claim_review(self, job_id: str) -> bool:
+        """Atomically claim a review-paused job for processing.
+
+        Only one review request can transition a job out of
+        waiting_for_review, preventing duplicate concurrent resumes.
+        """
+        now = datetime.now(timezone.utc).isoformat()
+        with self.lock:
+            with self._connect() as connection:
+                cursor = connection.execute(
+                    """
+                    UPDATE repair_jobs
+                    SET status = 'running',
+                        message = 'Processing patch review decision.',
+                        review_request = NULL,
+                        updated_at = ?
+                    WHERE job_id = ? AND status = 'waiting_for_review'
+                    """,
+                    (now, job_id),
+                )
+                return cursor.rowcount == 1
+
     def mark_interrupted_jobs(self) -> int:
         """Mark queued/running jobs from a previous process as failed.
 

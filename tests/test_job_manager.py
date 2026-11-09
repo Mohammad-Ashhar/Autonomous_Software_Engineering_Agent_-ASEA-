@@ -116,3 +116,67 @@ def test_list_jobs_validates_pagination(tmp_path):
         manager.list_jobs(limit=0)
     with pytest.raises(ValueError, match="offset"):
         manager.list_jobs(offset=-1)
+
+
+
+def test_publish_preference_persists_across_manager_restart(tmp_path):
+    db_path = tmp_path / "publish_preference.db"
+    manager1 = create_test_manager(db_path)
+
+    manager1.create_job(
+        "publish-001",
+        "demo_repo",
+        publish_requested=True,
+    )
+
+    manager2 = create_test_manager(db_path)
+    recovered = manager2.get_job("publish-001")
+
+    assert recovered["publish_requested"] is True
+
+
+def test_existing_database_is_migrated_with_publish_preference(tmp_path):
+    import sqlite3
+
+    db_path = tmp_path / "legacy_jobs.db"
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            """
+            CREATE TABLE repair_jobs (
+                job_id TEXT PRIMARY KEY,
+                repository TEXT NOT NULL,
+                status TEXT NOT NULL,
+                message TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                review_request TEXT,
+                result TEXT,
+                error TEXT
+            )
+            """
+        )
+
+    manager = create_test_manager(db_path)
+    job = manager.create_job("legacy-001", "demo_repo")
+
+    assert job["publish_requested"] is False
+    assert manager.get_job("legacy-001")["publish_requested"] is False
+
+
+def test_restart_recovery_fails_only_queued_and_running_jobs(tmp_path):
+    manager = create_test_manager(tmp_path / "recovery.db")
+    manager.create_job("queued-001", "repo-one")
+    manager.create_job("running-001", "repo-two")
+    manager.create_job("review-001", "repo-three")
+    manager.create_job("done-001", "repo-four")
+    manager.update_job("running-001", status="running")
+    manager.update_job("review-001", status="waiting_for_review")
+    manager.update_job("done-001", status="completed")
+
+    recovered_count = manager.mark_interrupted_jobs()
+
+    assert recovered_count == 2
+    assert manager.get_job("queued-001")["status"] == "failed"
+    assert manager.get_job("running-001")["status"] == "failed"
+    assert manager.get_job("review-001")["status"] == "waiting_for_review"
+    assert manager.get_job("done-001")["status"] == "completed"

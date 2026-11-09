@@ -155,3 +155,15 @@ def test_package_manifest_rejects_invalid_json(tmp_path):
 
     assert result["status"] == "INVALID_MANIFEST"
     assert result["success"] is False
+
+
+def test_package_manifest_rejects_invalid_dependency_section(tmp_path):
+    (tmp_path / "package.json").write_text(
+        '{"dependencies":["not-an-object"]}',
+        encoding="utf-8",
+    )
+
+    result = node_test_runner.NodeTestRunner.inspect_package_manifest(tmp_path)
+
+    assert result["status"] == "INVALID_MANIFEST"
+    assert result["success"] is False

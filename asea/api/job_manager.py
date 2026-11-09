@@ -227,8 +227,10 @@ class RepairJobManager:
                     WHERE status IN ('queued', 'running')
                     """,
                     (
-                        "The API restarted before this repair completed. "
-                        "Start a new repair; jobs awaiting review are preserved.",
+                        json.dumps(
+                            "The API restarted before this repair completed. "
+                            "Start a new repair; jobs awaiting review are preserved."
+                        ),
                         now,
                     ),
                 )

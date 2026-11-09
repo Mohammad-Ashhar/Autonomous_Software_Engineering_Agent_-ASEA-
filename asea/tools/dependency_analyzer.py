@@ -68,11 +68,6 @@ def _call_argument_issue(
 
     keyword_names = {keyword.arg for keyword in call.keywords}
     positional_names = {argument.arg for argument in positional}
-    supplied_names = {
-        positional[index].arg
-        for index in range(min(supplied_positional, len(positional)))
-    } | keyword_names
-
     required_positional = len(positional) - len(args.defaults)
     missing = [
         argument.arg

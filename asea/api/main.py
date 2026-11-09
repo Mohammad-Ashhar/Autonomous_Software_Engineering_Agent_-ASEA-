@@ -19,6 +19,7 @@ from asea.core.graph import (
 )
 from asea.tools.analyzer import RepositoryAnalyzer
 from asea.tools.repository import RepositoryManager
+from asea.integrations.repair_publisher import publish_validated_repairs
 
 CHECKPOINT_DB_PATH = (
     Path(__file__).resolve().parents[2]
@@ -52,7 +53,11 @@ async def lifespan(app: FastAPI):
 executor = ThreadPoolExecutor(max_workers=1)
 
 
-def run_repair_job(job_id: str, repository: str):
+def run_repair_job(
+    job_id: str,
+    repository: str,
+    publish: bool = False,
+):
     """Execute an ASEA repair workflow in the background."""
 
     try:
@@ -96,11 +101,19 @@ def run_repair_job(job_id: str, repository: str):
             )
 
         else:
+            job_result = {"workflow": result}
+            message = "ASEA repair workflow completed."
+
+            if publish:
+                publishing_result = publish_validated_repairs(result)
+                job_result["publishing"] = publishing_result
+                message = "ASEA repair completed and pull request created."
+
             repair_jobs.update_job(
                 job_id,
                 status="completed",
-                message="ASEA repair workflow completed.",
-                result=result,
+                message=message,
+                result=job_result,
             )
 
     except Exception:
@@ -204,6 +217,10 @@ class RepairRequest(BaseModel):
         min_length=1,
         description="Local repository path or HTTPS GitHub repository URL.",
     )
+    publish: bool = Field(
+        default=False,
+        description="Create a GitHub pull request after all repairs are approved and validated.",
+    )
 class ReviewRequest(BaseModel):
     decision: Literal["approved", "rejected"]
     feedback: str = Field(
@@ -245,6 +262,7 @@ def start_repair(request: RepairRequest):
         run_repair_job,
         job_id,
         repository,
+        request.publish,
     )
 
     return {

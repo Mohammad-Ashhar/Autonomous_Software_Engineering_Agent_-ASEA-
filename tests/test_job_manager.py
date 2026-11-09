@@ -72,3 +72,47 @@ def test_get_nonexistent_job(tmp_path):
     manager = create_test_manager(tmp_path / "test_jobs.db")
 
     assert manager.get_job("unknown-job") is None
+
+def test_list_jobs_returns_newest_first_with_pagination(tmp_path):
+    manager = create_test_manager(tmp_path / "history.db")
+    manager.create_job("history-001", "repo-one")
+    manager.create_job("history-002", "repo-two")
+    manager.create_job("history-003", "repo-three")
+
+    page = manager.list_jobs(limit=2, offset=0)
+
+    assert page["total"] == 3
+    assert page["limit"] == 2
+    assert page["offset"] == 0
+    assert len(page["items"]) == 2
+    assert [job["job_id"] for job in page["items"]] == [
+        "history-003",
+        "history-002",
+    ]
+
+    second_page = manager.list_jobs(limit=2, offset=2)
+    assert [job["job_id"] for job in second_page["items"]] == ["history-001"]
+
+
+def test_list_jobs_filters_by_status(tmp_path):
+    manager = create_test_manager(tmp_path / "history_status.db")
+    manager.create_job("queued-001", "repo-one")
+    manager.create_job("done-001", "repo-two")
+    manager.update_job("done-001", status="completed", result={"ok": True})
+
+    page = manager.list_jobs(status="completed")
+
+    assert page["total"] == 1
+    assert page["items"][0]["job_id"] == "done-001"
+    assert page["items"][0]["result"] == {"ok": True}
+
+
+def test_list_jobs_validates_pagination(tmp_path):
+    manager = create_test_manager(tmp_path / "history_validation.db")
+
+    import pytest
+
+    with pytest.raises(ValueError, match="limit"):
+        manager.list_jobs(limit=0)
+    with pytest.raises(ValueError, match="offset"):
+        manager.list_jobs(offset=-1)

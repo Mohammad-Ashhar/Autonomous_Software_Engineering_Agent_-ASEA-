@@ -9,7 +9,7 @@ from langgraph.types import interrupt
 from asea.agents.bug_detector import bug_detector_node
 from asea.agents.patch_generator import PatchGeneratorAgent
 from asea.agents.patch_validator import PatchValidatorAgent
-from asea.agents.test_generator import test_generation_node
+from asea.agents.test_generation import test_generation_node
 from asea.core.state import ASEAState
 from asea.tools.analyzer import RepositoryAnalyzer
 from asea.tools.test_runner import DockerTestRunner

@@ -222,9 +222,27 @@ class RepairJobManager:
                     UPDATE repair_jobs
                     SET status = 'running',
                         message = 'Processing patch review decision.',
-                        review_request = NULL,
                         updated_at = ?
                     WHERE job_id = ? AND status = 'waiting_for_review'
+                    """,
+                    (now, job_id),
+                )
+                return cursor.rowcount == 1
+
+    def release_review_claim(self, job_id: str) -> bool:
+        """Return an unstarted review claim to the review queue."""
+        now = datetime.now(timezone.utc).isoformat()
+        with self.lock:
+            with self._connect() as connection:
+                cursor = connection.execute(
+                    """
+                    UPDATE repair_jobs
+                    SET status = 'waiting_for_review',
+                        message = 'Review submission could not be scheduled; awaiting review.',
+                        updated_at = ?
+                    WHERE job_id = ?
+                      AND status = 'running'
+                      AND review_request IS NOT NULL
                     """,
                     (now, job_id),
                 )

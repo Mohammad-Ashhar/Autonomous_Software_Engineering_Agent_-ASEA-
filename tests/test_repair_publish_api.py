@@ -7,6 +7,13 @@ class FakeRepairJobs:
     def __init__(self):
         self.created = []
         self.updates = []
+        self.claimed = set()
+
+    def claim_review(self, job_id):
+        if job_id in self.claimed:
+            return False
+        self.claimed.add(job_id)
+        return True
 
     def create_job(self, job_id, repository, publish_requested=False):
         job = {
@@ -194,3 +201,19 @@ def test_resume_repair_publishes_after_final_human_approval(monkeypatch):
         "publishing": published,
     }
     assert "pull request created" in final_update["message"]
+
+
+def test_review_submission_claims_job_before_scheduling(monkeypatch):
+    jobs = FakeRepairJobs()
+    executor = FakeExecutor()
+    monkeypatch.setattr(main, "repair_jobs", jobs)
+    monkeypatch.setattr(main, "executor", executor)
+
+    response = main.review_repair_patch(
+        "job-review",
+        main.ReviewRequest(decision="approved"),
+    )
+
+    assert response["decision"] == "approved"
+    assert len(executor.submitted) == 1
+    assert jobs.claimed == {"job-review"}

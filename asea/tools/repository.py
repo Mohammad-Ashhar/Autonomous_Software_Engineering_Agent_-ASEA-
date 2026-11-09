@@ -1,4 +1,5 @@
 import shutil
+import tempfile
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -42,6 +43,30 @@ class RepositoryManager:
 
         return True
 
+    def _existing_clone(self, destination, requested_url):
+        """Validate and return an already-published repository clone."""
+        try:
+            repo = Repo(
+                str(destination),
+                search_parent_directories=False
+            )
+            existing_url = repo.remotes.origin.url.rstrip("/")
+        except (InvalidGitRepositoryError, AttributeError, IndexError) as error:
+            raise ValueError(
+                f"Existing workspace directory is not a valid Git clone: "
+                f"{destination}"
+            ) from error
+
+        if (
+            existing_url.removesuffix(".git").lower()
+            != requested_url.rstrip("/").removesuffix(".git").lower()
+        ):
+            raise ValueError(
+                "Existing workspace repository has a different remote URL."
+            )
+
+        return destination
+
     def clone_repository(self, url):
         self.validate_github_url(url)
 
@@ -52,45 +77,39 @@ class RepositoryManager:
         # share a name but belong to different GitHub accounts.
         destination = self.workspace / f"{owner}__{repository}"
 
-        # Reuse an existing clone only if it belongs to the requested repository.
         if destination.exists():
-            try:
-                repo = Repo(
-                    str(destination),
-                    search_parent_directories=False
-                )
+            return self._existing_clone(destination, url)
 
-                existing_url = repo.remotes.origin.url.rstrip("/")
-                requested_url = url.rstrip("/")
+        # Clone into a unique sibling directory. Publishing with an atomic
+        # rename ensures another process never observes a partial clone.
+        temporary_path = Path(
+            tempfile.mkdtemp(
+                prefix=f".{destination.name}.clone_",
+                dir=str(self.workspace),
+            )
+        )
 
-                if (
-                    existing_url.removesuffix(".git")
-                    != requested_url.removesuffix(".git")
-                ):
-                    raise ValueError(
-                        "Existing workspace repository has a different remote URL."
-                    )
-
-                return destination
-
-            except (InvalidGitRepositoryError, AttributeError) as error:
-                raise ValueError(
-                    f"Existing workspace directory is not a valid Git clone: "
-                    f"{destination}"
-                ) from error
-
-        # Clone the repository if it does not already exist.
         try:
-            Repo.clone_from(url, str(destination))
-            return destination
+            Repo.clone_from(url, str(temporary_path))
+
+            try:
+                temporary_path.rename(destination)
+                return destination
+            except FileExistsError:
+                # Another worker won the race and published the same clone.
+                return self._existing_clone(destination, url)
+            except OSError:
+                if destination.exists():
+                    return self._existing_clone(destination, url)
+                raise
 
         except GitCommandError as error:
-            if destination.exists():
-                shutil.rmtree(destination)
-
             raise RuntimeError(
                 f"Repository cloning failed: {error}"
             ) from error
+        finally:
+            if temporary_path.exists():
+                shutil.rmtree(temporary_path, ignore_errors=True)
 
     def load_local_repository(self, folder):
         source = Path(folder).resolve()

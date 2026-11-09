@@ -159,7 +159,7 @@ def resume_repair_job(
 ):
     """Resume a paused ASEA workflow after human patch review."""
 
-    graph = app.state.graph
+    graph = None
     config = None
     try:
         job = repair_jobs.get_job(job_id)
@@ -168,6 +168,7 @@ def resume_repair_job(
         publish = bool(
             job.get("publish_requested", False)
         )
+        graph = app.state.graph
 
         config = {
             "configurable": {

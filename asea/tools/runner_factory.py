@@ -18,6 +18,28 @@ class UnsupportedTestEnvironment(ValueError):
     """Raised when a repository needs a runner ASEA cannot safely select."""
 
 
+def detect_repository_runtimes(repository_path: str | Path) -> set[str]:
+    """Return supported runtimes represented by source files."""
+    root = Path(repository_path).resolve()
+    if not root.is_dir():
+        raise NotADirectoryError(root)
+    runtimes = set()
+    for path in root.rglob("*"):
+        if not path.is_file():
+            continue
+        if any(
+            part in IGNORED_DIRECTORIES
+            for part in path.relative_to(root).parts
+        ):
+            continue
+        suffix = path.suffix.lower()
+        if suffix in PYTHON_EXTENSIONS:
+            runtimes.add("python")
+        elif suffix in JAVASCRIPT_EXTENSIONS:
+            runtimes.add("javascript")
+    return runtimes
+
+
 class CompositeTestRunner:
     """Run every supported runtime and require every suite to pass."""
 
@@ -72,27 +94,13 @@ def get_repository_test_runner(repository_path: str | Path):
     if not root.is_dir():
         raise NotADirectoryError(root)
 
-    has_python = False
-    has_javascript = False
-    for path in root.rglob("*"):
-        if not path.is_file():
-            continue
-        if any(
-            part in IGNORED_DIRECTORIES
-            for part in path.relative_to(root).parts
-        ):
-            continue
-        suffix = path.suffix.lower()
-        has_python = has_python or suffix in PYTHON_EXTENSIONS
-        has_javascript = (
-            has_javascript or suffix in JAVASCRIPT_EXTENSIONS
-        )
+    runtimes = detect_repository_runtimes(root)
 
-    if has_python and has_javascript:
+    if runtimes == {"python", "javascript"}:
         return CompositeTestRunner()
-    if has_javascript:
+    if "javascript" in runtimes:
         return NodeTestRunner()
-    if has_python:
+    if "python" in runtimes:
         return DockerTestRunner()
     raise UnsupportedTestEnvironment(
         "No supported Python or plain JavaScript runtime was found."

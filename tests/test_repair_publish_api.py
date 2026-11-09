@@ -8,11 +8,16 @@ class FakeRepairJobs:
         self.created = []
         self.updates = []
         self.claimed = set()
+        self.released = []
 
     def claim_review(self, job_id):
         if job_id in self.claimed:
             return False
         self.claimed.add(job_id)
+        return True
+
+    def release_review_claim(self, job_id):
+        self.released.append(job_id)
         return True
 
     def create_job(self, job_id, repository, publish_requested=False):
@@ -218,3 +223,27 @@ def test_review_submission_claims_job_before_scheduling(monkeypatch):
     assert response["decision"] == "approved"
     assert len(executor.submitted) == 1
     assert jobs.claimed == {"job-review"}
+
+
+class RejectingExecutor:
+    def submit(self, function, *args):
+        raise RuntimeError("executor is shutting down")
+
+
+def test_review_submission_restores_job_when_scheduling_fails(monkeypatch):
+    jobs = FakeRepairJobs()
+    monkeypatch.setattr(main, "repair_jobs", jobs)
+    monkeypatch.setattr(main, "executor", RejectingExecutor())
+
+    try:
+        main.review_repair_patch(
+            "job-review-schedule-failure",
+            main.ReviewRequest(decision="approved"),
+        )
+    except main.HTTPException as error:
+        assert error.status_code == 503
+    else:
+        raise AssertionError("Scheduling failure should return HTTP 503")
+
+    assert jobs.claimed == {"job-review-schedule-failure"}
+    assert jobs.released == ["job-review-schedule-failure"]

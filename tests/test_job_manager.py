@@ -180,3 +180,20 @@ def test_restart_recovery_fails_only_queued_and_running_jobs(tmp_path):
     assert manager.get_job("running-001")["status"] == "failed"
     assert manager.get_job("review-001")["status"] == "waiting_for_review"
     assert manager.get_job("done-001")["status"] == "completed"
+
+
+def test_claim_review_allows_only_one_submission(tmp_path):
+    manager = create_test_manager(tmp_path / "review_claim.db")
+    manager.create_job("review-claim-001", "demo_repo")
+    manager.update_job(
+        "review-claim-001",
+        status="waiting_for_review",
+        review_request={"patch": "diff"},
+    )
+
+    assert manager.claim_review("review-claim-001") is True
+    assert manager.claim_review("review-claim-001") is False
+
+    job = manager.get_job("review-claim-001")
+    assert job["status"] == "running"
+    assert job["review_request"] is None

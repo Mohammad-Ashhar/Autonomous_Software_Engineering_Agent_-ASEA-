@@ -196,7 +196,7 @@ def test_claim_review_allows_only_one_submission(tmp_path):
 
     job = manager.get_job("review-claim-001")
     assert job["status"] == "running"
-    assert job["review_request"] is None
+    assert job["review_request"] == {"patch": "diff"}
 
 
 def test_release_review_claim_restores_waiting_state_and_checkpoint(tmp_path):

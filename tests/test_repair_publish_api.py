@@ -247,3 +247,32 @@ def test_review_submission_restores_job_when_scheduling_fails(monkeypatch):
 
     assert jobs.claimed == {"job-review-schedule-failure"}
     assert jobs.released == ["job-review-schedule-failure"]
+
+
+
+def test_start_repair_marks_job_failed_when_scheduling_fails(monkeypatch):
+    jobs = FakeRepairJobs()
+    monkeypatch.setattr(main, "repair_jobs", jobs)
+    monkeypatch.setattr(main, "executor", RejectingExecutor())
+
+    try:
+        main.start_repair(
+            main.RepairRequest(repository="/tmp/example-repository")
+        )
+    except main.HTTPException as error:
+        assert error.status_code == 503
+    else:
+        raise AssertionError("Scheduling failure should return HTTP 503")
+
+    assert len(jobs.created) == 1
+    job_id = jobs.created[0]["job_id"]
+    assert jobs.updates == [
+        (
+            job_id,
+            {
+                "status": "failed",
+                "message": "ASEA could not schedule the repair job.",
+                "error": "The repair could not be scheduled. Please retry.",
+            },
+        )
+    ]

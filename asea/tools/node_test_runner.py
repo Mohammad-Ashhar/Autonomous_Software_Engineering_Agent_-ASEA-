@@ -47,7 +47,7 @@ for (const file of files) {
   }
 }
 const tests = files.filter(file =>
-  /(?:^|[\\/])(?:test|tests)[\\/].+\.js$/.test(file) ||
+  /(?:^|[\\/])(?:test|tests)[\\/].+\.(?:js|mjs|cjs)$/.test(file) ||
   /\.(?:test|spec)\.(?:js|mjs|cjs)$/.test(file)
 );
 if (syntaxErrors.length) {

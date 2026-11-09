@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from asea.core.state import ASEAState
+from asea.tools.dependency_analyzer import PythonDependencyAnalyzer
 from asea.tools.llm_client import OllamaClient
 
 
@@ -553,10 +554,23 @@ If no issues are found:
         detected_bugs = []
 
         for file_path in python_files:
-
             findings = self.analyze_file(file_path)
-
             detected_bugs.extend(findings)
+
+        # Resolve project-local imports and validate calls against the
+        # actual function signatures defined in other repository files.
+        dependency_results = PythonDependencyAnalyzer().analyze(repo_path)
+        detected_bugs.extend(dependency_results["cross_file_findings"])
+
+        unique_findings = {}
+        for finding in detected_bugs:
+            key = (
+                finding.get("file"),
+                finding.get("line"),
+                finding.get("title")
+            )
+            unique_findings[key] = finding
+        detected_bugs = list(unique_findings.values())
 
         confirmed_count = sum(
             bug["classification"] == "confirmed_bug"
@@ -570,6 +584,15 @@ If no issues are found:
 
         return {
             "detected_bugs": detected_bugs,
+            "dependency_map": dependency_results["dependency_map"],
+            "dependency_analysis": {
+                "module_count": dependency_results["module_count"],
+                "dependency_count": dependency_results["dependency_count"],
+                "cross_file_issue_count": len(
+                    dependency_results["cross_file_findings"]
+                ),
+                "parse_errors": dependency_results["parse_errors"]
+            },
             "confirmed_bug_count": confirmed_count,
             "potential_issue_count": potential_count,
             "current_agent": "bug_detector",

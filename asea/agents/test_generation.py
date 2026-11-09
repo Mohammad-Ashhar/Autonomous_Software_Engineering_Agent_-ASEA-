@@ -43,6 +43,10 @@ def _validate_test_code(source: str) -> ast.Module:
     """Accept pytest functions without imports or top-level execution."""
     tree = ast.parse(source)
 
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            raise ValueError("Generated tests may not add imports.")
+
     test_functions = [
         node for node in tree.body
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
@@ -56,8 +60,6 @@ def _validate_test_code(source: str) -> ast.Module:
         raise ValueError("Generated tests must contain only test functions.")
 
     for node in ast.walk(tree):
-        if isinstance(node, (ast.Import, ast.ImportFrom)):
-            raise ValueError("Generated tests may not add imports.")
         if isinstance(node, ast.Name) and node.id in BLOCKED_NAMES:
             raise ValueError(
                 f"Generated tests contain a restricted name: {node.id}"
@@ -67,6 +69,8 @@ def _validate_test_code(source: str) -> ast.Module:
 
 
 class TestGenerationAgent:
+    __test__ = False
+
     """Generate conservative pytest coverage when a repository has no tests."""
 
     def __init__(self, max_modules: int = 5):
@@ -182,7 +186,7 @@ class TestGenerationAgent:
                     f"Source file: {source_file.name}\n\n"
                     "Generate a small, deterministic set of tests for this "
                     "module. Use the 'module' variable.\n\n"
-                    f"\`\`\`python\n{source[:10000]}\n\`\`\`"
+                    f"```python\n{source[:10000]}\n```"
                 )
             }
         ]

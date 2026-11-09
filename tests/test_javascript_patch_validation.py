@@ -84,3 +84,34 @@ def test_javascript_patch_is_rejected_without_passing_baseline(tmp_path):
     assert "passing baseline" in result["reason"]
     assert validator.node_test_runner.calls == 0
     assert "a - b" in (working / "src" / "math.js").read_text()
+
+
+def test_mixed_runtime_patch_runs_both_suites_before_preserving(tmp_path):
+    original, working = create_repositories(tmp_path)
+    (original / "service.py").write_text("def health():\n    return True\n")
+    (working / "service.py").write_text("def health():\n    return True\n")
+    validator = PatchValidatorAgent.__new__(PatchValidatorAgent)
+    validator.test_runner = PassingRunner()
+    validator.node_test_runner = PassingRunner()
+
+    result = validator.validate_patch(
+        original,
+        javascript_patch(),
+        working,
+        baseline_test_results={
+            "status": "PASSED",
+            "success": True,
+            "failed": 0,
+            "errors": 0,
+            "failed_tests": [],
+            "runtimes": {
+                "python": {"success": True},
+                "javascript": {"success": True},
+            },
+        },
+    )
+
+    assert result["status"] == "PATCH_VALIDATED"
+    assert validator.test_runner.calls == 1
+    assert validator.node_test_runner.calls == 1
+    assert "a + b" in (working / "src" / "math.js").read_text()

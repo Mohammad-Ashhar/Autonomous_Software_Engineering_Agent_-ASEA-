@@ -8,11 +8,12 @@ class FakeRepairJobs:
         self.created = []
         self.updates = []
 
-    def create_job(self, job_id, repository):
+    def create_job(self, job_id, repository, publish_requested=False):
         job = {
             "job_id": job_id,
             "repository": repository,
             "status": "queued",
+            "publish_requested": publish_requested,
         }
         self.created.append(job)
         return job
@@ -20,7 +21,8 @@ class FakeRepairJobs:
     def get_job(self, job_id):
         return {
             "job_id": job_id,
-            "result": {"publish_requested": True},
+            "result": None,
+            "publish_requested": True,
         }
 
     def update_job(self, job_id, **updates):
@@ -53,6 +55,7 @@ def test_start_repair_forwards_explicit_publish_choice(monkeypatch):
     assert len(executor.submitted) == 1
     function, args = executor.submitted[0]
     assert function is main.run_repair_job
+    assert jobs.created[0]["publish_requested"] is True
     assert args[1:] == ("/tmp/example-repository", True)
 
 

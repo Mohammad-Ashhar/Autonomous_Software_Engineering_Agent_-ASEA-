@@ -41,7 +41,10 @@ async def lifespan(app: FastAPI):
         checkpointer.setup()
         recovered = repair_jobs.mark_interrupted_jobs()
         if recovered:
-            logging.warning("Marked %s interrupted repair jobs after restart.", recovered)
+            logging.warning(
+                "Marked %s interrupted repair jobs after restart.",
+                recovered,
+            )
 
         app.state.checkpointer = checkpointer
         app.state.graph = build_asea_graph(

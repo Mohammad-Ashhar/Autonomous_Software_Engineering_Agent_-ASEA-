@@ -111,8 +111,8 @@ class PatchValidatorAgent:
                 if index + 1 >= len(lines) or not lines[index + 1].startswith("+++ "):
                     raise ValueError("Malformed unified diff file headers.")
 
-                old_path = line[4:].split("\\t")[0].strip()
-                new_path = lines[index + 1][4:].split("\\t")[0].strip()
+                old_path = line[4:].split("\t")[0].strip()
+                new_path = lines[index + 1][4:].split("\t")[0].strip()
 
                 if old_path == "/dev/null" or new_path == "/dev/null":
                     raise ValueError(
@@ -191,7 +191,7 @@ class PatchValidatorAgent:
 
         if check_result.returncode != 0:
             raise ValueError(
-                f"Patch cannot be applied:\\n{check_result.stderr}"
+                f"Patch cannot be applied:\n{check_result.stderr}"
             )
 
         apply_result = subprocess.run(
@@ -212,7 +212,7 @@ class PatchValidatorAgent:
 
         if apply_result.returncode != 0:
             raise RuntimeError(
-                f"Patch application failed:\\n{apply_result.stderr}"
+                f"Patch application failed:\n{apply_result.stderr}"
             )
 
     @staticmethod

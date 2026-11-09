@@ -205,7 +205,10 @@ class BugDetectorAgent:
                     continue
                 terminal_seen = False
                 for statement in body:
-                    if terminal_seen and not isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                    if terminal_seen and not isinstance(
+                        statement,
+                        (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef),
+                    ):
                         findings.append({
                             "title": "Unreachable statement",
                             "line": statement.lineno,

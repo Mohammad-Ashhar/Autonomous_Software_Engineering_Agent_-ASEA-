@@ -67,3 +67,28 @@ def test_github_url_accepts_https_repository_with_git_suffix(tmp_path):
     assert manager.validate_github_url(
         "https://github.com/example/project.git"
     )
+
+
+def test_github_clones_with_same_repository_name_use_distinct_paths(
+    tmp_path,
+    monkeypatch,
+):
+    manager = RepositoryManager(tmp_path / "workspace")
+    destinations = []
+
+    def fake_clone_from(url, destination):
+        destinations.append(Path(destination))
+        Path(destination).mkdir(parents=True)
+
+    from pathlib import Path
+    import asea.tools.repository as repository_module
+
+    monkeypatch.setattr(repository_module.Repo, "clone_from", fake_clone_from)
+
+    first = manager.clone_repository("https://github.com/owner-one/project")
+    second = manager.clone_repository("https://github.com/owner-two/project")
+
+    assert first != second
+    assert first.name == "owner-one__project"
+    assert second.name == "owner-two__project"
+    assert destinations == [first, second]

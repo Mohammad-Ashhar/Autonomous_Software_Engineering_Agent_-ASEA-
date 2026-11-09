@@ -81,7 +81,8 @@ def test_github_clones_with_same_repository_name_use_distinct_paths(
     def fake_clone_from(url, destination):
         clone_path = Path(destination)
         destinations.append(clone_path)
-        assert not (manager.workspace / "owner-one__project").exists()
+        owner, repository = url.rstrip("/").split("/")[-2:]
+        assert not (manager.workspace / f"{owner}__{repository}").exists()
         (clone_path / ".git").mkdir()
 
     import asea.tools.repository as repository_module
@@ -94,11 +95,7 @@ def test_github_clones_with_same_repository_name_use_distinct_paths(
     assert first != second
     assert first.name == "owner-one__project"
     assert second.name == "owner-two__project"
-    assert destinations == [
-        manager.workspace / ".owner-one__project.clone_"
-        if False else destinations[0],
-        destinations[1],
-    ]
+    assert len(destinations) == 2
     assert all(path.parent == manager.workspace for path in destinations)
     assert all(not path.exists() for path in destinations)
     assert (first / ".git").is_dir()

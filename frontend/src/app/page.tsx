@@ -90,6 +90,7 @@ export default function Home() {
   const [themeLoaded, setThemeLoaded] = useState(false);
   const [repairHistory, setRepairHistory] = useState<RepairJob[]>([]);
   const [historyTotal, setHistoryTotal] = useState(0);
+  const [publishRequested, setPublishRequested] = useState(false);
   const [repository, setRepository] = useState("");
   const [notice, setNotice] = useState("");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -229,7 +230,7 @@ async function handleStartRepair() {
   setNotice("Submitting autonomous repair job...");
 
   try {
-    const result = await startRepair(repository.trim());
+    const result = await startRepair(repository.trim(), publishRequested);
 
     setRepairJob(result);
     setNotice(`Repair job submitted successfully. Job ID: ${result.job_id}`);
@@ -286,8 +287,11 @@ async function handlePatchReview(decision: "approved" | "rejected") {
   const reviewRequest = readRecord(repairStatus?.review_request);
   const reviewBug = readRecord(reviewRequest?.bug);
   const repairResult = readRecord(repairStatus?.result);
-  const auditLog = Array.isArray(repairResult?.audit_log)
-    ? repairResult.audit_log.map(readRecord).filter(
+  const workflowResult = readRecord(repairResult?.workflow) ?? repairResult;
+  const publishingResult = readRecord(repairResult?.publishing);
+  const pullRequest = readRecord(publishingResult?.pull_request);
+  const auditLog = Array.isArray(workflowResult?.audit_log)
+    ? workflowResult.audit_log.map(readRecord).filter(
         (entry): entry is Record<string, unknown> => entry !== null,
       )
     : [];
@@ -443,6 +447,17 @@ async function handlePatchReview(decision: "approved" | "rejected") {
   {!isAnalyzing && <Icon name="arrow" size={17} />}
 </button>
             </div>
+            <label className="publish-option">
+              <input
+                type="checkbox"
+                checked={publishRequested}
+                onChange={(event) => setPublishRequested(event.target.checked)}
+              />
+              <span>
+                <strong>Create a GitHub pull request after validation</strong>
+                <small>Only approved repairs that pass final tests will be published. Backend GitHub credentials are required.</small>
+              </span>
+            </label>
             {notice && (
   <div className="input-notice" role="status">
     {notice}
@@ -520,6 +535,15 @@ async function handlePatchReview(decision: "approved" | "rejected") {
     </div>
   </>
 )}
+
+    {pullRequest?.url && (
+      <p className="pull-request-link">
+        <strong>Pull request created:</strong>{" "}
+        <a href={String(pullRequest.url)} target="_blank" rel="noreferrer">
+          {String(pullRequest.url)}
+        </a>
+      </p>
+    )}
 
     {repairStatus?.result && (
       <>

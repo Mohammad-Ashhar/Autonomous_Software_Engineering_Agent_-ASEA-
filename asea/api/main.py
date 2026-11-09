@@ -9,7 +9,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.types import Command
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from asea.api.job_manager import repair_jobs
 from asea.cli import resolve_repository
@@ -219,15 +219,23 @@ app.add_middleware(
 
 
 class AnalyzeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
     repository: str = Field(
         ...,
         min_length=1,
+        max_length=2048,
         description="Local repository path or HTTPS GitHub repository URL.",
     )
+
+
 class RepairRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
     repository: str = Field(
         ...,
         min_length=1,
+        max_length=2048,
         description="Local repository path or HTTPS GitHub repository URL.",
     )
     publish: bool = Field(
@@ -238,6 +246,8 @@ class RepairRequest(BaseModel):
         ),
     )
 class ReviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
     decision: Literal["approved", "rejected"]
     feedback: str = Field(
         default="",
@@ -308,7 +318,13 @@ def start_repair(request: RepairRequest):
 def list_repair_jobs(
     limit: int = 50,
     offset: int = 0,
-    status: str | None = None,
+    status: Literal[
+        "queued",
+        "running",
+        "waiting_for_review",
+        "completed",
+        "failed",
+    ] | None = None,
 ):
     """List persisted repair jobs, newest first."""
     if not 1 <= limit <= 100:

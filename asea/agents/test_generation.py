@@ -1,9 +1,8 @@
 import ast
 import json
+from asea.tools.llm_client import OllamaClient
 from pathlib import Path
 from typing import Any
-
-from asea.tools.llm_client import OllamaClient
 
 
 IGNORED_PARTS = {
@@ -41,7 +40,7 @@ def _parse_response(response: str) -> str:
 
 
 def _validate_test_code(source: str) -> ast.Module:
-    """Accept only simple pytest functions without imports or executable top-level code."""
+    """Accept pytest functions without imports or top-level execution."""
     tree = ast.parse(source)
 
     test_functions = [

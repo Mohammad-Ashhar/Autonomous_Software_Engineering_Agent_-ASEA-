@@ -82,7 +82,10 @@ class TestGenerationAgent:
                 path.name.startswith("test_")
                 or path.name.endswith("_test.py")
             )
-            and not any(part in IGNORED_PARTS for part in path.parts)
+            and not any(
+                part in IGNORED_PARTS
+                for part in path.relative_to(repository).parts
+            )
             for path in repository.rglob("*.py")
         )
 

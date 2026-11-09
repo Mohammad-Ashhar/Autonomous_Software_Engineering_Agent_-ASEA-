@@ -209,11 +209,7 @@ class RepairJobManager:
 
 
     def claim_review(self, job_id: str) -> bool:
-        """Atomically claim a review-paused job for processing.
-
-        Only one review request can transition a job out of
-        waiting_for_review, preventing duplicate concurrent resumes.
-        """
+        """Atomically claim a review-paused job without losing its checkpoint."""
         now = datetime.now(timezone.utc).isoformat()
         with self.lock:
             with self._connect() as connection:
@@ -238,16 +234,18 @@ class RepairJobManager:
                     """
                     UPDATE repair_jobs
                     SET status = 'waiting_for_review',
-                        message = (
-                            'Review submission could not be scheduled; '
-                            'awaiting review.'
-                        ),
+                        message = ?,
                         updated_at = ?
                     WHERE job_id = ?
                       AND status = 'running'
                       AND review_request IS NOT NULL
                     """,
-                    (now, job_id),
+                    (
+                        "Review submission could not be scheduled; "
+                        "awaiting review.",
+                        now,
+                        job_id,
+                    ),
                 )
                 return cursor.rowcount == 1
 

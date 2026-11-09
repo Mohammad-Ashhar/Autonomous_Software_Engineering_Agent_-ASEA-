@@ -5,7 +5,6 @@ from typing import Any
 
 from asea.tools.llm_client import OllamaClient
 
-
 IGNORED_PARTS = {
     ".git", ".venv", "venv", "__pycache__", "node_modules",
     "dist", "build", ".pytest_cache", ".mypy_cache", ".ruff_cache",

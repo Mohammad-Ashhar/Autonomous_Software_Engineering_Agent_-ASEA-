@@ -42,7 +42,7 @@ def _function_definitions(
     tree: ast.Module
 ) -> dict[str, ast.FunctionDef | ast.AsyncFunctionDef]:
     definitions = {}
-    for node in ast.walk(tree):
+    for node in tree.body:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             definitions[node.name] = node
     return definitions

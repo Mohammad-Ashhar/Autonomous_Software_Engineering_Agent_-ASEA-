@@ -165,7 +165,105 @@ class BugDetectorAgent:
                         "source": "ast"
                     })
 
-        return findings
+        # General-purpose checks that do not depend on function names.
+        for node in ast.walk(syntax_tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+
+            # Mutable defaults are shared between calls and commonly cause
+            # state leakage. Report only literal mutable containers.
+            defaults = node.args.defaults
+            positional = node.args.posonlyargs + node.args.args
+            offset = len(positional) - len(defaults)
+            for index, default in enumerate(defaults):
+                if isinstance(default, (ast.List, ast.Dict, ast.Set)):
+                    argument = positional[offset + index]
+                    findings.append({
+                        "title": "Mutable default argument",
+                        "line": default.lineno,
+                        "severity": "medium",
+                        "classification": "confirmed_bug",
+                        "confidence": 0.99,
+                        "description": (
+                            f"Parameter '{argument.arg}' uses a mutable "
+                            "literal as its default value. The same object "
+                            "is reused across function calls."
+                        ),
+                        "suggestion": (
+                            "Use None as the default and create the mutable "
+                            "value inside the function."
+                        ),
+                        "file": str(file_path),
+                        "source": "ast"
+                    })
+
+            # Detect statements placed after an unconditional return/raise
+            # in the same statement block.
+            for child in ast.walk(node):
+                body = getattr(child, "body", None)
+                if not isinstance(body, list):
+                    continue
+                terminal_seen = False
+                for statement in body:
+                    if terminal_seen and not isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                        findings.append({
+                            "title": "Unreachable statement",
+                            "line": statement.lineno,
+                            "severity": "low",
+                            "classification": "potential_issue",
+                            "confidence": 0.94,
+                            "description": (
+                                "This statement follows an unconditional "
+                                "return or raise in the same code block."
+                            ),
+                            "suggestion": (
+                                "Remove the unreachable statement or move "
+                                "it before the terminal statement."
+                            ),
+                            "file": str(file_path),
+                            "source": "ast"
+                        })
+                        break
+                    if isinstance(statement, (ast.Return, ast.Raise)):
+                        terminal_seen = True
+
+            # An unconditional assert False makes the function fail whenever
+            # execution reaches it. Keep it as a potential issue because it
+            # may intentionally mark an unfinished path.
+            for child in ast.walk(node):
+                if (
+                    isinstance(child, ast.Assert)
+                    and isinstance(child.test, ast.Constant)
+                    and child.test.value is False
+                ):
+                    findings.append({
+                        "title": "Unconditional assertion failure",
+                        "line": child.lineno,
+                        "severity": "medium",
+                        "classification": "potential_issue",
+                        "confidence": 0.98,
+                        "description": (
+                            "This assert statement always fails when reached."
+                        ),
+                        "suggestion": (
+                            "Replace it with the intended condition or an "
+                            "explicit exception if failure is intentional."
+                        ),
+                        "file": str(file_path),
+                        "source": "ast"
+                    })
+
+        # Stable deduplication: one finding per rule and source line.
+        unique_findings = {}
+        for finding in findings:
+            key = (
+                finding.get("file"),
+                finding.get("line"),
+                finding.get("title")
+            )
+            unique_findings[key] = finding
+
+        return list(unique_findings.values())
 
     def analyze_file(self, file_path: Path) -> list[dict[str, Any]]:
         """Analyze a Python file using AST and Ollama."""

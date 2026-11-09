@@ -28,6 +28,7 @@ class FakeRepairJobs:
     def get_job(self, job_id):
         return {
             "job_id": job_id,
+            "status": "waiting_for_review",
             "result": None,
             "publish_requested": True,
         }

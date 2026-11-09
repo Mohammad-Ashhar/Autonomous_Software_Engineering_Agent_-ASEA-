@@ -12,6 +12,7 @@ from langgraph.types import Command
 from pydantic import BaseModel, ConfigDict, Field
 
 from asea.api.job_manager import repair_jobs
+from asea.api.workspace_cleanup import cleanup_repair_workspace
 from asea.cli import resolve_repository
 from asea.core.graph import (
     build_asea_graph,
@@ -66,6 +67,8 @@ def run_repair_job(
 ):
     """Execute an ASEA repair workflow in the background."""
 
+    graph = None
+    config = None
     try:
         repair_jobs.update_job(
             job_id,
@@ -116,6 +119,7 @@ def run_repair_job(
                 job_result["publishing"] = publishing_result
                 message = "ASEA repair completed and pull request created."
 
+            cleanup_repair_workspace(result.get("repo_path", ""), result)
             repair_jobs.update_job(
                 job_id,
                 status="completed",
@@ -124,6 +128,19 @@ def run_repair_job(
             )
 
     except Exception:
+        if graph is not None and config is not None:
+            try:
+                snapshot = graph.get_state(config)
+                if snapshot.values:
+                    cleanup_repair_workspace(
+                        snapshot.values.get("repo_path", ""),
+                        snapshot.values,
+                    )
+            except Exception:
+                logging.exception(
+                    "Could not clean failed repair workspace. Job ID: %s",
+                    job_id,
+                )
         logging.exception(
             "ASEA repair job failed. Job ID: %s",
             job_id,
@@ -142,6 +159,8 @@ def resume_repair_job(
 ):
     """Resume a paused ASEA workflow after human patch review."""
 
+    graph = app.state.graph
+    config = None
     try:
         job = repair_jobs.get_job(job_id)
         if job is None:
@@ -157,7 +176,7 @@ def resume_repair_job(
             "recursion_limit": 1000,
         }
 
-        result = app.state.graph.invoke(
+        result = graph.invoke(
             Command(
                 resume={
                     "decision": decision,
@@ -167,7 +186,7 @@ def resume_repair_job(
             config=config,
         )
 
-        snapshot = app.state.graph.get_state(config)
+        snapshot = graph.get_state(config)
 
         if snapshot.interrupts:
             review_request = snapshot.interrupts[0].value
@@ -186,6 +205,7 @@ def resume_repair_job(
             if publish:
                 job_result["publishing"] = publish_validated_repairs(result)
                 message = "ASEA repair completed and pull request created."
+            cleanup_repair_workspace(result.get("repo_path", ""), result)
             repair_jobs.update_job(
                 job_id,
                 status="completed",
@@ -194,6 +214,19 @@ def resume_repair_job(
             )
 
     except Exception:
+        if config is not None:
+            try:
+                snapshot = graph.get_state(config)
+                if snapshot.values:
+                    cleanup_repair_workspace(
+                        snapshot.values.get("repo_path", ""),
+                        snapshot.values,
+                    )
+            except Exception:
+                logging.exception(
+                    "Could not clean failed repair workspace. Job ID: %s",
+                    job_id,
+                )
         repair_jobs.update_job(
             job_id,
             status="failed",

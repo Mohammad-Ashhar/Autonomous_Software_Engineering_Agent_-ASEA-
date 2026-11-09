@@ -192,3 +192,39 @@ class RepairJobManager:
 
 
 repair_jobs = RepairJobManager()
+    def list_jobs(
+        self,
+        limit: int = 50,
+        offset: int = 0,
+        status: str | None = None,
+    ) -> dict[str, Any]:
+        """Return a newest-first page of persisted repair jobs."""
+        if not 1 <= limit <= 100:
+            raise ValueError("limit must be between 1 and 100")
+        if offset < 0:
+            raise ValueError("offset cannot be negative")
+
+        with self.lock:
+            with self._connect() as connection:
+                where_clause = "WHERE status = ?" if status else ""
+                parameters: tuple[Any, ...] = (status,) if status else ()
+                total = connection.execute(
+                    f"SELECT COUNT(*) FROM repair_jobs {where_clause}",
+                    parameters,
+                ).fetchone()[0]
+                rows = connection.execute(
+                    f"""
+                    SELECT * FROM repair_jobs
+                    {where_clause}
+                    ORDER BY created_at DESC, job_id DESC
+                    LIMIT ? OFFSET ?
+                    """,
+                    (*parameters, limit, offset),
+                ).fetchall()
+
+        return {
+            "items": [self._row_to_dict(row) for row in rows],
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+        }

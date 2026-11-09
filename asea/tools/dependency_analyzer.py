@@ -5,7 +5,6 @@ from importlib import util
 from pathlib import Path
 from typing import Any
 
-
 IGNORED_PARTS = {
     ".git", ".venv", "venv", "__pycache__", "node_modules",
     "dist", "build", ".pytest_cache", ".mypy_cache", ".ruff_cache",

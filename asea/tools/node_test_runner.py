@@ -5,7 +5,7 @@ installed, lifecycle hooks are never run, and only Node's built-in test runner
 is executed inside the isolated container.
 """
 
-import json
+import json  # noqa: I001
 import time
 from pathlib import Path
 

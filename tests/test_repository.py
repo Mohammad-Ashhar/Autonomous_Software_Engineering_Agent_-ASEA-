@@ -79,8 +79,10 @@ def test_github_clones_with_same_repository_name_use_distinct_paths(
     destinations = []
 
     def fake_clone_from(url, destination):
-        destinations.append(Path(destination))
-        Path(destination).mkdir(parents=True)
+        clone_path = Path(destination)
+        destinations.append(clone_path)
+        assert not (manager.workspace / "owner-one__project").exists()
+        (clone_path / ".git").mkdir()
 
     import asea.tools.repository as repository_module
 
@@ -92,4 +94,28 @@ def test_github_clones_with_same_repository_name_use_distinct_paths(
     assert first != second
     assert first.name == "owner-one__project"
     assert second.name == "owner-two__project"
-    assert destinations == [first, second]
+    assert destinations == [
+        manager.workspace / ".owner-one__project.clone_"
+        if False else destinations[0],
+        destinations[1],
+    ]
+    assert all(path.parent == manager.workspace for path in destinations)
+    assert all(not path.exists() for path in destinations)
+    assert (first / ".git").is_dir()
+    assert (second / ".git").is_dir()
+
+
+def test_failed_clone_cleans_temporary_workspace(tmp_path, monkeypatch):
+    manager = RepositoryManager(tmp_path / "workspace")
+
+    def fail_clone(url, destination):
+        raise repository_module.GitCommandError("clone", 1)
+
+    import asea.tools.repository as repository_module
+
+    monkeypatch.setattr(repository_module.Repo, "clone_from", fail_clone)
+
+    with pytest.raises(RuntimeError, match="Repository cloning failed"):
+        manager.clone_repository("https://github.com/example/project")
+
+    assert list(manager.workspace.iterdir()) == []

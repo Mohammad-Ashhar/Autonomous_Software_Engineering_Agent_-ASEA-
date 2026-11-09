@@ -99,13 +99,17 @@ const [reviewFeedback, setReviewFeedback] = useState("");
 const [isSubmittingReview, setIsSubmittingReview] = useState(false);
 
   useEffect(() => {
-  const savedTheme = localStorage.getItem("asea-theme");
+  const frame = window.requestAnimationFrame(() => {
+    const savedTheme = localStorage.getItem("asea-theme");
 
-  if (savedTheme === "light" || savedTheme === "dark") {
-    setTheme(savedTheme);
-  }
+    if (savedTheme === "light" || savedTheme === "dark") {
+      setTheme(savedTheme);
+    }
 
-  setThemeLoaded(true);
+    setThemeLoaded(true);
+  });
+
+  return () => window.cancelAnimationFrame(frame);
 }, []);
 
 useEffect(() => {

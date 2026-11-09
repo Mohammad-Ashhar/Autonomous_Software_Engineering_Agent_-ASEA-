@@ -41,3 +41,29 @@ def test_python_file_discovery(tmp_path):
 
     assert len(files) == 1
     assert files[0].name == "main.py"
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://github.com/user/repo?redirect=example",
+        "https://github.com/user/repo#fragment",
+        "https://user@github.com/user/repo",
+        "https://github.com:8443/user/repo",
+        "https://github.com/user/%2e%2e",
+        "https://github.com/user/repo/extra",
+    ],
+)
+def test_github_url_rejects_ambiguous_or_unsafe_urls(tmp_path, url):
+    manager = RepositoryManager(tmp_path / "workspace")
+
+    with pytest.raises(ValueError):
+        manager.validate_github_url(url)
+
+
+def test_github_url_accepts_https_repository_with_git_suffix(tmp_path):
+    manager = RepositoryManager(tmp_path / "workspace")
+
+    assert manager.validate_github_url(
+        "https://github.com/example/project.git"
+    )

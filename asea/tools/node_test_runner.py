@@ -1,10 +1,11 @@
-"""Restricted Docker runner for dependency-free JavaScript projects.
+"""Restricted Docker runner for dependency-free Node.js projects.
 
-It performs Node syntax checks and runs native Node test files. It never runs
-package-manager lifecycle hooks or installs repository dependencies.
+Package manifests are inspected without executing npm. Dependencies are never
+installed, lifecycle hooks are never run, and only Node's built-in test runner
+is executed inside the isolated container.
 """
 
-import json  # noqa: I001
+import json
 import time
 from pathlib import Path
 
@@ -17,7 +18,9 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 const root = "/workspace";
-const ignored = new Set([".git", "node_modules", ".next", "dist", "build", "coverage"]);
+const ignored = new Set([
+  ".git", "node_modules", ".next", "dist", "build", "coverage"
+]);
 const sourceExtensions = new Set([".js", ".mjs", ".cjs"]);
 const files = [];
 function walk(dir) {
@@ -44,14 +47,15 @@ for (const file of files) {
   }
 }
 const tests = files.filter(file =>
-  /(?:^|[\\/])(?:test|tests)[\\/].+\.js$/.test(file) ||
-  /\.(?:test|spec)\.(?:js|mjs|cjs)$/.test(file)
+  /(?:^|[\\/])(?:test|tests)[\\/].+\\.js$/.test(file) ||
+  /\\.(?:test|spec)\\.(?:js|mjs|cjs)$/.test(file)
 );
 if (syntaxErrors.length) {
   process.stdout.write(JSON.stringify({
     status: "SYNTAX_FAILED",
     syntax_errors: syntaxErrors,
-    test_files: tests.map(f => path.relative(root, f))
+    test_files: tests.map(f => path.relative(root, f)),
+    syntax_checked: files.length
   }));
   process.exit(2);
 }
@@ -86,18 +90,117 @@ process.exit(result.status === null ? 1 : result.status);
 
 
 class NodeTestRunner:
-    """Run JavaScript syntax checks and Node's built-in test runner in Docker."""
+    """Run safe Node.js checks without installing or executing npm scripts."""
 
-    def __init__(self, image="asea-sandbox:node22", timeout=120, memory_limit="512m"):
+    def __init__(
+        self,
+        image="asea-sandbox:node22",
+        timeout=120,
+        memory_limit="512m",
+    ):
         self.client = docker.from_env()
         self.image = image
         self.timeout = timeout
         self.memory_limit = memory_limit
 
+    @staticmethod
+    def inspect_package_manifest(repository_path: Path) -> dict:
+        """Reject manifests requiring dependencies or arbitrary npm scripts."""
+        manifest_path = repository_path / "package.json"
+        if not manifest_path.exists():
+            return {"package_manifest": False, "package_manager": None}
+
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as error:
+            return {
+                "status": "INVALID_MANIFEST",
+                "success": False,
+                "reason": f"Could not safely parse package.json: {error}",
+            }
+
+        if not isinstance(manifest, dict):
+            return {
+                "status": "INVALID_MANIFEST",
+                "success": False,
+                "reason": "package.json must contain a JSON object.",
+            }
+
+        dependency_sections = (
+            "dependencies",
+            "devDependencies",
+            "optionalDependencies",
+            "peerDependencies",
+        )
+        declared = sorted(
+            name
+            for section in dependency_sections
+            for name in (manifest.get(section, {}) or {})
+        )
+        if declared:
+            return {
+                "status": "UNSUPPORTED_DEPENDENCIES",
+                "success": False,
+                "reason": (
+                    "This project declares npm dependencies. ASEA does not "
+                    "install or execute third-party packages yet."
+                ),
+                "declared_dependencies": declared,
+                "package_manifest": True,
+                "package_manager": "npm",
+            }
+
+        scripts = manifest.get("scripts", {}) or {}
+        if not isinstance(scripts, dict):
+            return {
+                "status": "INVALID_MANIFEST",
+                "success": False,
+                "reason": "package.json scripts must contain a JSON object.",
+            }
+
+        unsupported_hooks = sorted(
+            name for name in ("pretest", "posttest") if scripts.get(name)
+        )
+        if unsupported_hooks:
+            return {
+                "status": "UNSUPPORTED_LIFECYCLE",
+                "success": False,
+                "reason": (
+                    "ASEA does not execute npm lifecycle hooks: "
+                    + ", ".join(unsupported_hooks)
+                ),
+                "package_manifest": True,
+                "package_manager": "npm",
+            }
+
+        test_script = scripts.get("test")
+        if test_script and test_script != "node --test":
+            return {
+                "status": "UNSUPPORTED_TEST_SCRIPT",
+                "success": False,
+                "reason": (
+                    "Only the exact package test script 'node --test' is "
+                    "supported. Arbitrary npm scripts are never executed."
+                ),
+                "package_manifest": True,
+                "package_manager": "npm",
+            }
+
+        return {
+            "package_manifest": True,
+            "package_manager": "npm",
+            "test_script": test_script,
+            "dependency_installation": "not_required",
+        }
+
     def run_tests(self, repository_path):
         repo_path = Path(repository_path).resolve()
         if not repo_path.is_dir():
             raise NotADirectoryError(repo_path)
+
+        manifest_result = self.inspect_package_manifest(repo_path)
+        if manifest_result.get("success") is False:
+            return manifest_result
 
         container = None
         started = time.monotonic()
@@ -115,7 +218,9 @@ class NodeTestRunner:
                 pids_limit=128,
                 cap_drop=["ALL"],
                 security_opt=["no-new-privileges:true"],
-                tmpfs={"/tmp": "rw,noexec,nosuid,size=64m,uid=1000,gid=1000"},
+                tmpfs={
+                    "/tmp": "rw,noexec,nosuid,size=64m,uid=1000,gid=1000"
+                },
                 environment={"HOME": "/tmp", "TMPDIR": "/tmp", "CI": "1"},
                 detach=True,
             )
@@ -136,8 +241,14 @@ class NodeTestRunner:
             ).decode("utf-8", errors="replace")
             duration = round(time.monotonic() - started, 2)
             if timed_out:
-                return {"status": "TIMEOUT", "success": False, "timed_out": True,
-                        "duration": duration, "output": raw}
+                return {
+                    **manifest_result,
+                    "status": "TIMEOUT",
+                    "success": False,
+                    "timed_out": True,
+                    "duration": duration,
+                    "output": raw,
+                }
             exit_code = container.attrs["State"]["ExitCode"]
             try:
                 payload = json.loads(raw.strip().splitlines()[-1])
@@ -145,6 +256,7 @@ class NodeTestRunner:
                 payload = {"status": "FAILED", "output": raw}
             status = payload.get("status", "FAILED")
             return {
+                **manifest_result,
                 **payload,
                 "status": status,
                 "success": status == "PASSED" and exit_code == 0,

@@ -17,6 +17,7 @@ export interface RepairResponse {
 export interface RepairJob {
   job_id: string;
   repository: string;
+  created_at?: string;
   status: string;
   message?: string;
   error?: string | null;

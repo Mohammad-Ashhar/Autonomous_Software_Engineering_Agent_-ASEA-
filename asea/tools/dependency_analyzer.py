@@ -152,7 +152,10 @@ class PythonDependencyAnalyzer:
                         target = alias.name
                         if target in module_files:
                             dependency_map[module].add(target)
-                            imported_modules[alias.asname or target.split(".")[0]] = target
+                            if alias.asname:
+                                imported_modules[alias.asname] = target
+                            elif "." not in target:
+                                imported_modules[target] = target
                 elif isinstance(node, ast.ImportFrom):
                     target_module = _resolve_from_module(
                         node.module or "", package, node.level

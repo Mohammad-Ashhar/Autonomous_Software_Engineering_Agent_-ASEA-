@@ -155,3 +155,29 @@ def test_assert_false_is_reported_as_potential_issue():
         if item["title"] == "Unconditional assertion failure"
     )
     assert finding["classification"] == "potential_issue"
+
+
+def test_bug_detector_integrates_cross_file_findings(tmp_path):
+    package = tmp_path / "sample"
+    package.mkdir()
+    (package / "__init__.py").write_text("", encoding="utf-8")
+    (package / "api.py").write_text(
+        "def send(user):\\n    return user\\n",
+        encoding="utf-8",
+    )
+    (package / "service.py").write_text(
+        "from .api import send\\n"
+        "def run():\\n"
+        "    return send('alice', 'email')\\n",
+        encoding="utf-8",
+    )
+
+    agent = BugDetectorAgent()
+    with patch.object(agent, "analyze_file", return_value=[]):
+        result = agent.run({"repo_path": str(tmp_path)})
+
+    assert result["dependency_analysis"]["module_count"] == 2
+    assert result["dependency_analysis"]["dependency_count"] == 1
+    assert result["dependency_analysis"]["cross_file_issue_count"] == 1
+    assert result["confirmed_bug_count"] == 1
+    assert result["detected_bugs"][0]["source"] == "dependency_ast"

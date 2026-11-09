@@ -1,5 +1,7 @@
 """Select isolated test runners for all supported repository runtimes."""
 
+# ruff: noqa: I001
+
 from pathlib import Path
 
 from asea.tools.node_test_runner import NodeTestRunner

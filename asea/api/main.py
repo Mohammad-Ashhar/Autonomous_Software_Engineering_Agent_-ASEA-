@@ -39,6 +39,9 @@ async def lifespan(app: FastAPI):
         str(CHECKPOINT_DB_PATH)
     ) as checkpointer:
         checkpointer.setup()
+        recovered = repair_jobs.mark_interrupted_jobs()
+        if recovered:
+            logging.warning("Marked %s interrupted repair jobs after restart.", recovered)
 
         app.state.checkpointer = checkpointer
         app.state.graph = build_asea_graph(
@@ -141,7 +144,7 @@ def resume_repair_job(
         if job is None:
             raise KeyError(f"Repair job not found: {job_id}")
         publish = bool(
-            (job.get("result") or {}).get("publish_requested", False)
+            job.get("publish_requested", False)
         )
 
         repair_jobs.update_job(
@@ -273,6 +276,7 @@ def start_repair(request: RepairRequest):
     job = repair_jobs.create_job(
         job_id=job_id,
         repository=repository,
+        publish_requested=request.publish,
     )
 
     executor.submit(

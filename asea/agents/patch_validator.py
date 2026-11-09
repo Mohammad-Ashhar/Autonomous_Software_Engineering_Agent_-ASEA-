@@ -34,7 +34,8 @@ class PatchValidatorAgent:
         shutil.copytree(
             source_path,
             destination_path,
-            ignore=ignored
+            ignore=ignored,
+            symlinks=True,
         )
 
     @staticmethod

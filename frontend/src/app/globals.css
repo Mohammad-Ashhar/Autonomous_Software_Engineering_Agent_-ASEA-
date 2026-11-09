@@ -925,3 +925,45 @@ button, a {
   line-height: 1.7;
   text-align: center;
 }
+
+.publish-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  margin-top: 16px;
+  padding: 13px 15px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface-2);
+  cursor: pointer;
+}
+
+.publish-option input {
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  accent-color: var(--accent);
+  flex-shrink: 0;
+}
+
+.publish-option span {
+  display: grid;
+  gap: 5px;
+}
+
+.publish-option strong {
+  font-size: 12px;
+  color: var(--foreground);
+}
+
+.publish-option small {
+  max-width: 720px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.pull-request-link a {
+  color: var(--accent);
+  overflow-wrap: anywhere;
+}

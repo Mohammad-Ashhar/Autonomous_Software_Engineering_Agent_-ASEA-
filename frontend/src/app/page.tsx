@@ -88,6 +88,8 @@ function formatStatus(status: string): string {
 export default function Home() {
   const [theme, setTheme] = useState<"dark" | "light">("dark");
   const [themeLoaded, setThemeLoaded] = useState(false);
+  const [repairHistory, setRepairHistory] = useState<RepairJob[]>([]);
+  const [historyTotal, setHistoryTotal] = useState(0);
   const [repository, setRepository] = useState("");
   const [notice, setNotice] = useState("");
   const [isAnalyzing, setIsAnalyzing] = useState(false);

@@ -49,5 +49,10 @@ jobs:
       - name: Build ASEA Node.js sandbox
         run: docker build -t asea-sandbox:node22 -f Dockerfile.sandbox.node .
 
+      - name: Run Node.js sandbox integration test
+        env:
+          ASEA_RUN_DOCKER_INTEGRATION: "1"
+        run: python -m pytest tests/integration/test_node_sandbox.py -v
+
       - name: Run test suite
         run: python -m pytest tests/ -v

@@ -45,10 +45,12 @@ class RepositoryManager:
     def clone_repository(self, url):
         self.validate_github_url(url)
 
-        repo_name = urlparse(url).path.strip("/").split("/")[-1]
-        repo_name = repo_name.removesuffix(".git")
+        owner, repository = urlparse(url).path.strip("/").split("/")
+        repository = repository.removesuffix(".git")
 
-        destination = self.workspace / repo_name
+        # Include the owner to avoid collisions between repositories that
+        # share a name but belong to different GitHub accounts.
+        destination = self.workspace / f"{owner}__{repository}"
 
         # Reuse an existing clone only if it belongs to the requested repository.
         if destination.exists():

@@ -7,6 +7,8 @@ class ASEAState(TypedDict, total=False):
     repo_path: str
     repo_url: str
     repo_map: dict[str, Any]
+    dependency_map: dict[str, list[str]]
+    dependency_analysis: dict[str, Any]
 
     # Cumulative repair workspace
     working_repo_path: str

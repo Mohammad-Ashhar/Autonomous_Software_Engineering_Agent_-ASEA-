@@ -91,7 +91,37 @@ class PatchValidatorAgent:
         repository_path: Path,
         patch: str
     ) -> None:
-        """Apply a multi-file patch after validating every target path."""
+        """Apply a patch transactionally; failures leave the workspace untouched."""
+
+        repository_path = Path(repository_path).resolve()
+        if not repository_path.is_dir():
+            raise FileNotFoundError(f"Repository not found: {repository_path}")
+
+        with tempfile.TemporaryDirectory(
+            prefix="asea_patch_transaction_",
+            dir=str(repository_path.parent),
+        ) as transaction_dir:
+            transaction_root = Path(transaction_dir)
+            staged_repo = transaction_root / "staged"
+            backup_repo = transaction_root / "backup"
+            self.create_temporary_copy(repository_path, staged_repo)
+
+            # All parsing, normalization and git operations happen on the stage.
+            self._apply_patch_in_place(staged_repo, patch)
+
+            repository_path.rename(backup_repo)
+            try:
+                staged_repo.rename(repository_path)
+            except Exception:
+                backup_repo.rename(repository_path)
+                raise
+
+    def _apply_patch_in_place(
+        self,
+        repository_path: Path,
+        patch: str
+    ) -> None:
+        """Apply a validated patch to a disposable staging directory."""
 
         repository_path = repository_path.resolve()
         if not repository_path.is_dir():

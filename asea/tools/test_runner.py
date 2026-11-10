@@ -67,7 +67,7 @@ class DockerTestRunner:
         summary_lines = [
             line.strip()
             for line in output.splitlines()
-            if re.search(r"\\bin\\s+\\d+(?:\\.\\d+)?s\\s*$", line.strip())
+            if re.search(r"\bin\s+\d+(?:\.\d+)?s\s*$", line.strip())
         ]
         summary = summary_lines[-1] if summary_lines else ""
 

@@ -2,6 +2,7 @@ import logging
 import os
 import re
 import secrets
+import time
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -307,11 +308,31 @@ async def add_request_correlation(request: Request, call_next):
         else str(uuid4())
     )
     request.state.request_id = request_id
+    started_at = time.perf_counter()
     try:
         response = await call_next(request)
     except Exception:
-        logging.exception("Unhandled API error. Request ID: %s", request_id)
+        duration_ms = (time.perf_counter() - started_at) * 1000
+        logging.exception(
+            "API request failed. method=%s path=%s duration_ms=%.2f request_id=%s",
+            request.method,
+            request.url.path,
+            duration_ms,
+            request_id,
+        )
         raise
+
+    duration_ms = (time.perf_counter() - started_at) * 1000
+    log_method = logging.warning if response.status_code >= 500 else logging.info
+    log_method(
+        "API request completed. method=%s path=%s status_code=%s "
+        "duration_ms=%.2f request_id=%s",
+        request.method,
+        request.url.path,
+        response.status_code,
+        duration_ms,
+        request_id,
+    )
     response.headers["X-Request-ID"] = request_id
     return response
 

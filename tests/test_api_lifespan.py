@@ -126,3 +126,43 @@ def test_lifespan_shuts_down_executor_when_graph_startup_fails(
         }
 
     asyncio.run(exercise_failed_startup())
+
+def test_lifespan_shuts_down_executor_when_checkpointer_setup_fails(
+    monkeypatch, tmp_path
+):
+    executor_instances = []
+
+    def make_executor(**kwargs):
+        executor = FakeExecutor(**kwargs)
+        executor_instances.append(executor)
+        return executor
+
+    class FailingCheckpointer(FakeCheckpointer):
+        def setup(self):
+            raise RuntimeError("checkpoint setup failed")
+
+    class FailingSqliteSaver:
+        @staticmethod
+        def from_conn_string(_path):
+            return FailingCheckpointer()
+
+    monkeypatch.setattr(main, "ThreadPoolExecutor", make_executor)
+    monkeypatch.setattr(main, "SqliteSaver", FailingSqliteSaver)
+    monkeypatch.setattr(main, "CHECKPOINT_DB_PATH", tmp_path / "checkpoints.db")
+
+    async def exercise_failed_setup():
+        try:
+            async with main.lifespan(main.app):
+                raise AssertionError("lifespan should not reach yield")
+        except RuntimeError as error:
+            assert str(error) == "checkpoint setup failed"
+        else:
+            raise AssertionError("checkpoint setup failure was not propagated")
+
+        assert len(executor_instances) == 1
+        assert executor_instances[0].shutdown_options == {
+            "wait": True,
+            "cancel_futures": True,
+        }
+
+    asyncio.run(exercise_failed_setup())

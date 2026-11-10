@@ -379,3 +379,29 @@ def test_terminal_retention_index_is_created(tmp_path):
         }
 
     assert "idx_repair_jobs_terminal_updated" in indexes
+
+
+
+def test_create_job_rejects_non_string_inputs_and_non_boolean_publish(tmp_path):
+    manager = create_test_manager(tmp_path / "strict_create_validation.db")
+
+    with pytest.raises(ValueError, match="job_id"):
+        manager.create_job(123, "repo")
+    with pytest.raises(ValueError, match="repository"):
+        manager.create_job("valid-id", None)
+    with pytest.raises(ValueError, match="publish_requested"):
+        manager.create_job("valid-id", "repo", publish_requested=1)
+
+
+def test_update_job_rejects_invalid_identifier(tmp_path):
+    manager = create_test_manager(tmp_path / "strict_update_validation.db")
+
+    with pytest.raises(ValueError, match="job_id"):
+        manager.update_job("", status="completed")
+
+
+def test_list_jobs_rejects_unknown_status_filter(tmp_path):
+    manager = create_test_manager(tmp_path / "status_filter_validation.db")
+
+    with pytest.raises(ValueError, match="status filter"):
+        manager.list_jobs(status="mystery")

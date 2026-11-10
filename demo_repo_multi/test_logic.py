@@ -19,3 +19,7 @@ def test_positive_number():
 
 def test_negative_number():
     assert is_positive(-5) is False
+
+
+def test_zero_is_not_positive():
+    assert is_positive(0) is False

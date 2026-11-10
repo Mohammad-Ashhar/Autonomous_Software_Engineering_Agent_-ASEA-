@@ -8,6 +8,7 @@ from asea.api import main
 class InMemoryRepairJobs:
     def __init__(self):
         self.jobs = {}
+        self.review_claims = set()
 
     def create_job(self, job_id, repository, publish_requested=False):
         job = {
@@ -25,6 +26,16 @@ class InMemoryRepairJobs:
 
     def get_job(self, job_id):
         return self.jobs.get(job_id)
+
+    def claim_review(self, job_id):
+        if job_id in self.review_claims:
+            return False
+        self.review_claims.add(job_id)
+        return True
+
+    def release_review_claim(self, job_id):
+        self.review_claims.discard(job_id)
+        return True
 
     def list_jobs(self, limit=50, offset=0, status=None):
         items = list(self.jobs.values())
@@ -106,3 +117,52 @@ def test_repair_job_http_lifecycle_from_submission_to_history(
     assert history.status_code == 200
     assert history.json()["total"] == 1
     assert history.json()["items"][0]["job_id"] == job_id
+
+
+
+class RecordingExecutor:
+    def __init__(self):
+        self.submitted = []
+
+    def submit(self, function, *args):
+        self.submitted.append((function, args))
+
+
+def test_patch_review_http_route_claims_and_schedules_once(monkeypatch):
+    jobs = InMemoryRepairJobs()
+    executor = RecordingExecutor()
+    jobs.jobs["review-job"] = {
+        "job_id": "review-job",
+        "repository": "/tmp/asea-e2e-repository",
+        "status": "waiting_for_review",
+        "publish_requested": False,
+    }
+    monkeypatch.delenv("ASEA_API_KEY", raising=False)
+    monkeypatch.setattr(main, "repair_jobs", jobs)
+    monkeypatch.setattr(main, "executor", executor)
+
+    client = TestClient(main.app)
+
+    missing_feedback = client.post(
+        "/repair/review-job/review",
+        json={"decision": "rejected", "feedback": "  "},
+    )
+    assert missing_feedback.status_code == 400
+
+    approved = client.post(
+        "/repair/review-job/review",
+        json={"decision": "approved", "feedback": ""},
+    )
+    assert approved.status_code == 202
+    assert approved.json()["decision"] == "approved"
+    assert len(executor.submitted) == 1
+    function, args = executor.submitted[0]
+    assert function is main.resume_repair_job
+    assert args == ("review-job", "approved", "")
+
+    duplicate = client.post(
+        "/repair/review-job/review",
+        json={"decision": "approved", "feedback": ""},
+    )
+    assert duplicate.status_code == 409
+    assert len(executor.submitted) == 1

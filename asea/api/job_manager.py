@@ -93,6 +93,10 @@ class RepairJobManager:
                 "CREATE INDEX IF NOT EXISTS idx_repair_jobs_status_created "
                 "ON repair_jobs(status, created_at DESC, job_id DESC)"
             )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_repair_jobs_terminal_updated "
+                "ON repair_jobs(status, updated_at)"
+            )
 
     @staticmethod
     def _serialize(value: Any) -> str | None:
@@ -145,6 +149,8 @@ class RepairJobManager:
 
         with self.lock:
             with self._connection() as connection:
+                # Serialize admission across threads, manager instances, and processes.
+                connection.execute("BEGIN IMMEDIATE")
                 maximum = self._maximum_active_jobs()
                 active = connection.execute(
                     "SELECT COUNT(*) FROM repair_jobs "
@@ -208,6 +214,10 @@ class RepairJobManager:
             or len(updates["message"]) > 2000
         ):
             raise ValueError("Job message must be a string of at most 2000 characters.")
+        if "publish_requested" in updates and not isinstance(
+            updates["publish_requested"], bool
+        ):
+            raise ValueError("publish_requested must be a boolean.")
 
         with self.lock:
             with self._connection() as connection:

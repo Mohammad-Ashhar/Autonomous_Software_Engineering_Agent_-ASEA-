@@ -216,7 +216,7 @@ npm run start
 
 ## Persistence and recovery
 
-The API stores runtime data under the repository's `data/` directory. Active repair admission is bounded by `ASEA_MAX_ACTIVE_REPAIR_JOBS` (default 20, maximum 500); submissions at capacity receive HTTP 503 with `Retry-After: 30`. Old completed/failed records can be pruned with `repair_jobs.prune_terminal_jobs(retention_days=30)`. Active and review-paused jobs are preserved.
+The API stores runtime data under the repository's `data/` directory. Active repair admission is bounded by `ASEA_MAX_ACTIVE_REPAIR_JOBS` (default 20, maximum 500). Admission is serialized with a SQLite write transaction, so concurrent API processes share the same capacity limit; submissions at capacity receive HTTP 503 with `Retry-After: 30`. Old completed/failed records can be pruned with `repair_jobs.prune_terminal_jobs(retention_days=30)`. Active and review-paused jobs are preserved.
 
 Runtime data files:
 

@@ -118,3 +118,23 @@ def test_failed_clone_cleans_temporary_workspace(tmp_path, monkeypatch):
         manager.clone_repository("https://github.com/example/project")
 
     assert list(manager.workspace.iterdir()) == []
+
+def test_clone_rejects_symlinked_destination(tmp_path):
+    from git import Repo
+
+    manager = RepositoryManager(tmp_path / "workspace")
+    external_repository = tmp_path / "external"
+    external_repository.mkdir()
+    external_repo = Repo.init(external_repository)
+    external_repo.create_remote(
+        "origin",
+        "https://github.com/example/project",
+    )
+
+    destination = manager.workspace / "example__project"
+    destination.symlink_to(external_repository, target_is_directory=True)
+
+    with pytest.raises(ValueError, match="symbolic link"):
+        manager.clone_repository("https://github.com/example/project")
+
+    assert (external_repository / ".git").is_dir()

@@ -165,7 +165,7 @@ The API listens on `http://127.0.0.1:8000`. Interactive API documentation is ava
 | Method | Endpoint | Purpose |
 | --- | --- | --- |
 | `GET` | `/` | API welcome/status response |
-| `GET` | `/health` | Health check |
+| `GET` | `/health` | Liveness check |\n| `GET` | `/ready` | Readiness check for initialized workflow and SQLite job storage |
 | `POST` | `/analyze` | Analyze a repository |
 | `POST` | `/repair` | Submit a repair job (returns HTTP 202) |
 | `GET` | `/repair/{job_id}` | Retrieve one repair job |

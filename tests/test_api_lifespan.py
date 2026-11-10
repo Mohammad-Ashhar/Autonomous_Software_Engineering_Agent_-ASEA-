@@ -1,5 +1,4 @@
 import asyncio
-from contextlib import contextmanager
 
 from asea.api import main
 

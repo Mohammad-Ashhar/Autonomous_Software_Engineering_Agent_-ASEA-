@@ -90,3 +90,39 @@ def test_lifespan_replaces_executor_on_each_startup(monkeypatch, tmp_path):
         )
 
     asyncio.run(exercise_two_lifespans())
+
+def test_lifespan_shuts_down_executor_when_graph_startup_fails(
+    monkeypatch, tmp_path
+):
+    executor_instances = []
+
+    def make_executor(**kwargs):
+        executor = FakeExecutor(**kwargs)
+        executor_instances.append(executor)
+        return executor
+
+    def fail_graph_build(checkpointer):
+        raise RuntimeError("graph compilation failed")
+
+    monkeypatch.setattr(main, "ThreadPoolExecutor", make_executor)
+    monkeypatch.setattr(main, "SqliteSaver", FakeSqliteSaver)
+    monkeypatch.setattr(main, "CHECKPOINT_DB_PATH", tmp_path / "checkpoints.db")
+    monkeypatch.setattr(main.repair_jobs, "mark_interrupted_jobs", lambda: 0)
+    monkeypatch.setattr(main, "build_asea_graph", fail_graph_build)
+
+    async def exercise_failed_startup():
+        try:
+            async with main.lifespan(main.app):
+                raise AssertionError("lifespan should not reach yield")
+        except RuntimeError as error:
+            assert str(error) == "graph compilation failed"
+        else:
+            raise AssertionError("startup failure was not propagated")
+
+        assert len(executor_instances) == 1
+        assert executor_instances[0].shutdown_options == {
+            "wait": True,
+            "cancel_futures": True,
+        }
+
+    asyncio.run(exercise_failed_startup())

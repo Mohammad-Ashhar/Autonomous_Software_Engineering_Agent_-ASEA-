@@ -113,9 +113,36 @@ class PatchValidatorAgent:
             repository_path.rename(backup_repo)
             try:
                 staged_repo.rename(repository_path)
+
+                # The staged copy intentionally excludes bulky or runtime
+                # directories. Restore top-level exclusions so applying a
+                # patch never deletes the user's Git metadata, virtualenv,
+                # artifacts, or persisted workspaces.
+                preserved_directories = (
+                    ".git",
+                    ".venv",
+                    "venv",
+                    "artifacts",
+                    "workspaces",
+                )
+                for directory_name in preserved_directories:
+                    original_directory = backup_repo / directory_name
+                    if original_directory.exists():
+                        destination = repository_path / directory_name
+                        if destination.exists():
+                            raise FileExistsError(
+                                f"Cannot restore preserved directory: {directory_name}"
+                            )
+                        original_directory.rename(destination)
             except Exception:
+                # Move the candidate aside before restoring the untouched
+                # original tree, including any directories already restored.
+                if repository_path.exists():
+                    repository_path.rename(staged_repo)
                 backup_repo.rename(repository_path)
                 raise
+
+            shutil.rmtree(backup_repo, ignore_errors=True)
 
     def _apply_patch_in_place(
         self,

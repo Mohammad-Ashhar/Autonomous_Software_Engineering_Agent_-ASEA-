@@ -471,7 +471,41 @@ class PatchValidatorAgent:
             try:
                 candidate_repo.rename(working_repo_path)
 
+                # Candidate copies omit runtime state by design. Restore it
+                # only after the validated source tree is promoted.
+                preserved_directories = (
+                    ".git",
+                    ".venv",
+                    "venv",
+                    "artifacts",
+                    "workspaces",
+                )
+                for directory_name in preserved_directories:
+                    original_directory = backup_repo / directory_name
+                    if original_directory.exists():
+                        destination = working_repo_path / directory_name
+                        if destination.exists():
+                            raise FileExistsError(
+                                f"Cannot restore preserved directory: {directory_name}"
+                            )
+                        original_directory.rename(destination)
+
             except Exception:
+                # Roll back any runtime directories already moved, then
+                # restore the complete original workspace.
+                for directory_name in (
+                    ".git",
+                    ".venv",
+                    "venv",
+                    "artifacts",
+                    "workspaces",
+                ):
+                    restored = working_repo_path / directory_name
+                    original = backup_repo / directory_name
+                    if restored.exists() and not original.exists():
+                        restored.rename(original)
+                if working_repo_path.exists():
+                    working_repo_path.rename(candidate_repo)
                 backup_repo.rename(working_repo_path)
                 raise
 

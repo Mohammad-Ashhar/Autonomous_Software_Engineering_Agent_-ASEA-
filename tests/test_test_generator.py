@@ -20,7 +20,7 @@ def test_parse_fenced_python_response():
 
 
 def test_parse_json_response():
-    response = '{"tests": "def test_example():\\n    assert True"}'
+    response = '{"tests": "def test_example():\n    assert True"}'
     assert _parse_response(response).startswith("def test_example()")
 
 
@@ -83,23 +83,23 @@ def test_package_module_name_is_resolved(tmp_path: Path):
 def test_reject_generated_decorators():
     with pytest.raises(ValueError, match="decorators"):
         _validate_test_code(
-            "@dangerous()\\ndef test_example():\\n    assert True"
+            "@dangerous()\ndef test_example():\n    assert True"
         )
 
 
 def test_reject_generated_default_argument_execution():
     with pytest.raises(ValueError, match="default arguments"):
         _validate_test_code(
-            "def test_example(value=dangerous()):\\n    assert value"
+            "def test_example(value=dangerous()):\n    assert value"
         )
 
 
 @pytest.mark.parametrize(
     "source",
     [
-        "def test_example():\\n    return ().__class__",
-        "def test_example():\\n    module.os.system('whoami')",
-        "def test_example():\\n    getattr(module, 'value')",
+        "def test_example():\n    return ().__class__",
+        "def test_example():\n    module.os.system('whoami')",
+        "def test_example():\n    getattr(module, 'value')",
     ],
 )
 def test_reject_generated_introspection_and_process_access(source):

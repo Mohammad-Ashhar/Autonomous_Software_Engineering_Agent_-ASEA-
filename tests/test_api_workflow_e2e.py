@@ -81,8 +81,8 @@ def test_repair_job_http_lifecycle_from_submission_to_history(
         lambda *_args: True,
     )
 
-    with TestClient(main.app) as client:
-        submitted = client.post(
+    client = TestClient(main.app)
+    submitted = client.post(
             "/repair",
             json={
                 "repository": "/tmp/asea-e2e-repository",
@@ -90,19 +90,19 @@ def test_repair_job_http_lifecycle_from_submission_to_history(
             },
         )
 
-        assert submitted.status_code == 202
-        job_id = submitted.json()["job_id"]
+    assert submitted.status_code == 202
+    job_id = submitted.json()["job_id"]
 
-        status = client.get(f"/repair/{job_id}")
-        assert status.status_code == 200
-        assert status.json()["status"] == "completed"
-        assert status.json()["result"]["workflow"]["working_test_results"] == {
-            "success": True,
-            "passed": 3,
-            "failed": 0,
-        }
+    status = client.get(f"/repair/{job_id}")
+    assert status.status_code == 200
+    assert status.json()["status"] == "completed"
+    assert status.json()["result"]["workflow"]["working_test_results"] == {
+        "success": True,
+        "passed": 3,
+        "failed": 0,
+    }
 
-        history = client.get("/repairs?status=completed")
-        assert history.status_code == 200
-        assert history.json()["total"] == 1
-        assert history.json()["items"][0]["job_id"] == job_id
+    history = client.get("/repairs?status=completed")
+    assert history.status_code == 200
+    assert history.json()["total"] == 1
+    assert history.json()["items"][0]["job_id"] == job_id

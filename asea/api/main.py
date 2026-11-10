@@ -82,38 +82,39 @@ async def lifespan(app: FastAPI):
     # test clients and ASGI reloads from reusing an executor already shut down.
     executor = ThreadPoolExecutor(max_workers=1)
 
-    with SqliteSaver.from_conn_string(
-        str(CHECKPOINT_DB_PATH)
-    ) as checkpointer:
-        checkpointer.setup()
-        recovered = repair_jobs.mark_interrupted_jobs()
-        if recovered:
-            logging.warning(
-                "Marked %s interrupted repair jobs after restart.",
-                recovered,
+    try:
+        # Keep the executor cleanup outside the checkpointer context so even a
+        # failed database setup or graph compilation cannot leak its worker.
+        with SqliteSaver.from_conn_string(
+            str(CHECKPOINT_DB_PATH)
+        ) as checkpointer:
+            checkpointer.setup()
+            recovered = repair_jobs.mark_interrupted_jobs()
+            if recovered:
+                logging.warning(
+                    "Marked %s interrupted repair jobs after restart.",
+                    recovered,
+                )
+
+            app.state.checkpointer = checkpointer
+            app.state.graph = build_asea_graph(
+                checkpointer=checkpointer
             )
 
-        app.state.checkpointer = checkpointer
-        app.state.graph = build_asea_graph(
-            checkpointer=checkpointer
-        )
-
-        print("ASEA SQLite checkpoint database initialized.")
-        print("ASEA LangGraph workflow compiled successfully.")
-
-        try:
+            print("ASEA SQLite checkpoint database initialized.")
+            print("ASEA LangGraph workflow compiled successfully.")
             yield
-        finally:
-            logging.info(
-                "ASEA API is shutting down; draining active background work."
-            )
-            # Keep the SQLite checkpointer open until the running workflow has
-            # finished. Cancel queued jobs, but do not abandon active work.
-            await asyncio.to_thread(
-                executor.shutdown,
-                wait=True,
-                cancel_futures=True,
-            )
+    finally:
+        logging.info(
+            "ASEA API is shutting down; draining active background work."
+        )
+        # Keep the SQLite checkpointer open until the running workflow has
+        # finished. Cancel queued jobs, but do not abandon active work.
+        await asyncio.to_thread(
+            executor.shutdown,
+            wait=True,
+            cancel_futures=True,
+        )
 
 executor = ThreadPoolExecutor(max_workers=1)
 

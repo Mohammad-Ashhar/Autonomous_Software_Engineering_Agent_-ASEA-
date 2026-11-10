@@ -87,3 +87,63 @@ def test_production_startup_fails_without_api_key(monkeypatch):
     with pytest.raises(RuntimeError, match="ASEA_API_KEY"):
         with TestClient(main.app):
             pass
+
+
+
+def test_request_id_is_preserved_and_returned(monkeypatch):
+    monkeypatch.delenv("ASEA_API_KEY", raising=False)
+    client = TestClient(main.app)
+    response = client.get("/", headers={"X-Request-ID": "trace-123"})
+    assert response.status_code == 200
+    assert response.headers["x-request-id"] == "trace-123"
+
+
+def test_invalid_request_id_is_replaced(monkeypatch):
+    monkeypatch.delenv("ASEA_API_KEY", raising=False)
+    client = TestClient(main.app)
+    response = client.get("/", headers={"X-Request-ID": "bad id\r\n"})
+    assert response.status_code == 200
+    request_id = response.headers["x-request-id"]
+    assert request_id
+    assert " " not in request_id
+    assert "\r" not in request_id
+
+
+def test_readiness_requires_initialized_graph(monkeypatch):
+    monkeypatch.delenv("ASEA_API_KEY", raising=False)
+    if hasattr(main.app.state, "graph"):
+        del main.app.state.graph
+    client = TestClient(main.app)
+    response = client.get("/ready")
+    assert response.status_code == 503
+    assert response.json()["detail"] == "ASEA is not ready to process requests."
+
+
+def test_readiness_checks_database(monkeypatch):
+    monkeypatch.delenv("ASEA_API_KEY", raising=False)
+    monkeypatch.setattr(main.repair_jobs, "check_database", lambda: None)
+    main.app.state.graph = object()
+    client = TestClient(main.app)
+    response = client.get("/ready")
+    assert response.status_code == 200
+    assert response.json()["status"] == "ready"
+
+
+def test_readiness_returns_safe_error_when_database_fails(monkeypatch):
+    monkeypatch.delenv("ASEA_API_KEY", raising=False)
+    def fail_database():
+        raise RuntimeError("private database path")
+    monkeypatch.setattr(main.repair_jobs, "check_database", fail_database)
+    main.app.state.graph = object()
+    client = TestClient(main.app)
+    response = client.get("/ready")
+    assert response.status_code == 503
+    assert "private database path" not in response.text
+
+
+def test_request_id_is_added_to_health_response(monkeypatch):
+    monkeypatch.delenv("ASEA_API_KEY", raising=False)
+    client = TestClient(main.app)
+    response = client.get("/health")
+    assert response.status_code == 200
+    assert response.headers.get("x-request-id")

@@ -3,6 +3,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from asea.tools.test_runner import DockerTestRunner
 
@@ -458,13 +459,12 @@ class PatchValidatorAgent:
                     "test_results": test_results
                 }
 
+            # Never reuse or delete a predictable backup path: it may
+            # belong to the user or another concurrent repair operation.
             backup_repo = (
                 working_repo_path.parent
-                / f"{working_repo_path.name}_backup"
+                / f".{working_repo_path.name}.asea-backup-{uuid4().hex}"
             )
-
-            if backup_repo.exists():
-                shutil.rmtree(backup_repo)
 
             working_repo_path.rename(backup_repo)
 

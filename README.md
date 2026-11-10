@@ -184,12 +184,21 @@ Build the sandbox image and configure the LLM before running the repair demonstr
 
 #### Evaluator quick check
 
-For a short, reproducible walkthrough:
+From the repository root, run:
 
-1. Run `asea --help` and `asea status` to verify the installed CLI and configuration.
-2. Run the two commands above in the repository root. The first should fail on the deliberately introduced zero-boundary defect.
-3. Start the repair workflow and inspect the proposed diff at the human-review prompt. Approve only if the change is correct.
-4. Confirm the workflow summary reports `COMPLETED`, all final tests pass, and the change is present in the ASEA workspace. Add `--publish` only when you intentionally want a GitHub pull request.
+```bash
+asea --help
+asea status
+python -m pytest -q demo_repo_multi
+```
+
+The fixture test command is expected to report **5 passed and 1 failed**: the single intentional failure is the `is_positive(0)` boundary defect. Then start the repair:
+
+```bash
+asea repair ./demo_repo_multi
+```
+
+Inspect the proposed diff at the interactive human-review prompt and approve only if it is correct. The included positive-boundary case has a narrowly scoped deterministic fallback if the LLM request fails; other bug patterns still depend on the configured model. Confirm the workflow summary reports `COMPLETED`, all final tests pass, and the validated change is present in the ASEA workspace. Add `--publish` only when you intentionally want a GitHub pull request.
 
 The repair workflow's duration depends on the local model, whether it is already loaded, repository size, and test-suite duration. A warm small model and a small repository can make the demo substantially faster; this project does not claim a fixed 30–60 second runtime. Each Ollama request has a 60-second timeout and automatic retries are disabled, so a stalled model call fails fast instead of silently retrying for several minutes. Existing test suites are reused rather than generating new tests, which avoids unnecessary model calls for the included demo. The default Docker test-runner timeout is 120 seconds per test run.
 

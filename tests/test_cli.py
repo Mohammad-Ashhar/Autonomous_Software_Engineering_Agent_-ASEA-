@@ -1,6 +1,6 @@
-from typer.testing import CliRunner
-
 from asea import cli
+
+from typer.testing import CliRunner
 
 
 runner = CliRunner()

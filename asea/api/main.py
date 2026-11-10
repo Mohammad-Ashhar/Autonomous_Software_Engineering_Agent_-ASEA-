@@ -15,6 +15,7 @@ from langgraph.types import Command
 from pydantic import BaseModel, ConfigDict, Field
 
 from asea.api.job_manager import repair_jobs
+from asea.api.protection import RequestProtectionMiddleware
 from asea.api.workspace_cleanup import cleanup_repair_workspace
 from asea.cli import resolve_repository
 from asea.core.graph import (

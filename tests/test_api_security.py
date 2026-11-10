@@ -9,6 +9,21 @@ def test_production_requires_api_key():
         main.validate_api_security_configuration("production", None)
 
 
+@pytest.mark.parametrize("api_key", ["", "   ", "short", " " * 40])
+def test_production_rejects_missing_or_weak_api_key(api_key):
+    with pytest.raises(RuntimeError, match="at least 32"):
+        main.validate_api_security_configuration("production", api_key)
+
+
+def test_production_accepts_api_key_with_at_least_32_characters():
+    main.validate_api_security_configuration("production", "a" * 32)
+
+
+def test_production_environment_name_is_case_and_whitespace_insensitive():
+    with pytest.raises(RuntimeError, match="ASEA_API_KEY"):
+        main.validate_api_security_configuration(" Production ", None)
+
+
 @pytest.mark.parametrize("environment", ["development", "test", ""])
 def test_nonproduction_does_not_require_api_key(environment):
     main.validate_api_security_configuration(environment, None)

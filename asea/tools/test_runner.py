@@ -62,7 +62,16 @@ class DockerTestRunner:
             re.IGNORECASE,
         )
 
-        for match in summary_pattern.finditer(output):
+        # Pytest may print arbitrary captured output containing phrases such
+        # as "2 passed". Count only its final duration-bearing summary line.
+        summary_lines = [
+            line.strip()
+            for line in output.splitlines()
+            if re.search(r"\\bin\\s+\\d+(?:\\.\\d+)?s\\s*$", line.strip())
+        ]
+        summary = summary_lines[-1] if summary_lines else ""
+
+        for match in summary_pattern.finditer(summary):
             label = match.group(2).lower()
             key = "errors" if label in {"error", "errors"} else label
             counts[key] += int(match.group(1))

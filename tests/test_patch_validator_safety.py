@@ -64,3 +64,50 @@ def test_new_test_failure_is_a_regression():
         baseline,
         candidate
     )
+
+
+def test_validated_patch_preserves_git_and_runtime_directories(tmp_path):
+    class PassingRunner:
+        def run_tests(self, repository_path):
+            return {
+                "status": "PASSED",
+                "total": 1,
+                "failed": 0,
+                "errors": 0,
+                "failed_tests": [],
+                "success": True,
+            }
+
+    (tmp_path / "module.py").write_text("value = 1\\n", encoding="utf-8")
+    for directory, filename, value in (
+        (".git", "HEAD", "ref: refs/heads/main\\n"),
+        ("artifacts", "run.json", '{"run": 1}'),
+        ("workspaces", "state.txt", "keep"),
+    ):
+        target_dir = tmp_path / directory
+        target_dir.mkdir()
+        (target_dir / filename).write_text(value, encoding="utf-8")
+
+    patch = """--- a/module.py
++++ b/module.py
+@@ -1 +1 @@
+-value = 1
++value = 2
+"""
+    validator = PatchValidatorAgent()
+    validator.test_runner = PassingRunner()
+    result = validator.validate_patch(
+        tmp_path,
+        {"patch": patch},
+        baseline_test_results={
+            "failed": 0,
+            "errors": 0,
+            "failed_tests": [],
+        },
+    )
+
+    assert result["status"] == "PATCH_VALIDATED"
+    assert (tmp_path / "module.py").read_text(encoding="utf-8") == "value = 2\\n"
+    assert (tmp_path / ".git" / "HEAD").read_text(encoding="utf-8") == "ref: refs/heads/main\\n"
+    assert (tmp_path / "artifacts" / "run.json").read_text(encoding="utf-8") == '{"run": 1}'
+    assert (tmp_path / "workspaces" / "state.txt").read_text(encoding="utf-8") == "keep"

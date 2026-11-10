@@ -8,6 +8,7 @@ import {
   getRepairStatus,
   getRepairHistory,
   submitPatchReview,
+  checkBackendHealth,
   type AnalyzeResponse,
   type RepairResponse,
   type RepairJob,
@@ -88,6 +89,7 @@ function formatStatus(status: string): string {
 export default function Home() {
   const [theme, setTheme] = useState<"dark" | "light">("dark");
   const [themeLoaded, setThemeLoaded] = useState(false);
+  const [backendStatus, setBackendStatus] = useState<"checking" | "online" | "offline">("checking");
   const [repairHistory, setRepairHistory] = useState<RepairJob[]>([]);
   const [historyTotal, setHistoryTotal] = useState(0);
   const [publishRequested, setPublishRequested] = useState(false);
@@ -123,6 +125,27 @@ useEffect(() => {
   document.documentElement.dataset.theme = theme;
   localStorage.setItem("asea-theme", theme);
 }, [theme, themeLoaded]);
+
+useEffect(() => {
+  let cancelled = false;
+
+  async function checkBackend() {
+    try {
+      await checkBackendHealth();
+      if (!cancelled) setBackendStatus("online");
+    } catch {
+      if (!cancelled) setBackendStatus("offline");
+    }
+  }
+
+  void checkBackend();
+  const healthTimer = setInterval(checkBackend, 10000);
+
+  return () => {
+    cancelled = true;
+    clearInterval(healthTimer);
+  };
+}, []);
 
 useEffect(() => {
   let cancelled = false;
@@ -350,10 +373,14 @@ async function handlePatchReview(decision: "approved" | "rejected") {
         <div className="sidebar-bottom">
           <div className="engine-card">
             <div className="engine-heading">
-              <span className="engine-dot" /> ENGINE STATUS
+              <span className={`engine-dot ${backendStatus}`} /> ENGINE STATUS
             </div>
-            <div className="engine-status">System ready</div>
-            <div className="engine-description">ASEA engine is ready to analyze repositories.</div>
+            <div className="engine-status">
+              {backendStatus === "online" ? "Backend online" : backendStatus === "offline" ? "Backend offline" : "Checking backend"}
+            </div>
+            <div className="engine-description">
+              {backendStatus === "online" ? "ASEA API health check succeeded." : backendStatus === "offline" ? "Start the FastAPI backend to enable analysis and repair." : "Checking the ASEA API connection."}
+            </div>
           </div>
           <a className="nav-item" href="#settings">
             <Icon name="settings" /> Settings
@@ -373,7 +400,7 @@ async function handlePatchReview(decision: "approved" | "rejected") {
         <header className="topbar">
           <div className="breadcrumb">Workspace <span>/</span> <strong>Dashboard</strong></div>
           <div className="topbar-actions">
-            <span className="system-indicator"><span /> Backend-connected data</span>
+            <span className={`system-indicator ${backendStatus}`}><span /> {backendStatus === "online" ? "Backend connected" : backendStatus === "offline" ? "Backend unavailable" : "Checking backend"}</span>
             <button
   className="analyze-button"
   onClick={startAnalysis}

@@ -94,6 +94,12 @@ def test_validated_patch_preserves_git_and_runtime_directories(tmp_path):
 -value = 1
 +value = 2
 """
+    # A predictable legacy backup name may contain user data and must
+    # never be removed by patch promotion.
+    preexisting_backup = tmp_path.parent / f"{tmp_path.name}_backup"
+    preexisting_backup.mkdir()
+    (preexisting_backup / "user-data.txt").write_text("preserve", encoding="utf-8")
+
     validator = PatchValidatorAgent()
     validator.test_runner = PassingRunner()
     result = validator.validate_patch(
@@ -111,3 +117,4 @@ def test_validated_patch_preserves_git_and_runtime_directories(tmp_path):
     assert (tmp_path / ".git" / "HEAD").read_text(encoding="utf-8") == "ref: refs/heads/main\\n"
     assert (tmp_path / "artifacts" / "run.json").read_text(encoding="utf-8") == '{"run": 1}'
     assert (tmp_path / "workspaces" / "state.txt").read_text(encoding="utf-8") == "keep"
+    assert (preexisting_backup / "user-data.txt").read_text(encoding="utf-8") == "preserve"

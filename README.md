@@ -2,7 +2,7 @@
 
 ASEA is a multi-agent software engineering system that analyzes Python repositories, identifies potential bugs, generates tests and patches, validates changes in an isolated Docker sandbox, and supports human-reviewed repair workflows. Approved, validated repairs can optionally be published as GitHub pull requests.
 
-> **Project status:** Active development. The current implementation is Python-focused. Review every generated change before merging it into a production codebase.
+> **Project status:** Python 3.12+ prototype. ASEA currently analyzes and repairs Python repositories only. It is designed for supervised repair: every proposed patch is reviewed, validated in an isolated test container, and never silently merged.
 
 ## What it does
 
@@ -177,6 +177,20 @@ The included `demo_repo_multi/` fixture contains a deliberate defect: `is_positi
 3. Follow the workflow output as ASEA analyzes the repository, generates a candidate patch, and validates it in the Docker sandbox. Review the resulting diff before accepting it. This local demo does not request GitHub publishing.
 
 Build the sandbox image and configure the LLM before running the repair demonstration, as described above. The fixture is intentionally faulty; do not use it as application code.
+
+#### Evaluator quick check
+
+For a short, reproducible walkthrough:
+
+1. Run `asea --help` and `asea status` to verify the installed CLI and configuration.
+2. Run the two commands above in the repository root. The first should fail on the deliberately introduced zero-boundary defect.
+3. Start the repair workflow and inspect the proposed diff at the human-review prompt. Approve only if the change is correct.
+4. Confirm the workflow summary reports `COMPLETED`, all final tests pass, and the change is present in the ASEA workspace. Add `--publish` only when you intentionally want a GitHub pull request.
+
+The repair workflow's duration depends on the local model, whether it is already loaded, repository size, and test-suite duration. A warm small model and a small repository can make the demo substantially faster; this project does not claim a fixed 30–60 second runtime. Existing test suites are reused rather than generating new tests, which avoids unnecessary model calls for the included demo. The default Docker test-runner timeout is 120 seconds per test run.
+
+CLI exit codes: `0` means the command completed successfully and (for repair) final validation passed; `1` means a command or runtime error; `2` means the repair workflow finished without full validation, so publishing is blocked.
+
 
 ### Backend API
 

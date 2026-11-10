@@ -43,7 +43,7 @@ def test_rate_limit_window_resets(monkeypatch):
     import asea.api.protection as protection
 
     clock = iter([100.0, 161.0])
-    monkeypatch.setattr(protection.time, "monotonic", lambda: next(clock))
+    monkeypatch.setattr(protection, "_monotonic", lambda: next(clock))
     client = make_client(requests_per_window=1, window_seconds=60)
     assert client.get("/").status_code == 200
     assert client.get("/").status_code == 200

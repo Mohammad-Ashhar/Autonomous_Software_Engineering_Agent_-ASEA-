@@ -405,3 +405,28 @@ def test_list_jobs_rejects_unknown_status_filter(tmp_path):
 
     with pytest.raises(ValueError, match="status filter"):
         manager.list_jobs(status="mystery")
+
+
+
+def test_database_uses_wal_mode(tmp_path):
+    manager = create_test_manager(tmp_path / "wal_mode.db")
+    with manager._connection() as connection:
+        mode = connection.execute("PRAGMA journal_mode").fetchone()[0]
+
+    assert mode.lower() == "wal"
+
+
+@pytest.mark.parametrize(
+    ("configured", "expected"),
+    [
+        ("invalid", 30.0),
+        ("0", 0.1),
+        ("0.01", 0.1),
+        ("500", 120.0),
+        ("12.5", 12.5),
+    ],
+)
+def test_database_busy_timeout_is_bounded(monkeypatch, configured, expected):
+    monkeypatch.setenv("ASEA_SQLITE_BUSY_TIMEOUT_SECONDS", configured)
+
+    assert RepairJobManager._database_timeout() == expected

@@ -36,7 +36,7 @@ def test_runner_rejects_invalid_memory_limits(monkeypatch, memory_limit):
 @pytest.mark.parametrize("image", ["", "   ", None])
 def test_runner_rejects_invalid_image(monkeypatch, image):
     def unexpected_client():
-        raise AssertionError("Docker client must not be initialized for invalid settings.")
+        raise AssertionError("Docker client must not initialize for invalid settings.")
 
     monkeypatch.setattr("asea.tools.test_runner.docker.from_env", unexpected_client)
     with pytest.raises(ValueError, match="image"):

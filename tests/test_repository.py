@@ -54,6 +54,8 @@ def test_python_file_discovery(tmp_path):
         "https://github.com:8443/user/repo",
         "https://github.com/user/%2e%2e",
         "https://github.com/user/repo/extra",
+        "https://github.com/user\\\\repo",
+        "https://github.com/user/repo\\\\",
     ],
 )
 def test_github_url_rejects_ambiguous_or_unsafe_urls(tmp_path, url):

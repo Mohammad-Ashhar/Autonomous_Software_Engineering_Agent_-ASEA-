@@ -265,7 +265,8 @@ After startup, verify liveness and readiness from the host:
 
 ```bash
 curl --fail http://127.0.0.1:8000/health
-curl --fail http://127.0.0.1:8000/ready
+curl --fail http://127.0.0.1:8000/ready \
+  -H "Authorization: Bearer $ASEA_API_KEY"
 ```
 
 The health route is intentionally unauthenticated for liveness probes. The readiness route is protected when an API key is configured, so include `-H "Authorization: Bearer $ASEA_API_KEY"` (or the equivalent PowerShell header) when checking production readiness.

@@ -219,3 +219,72 @@ def test_release_review_claim_restores_waiting_state_and_checkpoint(tmp_path):
     restored = manager.get_job("review-release-001")
     assert restored["status"] == "waiting_for_review"
     assert restored["review_request"] == request
+
+
+
+def test_sqlite_uses_wal_and_query_indexes(tmp_path):
+    manager = create_test_manager(tmp_path / "wal.db")
+    with manager._connection() as connection:
+        assert connection.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
+        indexes = {
+            row["name"]
+            for row in connection.execute(
+                "PRAGMA index_list(repair_jobs)"
+            ).fetchall()
+        }
+    assert "idx_repair_jobs_created" in indexes
+    assert "idx_repair_jobs_status_created" in indexes
+
+
+def test_database_busy_timeout_is_configurable_and_bounded(monkeypatch):
+    monkeypatch.setenv("ASEA_SQLITE_BUSY_TIMEOUT_SECONDS", "7.5")
+    assert RepairJobManager._database_timeout() == 7.5
+    monkeypatch.setenv("ASEA_SQLITE_BUSY_TIMEOUT_SECONDS", "999")
+    assert RepairJobManager._database_timeout() == 120.0
+    monkeypatch.setenv("ASEA_SQLITE_BUSY_TIMEOUT_SECONDS", "invalid")
+    assert RepairJobManager._database_timeout() == 30.0
+
+
+def test_create_job_validates_identifier_and_repository(tmp_path):
+    import pytest
+
+    manager = create_test_manager(tmp_path / "input_validation.db")
+    with pytest.raises(ValueError, match="job_id"):
+        manager.create_job("", "repo")
+    with pytest.raises(ValueError, match="repository"):
+        manager.create_job("valid-id", "")
+
+
+def test_update_job_rejects_unknown_status_and_oversized_message(tmp_path):
+    import pytest
+
+    manager = create_test_manager(tmp_path / "update_validation.db")
+    manager.create_job("validation-001", "repo")
+    with pytest.raises(ValueError, match="status"):
+        manager.update_job("validation-001", status="mystery")
+    with pytest.raises(ValueError, match="message"):
+        manager.update_job("validation-001", message="x" * 2001)
+
+
+def test_connection_context_closes_sqlite_handle(tmp_path):
+    manager = create_test_manager(tmp_path / "close_connection.db")
+    with manager._connection() as connection:
+        connection.execute("SELECT 1")
+    import pytest
+    with pytest.raises(Exception, match="closed"):
+        connection.execute("SELECT 1")
+
+
+def test_connection_context_rolls_back_failed_transaction(tmp_path):
+    import pytest
+
+    manager = create_test_manager(tmp_path / "rollback.db")
+    with pytest.raises(RuntimeError):
+        with manager._connection() as connection:
+            connection.execute(
+                "INSERT INTO repair_jobs "
+                "(job_id, repository, status, message, created_at, updated_at) "
+                "VALUES ('rollback-001', 'repo', 'queued', 'test', 'now', 'now')"
+            )
+            raise RuntimeError("force rollback")
+    assert manager.get_job("rollback-001") is None

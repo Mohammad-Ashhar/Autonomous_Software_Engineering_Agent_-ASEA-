@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 import secrets
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
@@ -94,7 +95,11 @@ async def lifespan(app: FastAPI):
         print("ASEA SQLite checkpoint database initialized.")
         print("ASEA LangGraph workflow compiled successfully.")
 
-        yield
+        try:
+            yield
+        finally:
+            logging.info("ASEA API is shutting down; stopping queued background work.")
+            executor.shutdown(wait=False, cancel_futures=True)
 
 executor = ThreadPoolExecutor(max_workers=1)
 
@@ -290,6 +295,44 @@ app.add_middleware(
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type"],
 )
+
+
+@app.middleware("http")
+async def add_request_correlation(request: Request, call_next):
+    """Attach a validated request ID to logs and every API response."""
+    supplied = request.headers.get("x-request-id", "")
+    request_id = (
+        supplied
+        if len(supplied) <= 128 and re.fullmatch(r"[A-Za-z0-9._-]+", supplied)
+        else str(uuid4())
+    )
+    request.state.request_id = request_id
+    try:
+        response = await call_next(request)
+    except Exception:
+        logging.exception("Unhandled API error. Request ID: %s", request_id)
+        raise
+    response.headers["X-Request-ID"] = request_id
+    return response
+
+
+@app.exception_handler(Exception)
+async def handle_unexpected_exception(request: Request, error: Exception):
+    """Return a stable public error while retaining diagnostic server logs."""
+    request_id = getattr(request.state, "request_id", "unavailable")
+    logging.exception(
+        "Unhandled API exception. Request ID: %s",
+        request_id,
+        exc_info=(type(error), error, error.__traceback__),
+    )
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": "An internal server error occurred.",
+            "request_id": request_id,
+        },
+        headers={"X-Request-ID": request_id, "Cache-Control": "no-store"},
+    )
 
 
 @app.middleware("http")
@@ -528,10 +571,27 @@ def root():
 
 @app.get("/health")
 def health_check():
+    """Liveness probe: confirms the API process can serve requests."""
     return {
         "status": "healthy",
         "service": "ASEA API",
     }
+
+
+@app.get("/ready")
+def readiness_check():
+    """Readiness probe: verifies initialized workflow and job storage."""
+    try:
+        if not hasattr(app.state, "graph"):
+            raise RuntimeError("Workflow graph is not initialized.")
+        repair_jobs.check_database()
+    except Exception as error:
+        logging.warning("ASEA readiness check failed: %s", type(error).__name__)
+        raise HTTPException(
+            status_code=503,
+            detail="ASEA is not ready to process requests.",
+        ) from error
+    return {"status": "ready", "service": "ASEA API"}
 
 
 @app.post("/analyze")

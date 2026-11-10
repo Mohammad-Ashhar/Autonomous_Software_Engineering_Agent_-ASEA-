@@ -33,10 +33,19 @@ CHECKPOINT_DB_PATH = (
 
 
 def validate_api_security_configuration(environment: str, api_key: str | None) -> None:
-    """Require an API key before starting in production mode."""
-    if environment.lower() == "production" and not api_key:
+    """Enforce a sufficiently strong API key before production startup."""
+    if environment.strip().lower() != "production":
+        return
+
+    normalized_key = api_key.strip() if api_key else ""
+    if not normalized_key:
         raise RuntimeError(
             "ASEA_API_KEY must be configured when ASEA_ENV=production."
+        )
+    if len(normalized_key) < 32:
+        raise RuntimeError(
+            "ASEA_API_KEY must contain at least 32 non-whitespace characters "
+            "when ASEA_ENV=production."
         )
 
 

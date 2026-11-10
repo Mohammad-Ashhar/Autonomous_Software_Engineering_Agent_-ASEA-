@@ -70,8 +70,46 @@ def test_execution_node(state: ASEAState) -> dict[str, Any]:
         state.get("working_repo_path") or state["repo_path"]
     ).resolve()
 
-    runner = DockerTestRunner()
-    results = runner.run_tests(repo_path)
+    errors = list(state.get("errors", []))
+    try:
+        runner = DockerTestRunner()
+        results = runner.run_tests(repo_path)
+    except Exception as error:  # noqa: BLE001
+        message = f"Baseline test execution failed: {error}"
+        errors.append(message)
+        results = {
+            "success": False,
+            "status": "UNKNOWN",
+            "passed": 0,
+            "failed": 0,
+            "errors": 0,
+            "total": 0,
+            "failed_tests": [],
+            "output": "",
+            "reason": message,
+            "timed_out": False,
+        }
+        return {
+            "test_results": results,
+            "working_test_results": results,
+            "errors": errors,
+            "current_agent": "test_execution",
+            "status": "baseline_test_execution_failed",
+        }
+
+    if results.get("status") not in {"PASSED", "FAILED"}:
+        message = (
+            "Baseline test execution did not produce a reliable test result "
+            f"(status={results.get('status', 'UNKNOWN')})."
+        )
+        errors.append(message)
+        return {
+            "test_results": results,
+            "working_test_results": results,
+            "errors": errors,
+            "current_agent": "test_execution",
+            "status": "baseline_test_execution_failed",
+        }
 
     return {
         "test_results": results,
@@ -79,6 +117,13 @@ def test_execution_node(state: ASEAState) -> dict[str, Any]:
         "current_agent": "test_execution",
         "status": "baseline_tests_completed"
     }
+
+
+def route_after_test_execution(state: ASEAState) -> str:
+    """Do not start repairs when baseline tests could not be measured."""
+    if state.get("status") == "baseline_tests_completed":
+        return "continue"
+    return "finish"
 
 
 # --------------------------------------------------
@@ -717,9 +762,25 @@ def final_validation_node(state: ASEAState) -> dict[str, Any]:
         state["working_repo_path"]
     ).resolve()
 
-    runner = DockerTestRunner()
-
-    results = runner.run_tests(working_repo)
+    errors = list(state.get("errors", []))
+    try:
+        runner = DockerTestRunner()
+        results = runner.run_tests(working_repo)
+    except Exception as error:  # noqa: BLE001
+        message = f"Final test execution failed: {error}"
+        errors.append(message)
+        results = {
+            "success": False,
+            "status": "UNKNOWN",
+            "passed": 0,
+            "failed": 0,
+            "errors": 0,
+            "total": 0,
+            "failed_tests": [],
+            "output": "",
+            "reason": message,
+            "timed_out": False,
+        }
 
     final_status = (
         "COMPLETED"
@@ -729,6 +790,7 @@ def final_validation_node(state: ASEAState) -> dict[str, Any]:
 
     return {
         "working_test_results": results,
+        "errors": errors,
         "current_agent": "final_validation",
         "status": final_status
     }
@@ -809,7 +871,14 @@ def build_asea_graph(checkpointer=None):
     workflow.add_edge("bug_detector", "workspace_preparation")
     workflow.add_edge("workspace_preparation", "test_generation")
     workflow.add_edge("test_generation", "test_execution")
-    workflow.add_edge("test_execution", "bug_prioritization")
+    workflow.add_conditional_edges(
+        "test_execution",
+        route_after_test_execution,
+        {
+            "continue": "bug_prioritization",
+            "finish": END,
+        },
+    )
     workflow.add_edge("bug_prioritization", "bug_selector")
 
     # Select the next bug.

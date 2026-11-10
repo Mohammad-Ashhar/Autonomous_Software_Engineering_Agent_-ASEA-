@@ -58,3 +58,42 @@ def test_retry_feedback_includes_human_review_feedback():
     })
 
     assert "Keep the public API unchanged." in formatted
+
+def test_patch_generator_uses_safe_even_check_fallback_on_llm_timeout(tmp_path):
+    source = "def is_even(number):\n    return number % 2 == 1\n"
+    file_path = tmp_path / "logic.py"
+    file_path.write_text(source, encoding="utf-8")
+    agent = PatchGeneratorAgent()
+
+    def timeout(**_kwargs):
+        raise TimeoutError("local model did not respond in time")
+
+    agent.llm.chat = timeout
+    result = agent.generate_patch(
+        file_path,
+        {"title": "Incorrect even-number check"},
+    )
+
+    assert result["generator"] == "deterministic_fallback"
+    assert "-    return number % 2 == 1" in result["patch"]
+    assert "+    return number % 2 == 0" in result["patch"]
+
+
+def test_patch_generator_uses_safe_positive_boundary_fallback_on_llm_timeout(tmp_path):
+    source = "def is_positive(number):\n    return number >= 0\n"
+    file_path = tmp_path / "logic.py"
+    file_path.write_text(source, encoding="utf-8")
+    agent = PatchGeneratorAgent()
+
+    def timeout(**_kwargs):
+        raise TimeoutError("local model did not respond in time")
+
+    agent.llm.chat = timeout
+    result = agent.generate_patch(
+        file_path,
+        {"title": "Incorrect positive boundary"},
+    )
+
+    assert result["generator"] == "deterministic_fallback"
+    assert "-    return number >= 0" in result["patch"]
+    assert "+    return number > 0" in result["patch"]

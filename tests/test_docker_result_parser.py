@@ -49,8 +49,8 @@ def test_parse_results_marks_empty_suite():
 
 def test_parse_results_ignores_test_output_that_looks_like_summary():
     output = (
-        "captured output: 99 passed in 1.0s\\n"
-        "2 passed, 1 failed in 0.20s\\n"
+        "captured output: 99 passed in 1.0s\n"
+        "2 passed, 1 failed in 0.20s\n"
         "FAILED tests/test_math.py::test_subtract - AssertionError"
     )
 

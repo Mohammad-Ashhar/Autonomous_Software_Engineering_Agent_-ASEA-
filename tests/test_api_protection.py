@@ -50,11 +50,12 @@ def test_rate_limit_window_resets(monkeypatch):
 
 
 def test_rate_limit_isolated_by_client_address():
-    client = make_client(requests_per_window=1, window_seconds=60)
-    first = client.get("/", headers={"host": "localhost"})
-    second = client.get("/", headers={"host": "localhost"},)
-    assert first.status_code == 200
-    assert second.status_code == 429
+    middleware = RequestProtectionMiddleware(
+        lambda *_: None, requests_per_window=1, window_seconds=60
+    )
+    assert middleware._allow_request("192.0.2.1", 1.0)[0]
+    assert middleware._allow_request("192.0.2.2", 1.0)[0]
+    assert not middleware._allow_request("192.0.2.1", 2.0)[0]
 
 
 def test_health_endpoint_is_exempt_from_rate_limiting():
@@ -103,6 +104,47 @@ def test_response_includes_security_headers():
     assert response.headers["x-frame-options"] == "DENY"
     assert response.headers["referrer-policy"] == "no-referrer"
     assert response.headers["cache-control"] == "no-store"
+
+
+def test_rejected_requests_also_include_security_headers():
+    client = make_client(requests_per_window=1, window_seconds=60)
+    client.get("/")
+    response = client.get("/")
+    assert response.status_code == 429
+    assert response.headers["x-content-type-options"] == "nosniff"
+
+
+def test_streamed_body_cannot_exceed_configured_limit():
+    middleware = RequestProtectionMiddleware(
+        lambda scope, receive, send: None, max_body_bytes=4
+    )
+    messages = []
+
+    async def send(message):
+        messages.append(message)
+
+    chunks = iter([
+        {"type": "http.request", "body": b"123", "more_body": True},
+        {"type": "http.request", "body": b"456", "more_body": False},
+    ])
+
+    async def receive():
+        return next(chunks)
+
+    async def endpoint(scope, receive, send):
+        await receive()
+        await receive()
+
+    middleware.app = endpoint
+    scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/upload",
+        "headers": [],
+        "client": ("127.0.0.1", 1234),
+    }
+    asyncio.run(middleware(scope, receive, send))
+    assert messages[0]["status"] == 413
 
 
 def test_rate_limit_client_registry_is_bounded():

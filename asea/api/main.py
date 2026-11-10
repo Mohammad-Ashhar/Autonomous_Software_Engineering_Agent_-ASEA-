@@ -292,7 +292,8 @@ app.add_middleware(
 @app.middleware("http")
 async def require_api_key(request: Request, call_next):
     """Protect API operations when an API key is configured."""
-    api_key = os.getenv("ASEA_API_KEY")
+    configured_key = os.getenv("ASEA_API_KEY")
+    api_key = configured_key.strip() if configured_key else ""
     if api_key and request.url.path != "/health" and request.method != "OPTIONS":
         if not is_valid_api_key(
             request.headers.get("authorization"),

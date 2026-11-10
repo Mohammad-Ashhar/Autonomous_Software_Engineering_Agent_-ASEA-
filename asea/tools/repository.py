@@ -45,6 +45,12 @@ class RepositoryManager:
 
     def _existing_clone(self, destination, requested_url):
         """Validate and return an already-published repository clone."""
+        if destination.is_symlink():
+            raise ValueError(
+                f"Existing workspace clone cannot be a symbolic link: "
+                f"{destination}"
+            )
+
         try:
             repo = Repo(
                 str(destination),

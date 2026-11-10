@@ -1,6 +1,8 @@
 from pathlib import Path
 
-from asea.api.job_manager import RepairJobManager
+import pytest
+
+from asea.api.job_manager import JobQueueFullError, RepairJobManager
 
 
 def create_test_manager(db_path: Path) -> RepairJobManager:
@@ -291,9 +293,6 @@ def test_connection_context_rolls_back_failed_transaction(tmp_path):
 
 
 def test_active_job_admission_limit_is_enforced(tmp_path, monkeypatch):
-    import pytest
-    from asea.api.job_manager import JobQueueFullError
-
     manager = create_test_manager(tmp_path / "queue_limit.db")
     monkeypatch.setenv("ASEA_MAX_ACTIVE_REPAIR_JOBS", "1")
     manager.create_job("active-001", "repo-one")
@@ -332,7 +331,6 @@ def test_prune_terminal_jobs_preserves_active_and_review_jobs(tmp_path):
 
 
 def test_prune_terminal_jobs_validates_retention_window(tmp_path):
-    import pytest
     manager = create_test_manager(tmp_path / "retention_validation.db")
     with pytest.raises(ValueError, match="retention_days"):
         manager.prune_terminal_jobs(retention_days=0)

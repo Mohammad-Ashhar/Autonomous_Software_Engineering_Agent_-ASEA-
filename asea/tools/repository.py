@@ -179,11 +179,17 @@ class RepositoryManager:
         python_files = []
 
         for path in repo_path.rglob("*.py"):
-            if ignored.intersection(
-                path.relative_to(repo_path).parts
-            ):
+            if path.is_symlink():
                 continue
 
-            python_files.append(path)
+            relative_path = path.relative_to(repo_path)
+            if ignored.intersection(relative_path.parts):
+                continue
+
+            resolved_path = path.resolve()
+            if repo_path not in resolved_path.parents:
+                continue
+
+            python_files.append(resolved_path)
 
         return sorted(python_files)

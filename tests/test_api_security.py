@@ -78,3 +78,12 @@ def test_health_check_remains_available_when_key_is_configured(monkeypatch):
 
     assert response.status_code == 200
     assert response.json()["status"] == "healthy"
+
+
+def test_production_startup_fails_without_api_key(monkeypatch):
+    monkeypatch.setenv("ASEA_ENV", "production")
+    monkeypatch.delenv("ASEA_API_KEY", raising=False)
+
+    with pytest.raises(RuntimeError, match="ASEA_API_KEY"):
+        with TestClient(main.app):
+            pass

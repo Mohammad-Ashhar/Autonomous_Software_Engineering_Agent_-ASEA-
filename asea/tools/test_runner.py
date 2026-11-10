@@ -1,6 +1,7 @@
 
 import re
 import time
+from math import isfinite
 from pathlib import Path
 
 import docker
@@ -15,10 +16,34 @@ class DockerTestRunner:
         timeout=120,
         memory_limit="512m"
     ):
+        if not isinstance(image, str) or not image.strip():
+            raise ValueError("Docker image must be a non-empty string.")
+        if (
+            isinstance(timeout, bool)
+            or not isinstance(timeout, (int, float))
+            or not isfinite(timeout)
+            or not 1 <= timeout <= 3600
+        ):
+            raise ValueError("Test timeout must be between 1 and 3600 seconds.")
+        if not isinstance(memory_limit, str) or not re.fullmatch(
+            r"\\d+(?:[bBkKmMgG])?", memory_limit.strip()
+        ):
+            raise ValueError("Memory limit must be a positive byte value with an optional unit.")
+
+        memory_value = re.fullmatch(
+            r"(\\d+)([bBkKmMgG]?)", memory_limit.strip()
+        )
+        amount = int(memory_value.group(1))
+        unit = memory_value.group(2).lower()
+        multiplier = {"": 1, "b": 1, "k": 1024, "m": 1024**2, "g": 1024**3}[unit]
+        memory_bytes = amount * multiplier
+        if not 16 * 1024**2 <= memory_bytes <= 8 * 1024**3:
+            raise ValueError("Memory limit must be between 16 MiB and 8 GiB.")
+
         self.client = docker.from_env()
-        self.image = image
-        self.timeout = timeout
-        self.memory_limit = memory_limit
+        self.image = image.strip()
+        self.timeout = float(timeout)
+        self.memory_limit = memory_limit.strip().lower()
 
     def parse_results(self, output, exit_code):
         counts = {

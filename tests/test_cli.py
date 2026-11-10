@@ -117,3 +117,37 @@ def test_status_displays_configuration(monkeypatch):
     assert result.exit_code == 0, result.output
     assert "test-model" in result.output
     assert "Docker" in result.output
+
+def test_repair_publishes_only_after_validated_success(monkeypatch, tmp_path):
+    monkeypatch.setattr(cli, "resolve_repository", lambda _: tmp_path)
+    monkeypatch.setattr(
+        cli,
+        "run_asea",
+        lambda _: {
+            "status": "COMPLETED",
+            "detected_bugs": [{"title": "example"}],
+            "repaired_bugs": [{"title": "example"}],
+            "escalated_bugs": [],
+            "patches": [{"patch": "diff"}],
+            "working_test_results": {"passed": 5, "failed": 0},
+        },
+    )
+    published = {}
+
+    def fake_publish(state):
+        published["state"] = state
+        return {
+            "branch": "asea/repair-example",
+            "commit": "abc123",
+            "pull_request": {"url": "https://github.com/example/repo/pull/1"},
+        }
+
+    monkeypatch.setattr(cli, "publish_validated_repairs", fake_publish)
+    result = runner.invoke(cli.app, ["repair", str(tmp_path), "--publish"])
+
+    assert result.exit_code == 0, result.output
+    assert published["state"]["status"] == "COMPLETED"
+    assert "asea/repair-example" in result.output
+    assert "abc123" in result.output
+    assert "https://github.com/example/repo/pull/1" in result.output
+

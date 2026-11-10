@@ -484,7 +484,15 @@ class PatchValidatorAgent:
                     original_directory = backup_repo / directory_name
                     if original_directory.exists():
                         destination = working_repo_path / directory_name
-                        if destination.exists():
+                        destination_exists = (
+                            destination.exists() or destination.is_symlink()
+                        )
+                        if directory_name == ".git" and destination_exists:
+                            if destination.is_dir() and not destination.is_symlink():
+                                shutil.rmtree(destination)
+                            else:
+                                destination.unlink()
+                        elif destination_exists:
                             raise FileExistsError(
                                 f"Cannot restore preserved directory: {directory_name}"
                             )

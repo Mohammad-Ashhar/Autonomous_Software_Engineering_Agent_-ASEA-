@@ -45,3 +45,17 @@ def test_parse_results_marks_empty_suite():
     assert result["status"] == "NO_TESTS"
     assert result["total"] == 0
     assert result["errors"] == 0
+
+
+def test_parse_results_ignores_test_output_that_looks_like_summary():
+    output = (
+        "captured output: 99 passed in 1.0s\\n"
+        "2 passed, 1 failed in 0.20s\\n"
+        "FAILED tests/test_math.py::test_subtract - AssertionError"
+    )
+
+    result = make_runner().parse_results(output, 1)
+
+    assert result["passed"] == 2
+    assert result["failed"] == 1
+    assert result["total"] == 3

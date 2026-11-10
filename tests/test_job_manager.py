@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -334,3 +335,47 @@ def test_prune_terminal_jobs_validates_retention_window(tmp_path):
     manager = create_test_manager(tmp_path / "retention_validation.db")
     with pytest.raises(ValueError, match="retention_days"):
         manager.prune_terminal_jobs(retention_days=0)
+
+
+
+def test_concurrent_managers_respect_global_active_job_limit(tmp_path, monkeypatch):
+    db_path = tmp_path / "concurrent_admission.db"
+    managers = [
+        create_test_manager(db_path),
+        create_test_manager(db_path),
+    ]
+    monkeypatch.setenv("ASEA_MAX_ACTIVE_REPAIR_JOBS", "1")
+
+    def submit(index):
+        try:
+            managers[index].create_job(f"concurrent-{index}", "repo")
+            return "accepted"
+        except JobQueueFullError:
+            return "full"
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        outcomes = list(pool.map(submit, range(2)))
+
+    assert sorted(outcomes) == ["accepted", "full"]
+    assert managers[0].list_jobs()["total"] == 1
+
+
+def test_publish_requested_requires_boolean(tmp_path):
+    manager = create_test_manager(tmp_path / "publish_validation.db")
+    manager.create_job("publish-validation", "repo")
+
+    with pytest.raises(ValueError, match="publish_requested"):
+        manager.update_job("publish-validation", publish_requested="yes")
+
+
+def test_terminal_retention_index_is_created(tmp_path):
+    manager = create_test_manager(tmp_path / "retention_index.db")
+    with manager._connection() as connection:
+        indexes = {
+            row["name"]
+            for row in connection.execute(
+                "PRAGMA index_list(repair_jobs)"
+            ).fetchall()
+        }
+
+    assert "idx_repair_jobs_terminal_updated" in indexes

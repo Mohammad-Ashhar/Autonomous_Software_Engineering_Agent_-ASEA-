@@ -38,11 +38,15 @@ def validate_api_security_configuration(environment: str, api_key: str | None) -
         return
 
     normalized_key = api_key.strip() if api_key else ""
-    if not normalized_key:
-        raise RuntimeError(
-            "ASEA_API_KEY must be configured when ASEA_ENV=production."
-        )
     if len(normalized_key) < 32:
+        if not normalized_key:
+            raise RuntimeError(
+                "ASEA_API_KEY must be configured when ASEA_ENV=production."
+            )
+        raise RuntimeError(
+            "ASEA_API_KEY must contain at least 32 non-whitespace characters "
+            "when ASEA_ENV=production."
+        )
         raise RuntimeError(
             "ASEA_API_KEY must contain at least 32 non-whitespace characters "
             "when ASEA_ENV=production."

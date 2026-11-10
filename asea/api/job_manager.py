@@ -8,6 +8,10 @@ from threading import Lock
 from typing import Any
 
 
+class JobQueueFullError(RuntimeError):
+    """Raised when the configured active-job limit is reached."""
+
+
 class RepairJobManager:
     """Manage repair jobs using persistent SQLite storage."""
 
@@ -141,6 +145,13 @@ class RepairJobManager:
 
         with self.lock:
             with self._connection() as connection:
+                maximum = self._maximum_active_jobs()
+                active = connection.execute(
+                    "SELECT COUNT(*) FROM repair_jobs "
+                    "WHERE status IN ('queued', 'running')"
+                ).fetchone()[0]
+                if active >= maximum:
+                    raise JobQueueFullError("Repair queue is full.")
                 connection.execute(
                     """
                     INSERT INTO repair_jobs (
@@ -238,6 +249,31 @@ class RepairJobManager:
                 ).fetchone()
 
                 return self._row_to_dict(updated_row)
+
+
+    @staticmethod
+    def _maximum_active_jobs() -> int:
+        """Return a bounded admission limit for active jobs."""
+        try:
+            value = int(os.getenv("ASEA_MAX_ACTIVE_REPAIR_JOBS", "20"))
+        except ValueError:
+            return 20
+        return min(500, max(1, value))
+
+    def prune_terminal_jobs(self, retention_days: int = 30) -> int:
+        """Delete old completed/failed jobs; preserve active and review jobs."""
+        if not 1 <= retention_days <= 3650:
+            raise ValueError("retention_days must be between 1 and 3650")
+        cutoff = datetime.now(timezone.utc).timestamp() - retention_days * 86400
+        cutoff_iso = datetime.fromtimestamp(cutoff, timezone.utc).isoformat()
+        with self.lock:
+            with self._connection() as connection:
+                cursor = connection.execute(
+                    "DELETE FROM repair_jobs "
+                    "WHERE status IN ('completed', 'failed') AND updated_at < ?",
+                    (cutoff_iso,),
+                )
+                return cursor.rowcount
 
     def check_database(self) -> None:
         """Raise when the persistent job database cannot be queried."""

@@ -303,3 +303,55 @@ def test_repair_request_strips_repository_whitespace():
     request = main.RepairRequest(repository="  /tmp/example-repository  ")
 
     assert request.repository == "/tmp/example-repository"
+
+def test_run_repair_job_records_failure_without_exposing_exception(
+    monkeypatch,
+):
+    jobs = FakeRepairJobs()
+    monkeypatch.setattr(main, "repair_jobs", jobs)
+
+    def fail_repository_resolution(_repository):
+        raise RuntimeError("private filesystem detail")
+
+    monkeypatch.setattr(main, "resolve_repository", fail_repository_resolution)
+
+    main.run_repair_job("job-resolution-failure", "/tmp/private-repository")
+
+    assert jobs.updates[0][1] == {
+        "status": "running",
+        "message": "Resolving repository and starting repair.",
+    }
+    assert jobs.updates[-1][1] == {
+        "status": "failed",
+        "message": "ASEA repair workflow failed.",
+        "error": "An internal error occurred during repair.",
+    }
+
+
+def test_resume_repair_job_records_failure_and_keeps_error_generic(
+    monkeypatch,
+):
+    jobs = FakeRepairJobs()
+    monkeypatch.setattr(main, "repair_jobs", jobs)
+
+    class FailingGraph:
+        def invoke(self, command, config):
+            raise RuntimeError("private model-provider response")
+
+        def get_state(self, config):
+            raise RuntimeError("checkpoint unavailable")
+
+    monkeypatch.setattr(
+        main.app.state,
+        "graph",
+        FailingGraph(),
+        raising=False,
+    )
+
+    main.resume_repair_job("job-review-failure", "approved", "")
+
+    assert jobs.updates[-1][1] == {
+        "status": "failed",
+        "message": "Failed to resume ASEA repair workflow.",
+        "error": "An internal error occurred while processing the review.",
+    }

@@ -147,3 +147,47 @@ def test_request_id_is_added_to_health_response(monkeypatch):
     response = client.get("/health")
     assert response.status_code == 200
     assert response.headers.get("x-request-id")
+
+def test_request_completion_is_logged_with_correlation_and_latency(monkeypatch, caplog):
+    import logging
+
+    monkeypatch.delenv("ASEA_API_KEY", raising=False)
+    client = TestClient(main.app)
+    with caplog.at_level(logging.INFO):
+        response = client.get(
+            "/?sensitive=query-value",
+            headers={"X-Request-ID": "observability-123"},
+        )
+
+    assert response.status_code == 200
+    matching = [
+        record.getMessage()
+        for record in caplog.records
+        if "API request completed." in record.getMessage()
+    ]
+    assert matching
+    assert "method=GET" in matching[-1]
+    assert "path=/" in matching[-1]
+    assert "status_code=200" in matching[-1]
+    assert "request_id=observability-123" in matching[-1]
+    assert "duration_ms=" in matching[-1]
+    assert "sensitive=query-value" not in matching[-1]
+
+
+def test_server_error_request_is_logged_as_warning(monkeypatch, caplog):
+    import logging
+
+    monkeypatch.delenv("ASEA_API_KEY", raising=False)
+    if hasattr(main.app.state, "graph"):
+        del main.app.state.graph
+    client = TestClient(main.app)
+    with caplog.at_level(logging.WARNING):
+        response = client.get("/ready")
+
+    assert response.status_code == 503
+    assert any(
+        record.levelno == logging.WARNING
+        and "status_code=503" in record.getMessage()
+        for record in caplog.records
+    )
+

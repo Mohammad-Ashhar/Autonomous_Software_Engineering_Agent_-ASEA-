@@ -1,6 +1,8 @@
+import importlib
+
 from typer.testing import CliRunner
 
-from asea import cli
+cli = importlib.import_module("asea.cli")
 
 runner = CliRunner()
 

@@ -34,6 +34,10 @@ async def _json_response(send: Any, status: int, detail: str, headers=()) -> Non
         (b"content-type", b"application/json"),
         (b"content-length", str(len(body)).encode("ascii")),
         *headers,
+        (b"x-content-type-options", b"nosniff"),
+        (b"x-frame-options", b"DENY"),
+        (b"referrer-policy", b"no-referrer"),
+        (b"cache-control", b"no-store"),
     ]
     await send({
         "type": "http.response.start",

@@ -129,7 +129,12 @@ class PatchValidatorAgent:
                     original_directory = backup_repo / directory_name
                     if original_directory.exists():
                         destination = repository_path / directory_name
-                        if destination.exists():
+                        # Patch application initializes a temporary Git
+                        # repository in the staged copy. Replace that
+                        # temporary metadata with the user's original .git.
+                        if directory_name == ".git" and destination.exists():
+                            shutil.rmtree(destination)
+                        elif destination.exists():
                             raise FileExistsError(
                                 f"Cannot restore preserved directory: {directory_name}"
                             )

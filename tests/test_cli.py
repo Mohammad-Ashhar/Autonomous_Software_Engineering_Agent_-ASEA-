@@ -66,7 +66,8 @@ def test_repair_reports_validated_result_without_publishing(monkeypatch, tmp_pat
     assert result.exit_code == 0, result.output
     assert "All final validation checks passed" in result.output
     assert "5 passed, 0 failed" in result.output
-    assert "No GitHub pull request was requested" in result.output
+    assert "Validated changes remain in the ASEA workspace." in result.output
+    assert "requested." in result.output
 
 
 def test_repair_failure_blocks_publish(monkeypatch, tmp_path):

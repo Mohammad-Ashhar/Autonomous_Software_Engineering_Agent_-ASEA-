@@ -178,7 +178,7 @@ The included `demo_repo_multi/` fixture contains a deliberate defect: `is_positi
 
 Build the sandbox image and configure the LLM before running the repair demonstration, as described above. The fixture is intentionally faulty; do not use it as application code.
 
-## Backend API
+### Backend API
 
 Start the FastAPI development server:
 

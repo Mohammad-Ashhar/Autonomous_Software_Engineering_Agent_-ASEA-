@@ -135,8 +135,19 @@ class PatchValidatorAgent:
                             )
                         original_directory.rename(destination)
             except Exception:
-                # Move the candidate aside before restoring the untouched
-                # original tree, including any directories already restored.
+                # Return any already-restored directories to the backup before
+                # putting the original repository tree back in place.
+                for directory_name in (
+                    ".git",
+                    ".venv",
+                    "venv",
+                    "artifacts",
+                    "workspaces",
+                ):
+                    restored = repository_path / directory_name
+                    original = backup_repo / directory_name
+                    if restored.exists() and not original.exists():
+                        restored.rename(original)
                 if repository_path.exists():
                     repository_path.rename(staged_repo)
                 backup_repo.rename(repository_path)

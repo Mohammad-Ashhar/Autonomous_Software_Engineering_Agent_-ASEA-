@@ -1,5 +1,7 @@
 import json
+import os
 import sqlite3
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import Lock
@@ -20,17 +22,38 @@ class RepairJobManager:
         self._initialize_database()
 
     def _connect(self):
-        connection = sqlite3.connect(
-            str(self.db_path),
-            timeout=30,
-        )
+        timeout = self._database_timeout()
+        connection = sqlite3.connect(str(self.db_path), timeout=timeout)
         connection.row_factory = sqlite3.Row
+        connection.execute(f"PRAGMA busy_timeout = {int(timeout * 1000)}")
+        connection.execute("PRAGMA journal_mode = WAL")
+        connection.execute("PRAGMA synchronous = NORMAL")
         return connection
+
+    @staticmethod
+    def _database_timeout() -> float:
+        """Return a bounded SQLite lock wait, configurable for deployments."""
+        raw = os.getenv("ASEA_SQLITE_BUSY_TIMEOUT_SECONDS", "30")
+        try:
+            value = float(raw)
+        except ValueError:
+            return 30.0
+        return min(120.0, max(0.1, value))
+
+    @contextmanager
+    def _connection(self):
+        """Commit successful operations and always close the SQLite handle."""
+        connection = self._connect()
+        try:
+            with connection:
+                yield connection
+        finally:
+            connection.close()
 
     def _initialize_database(self):
         """Create the repair jobs table if it does not exist."""
 
-        with self._connect() as connection:
+        with self._connection() as connection:
             connection.execute(
                 """
                 CREATE TABLE IF NOT EXISTS repair_jobs (
@@ -58,6 +81,14 @@ class RepairJobManager:
                     "ALTER TABLE repair_jobs ADD COLUMN "
                     "publish_requested INTEGER NOT NULL DEFAULT 0"
                 )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_repair_jobs_created "
+                "ON repair_jobs(created_at DESC, job_id DESC)"
+            )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_repair_jobs_status_created "
+                "ON repair_jobs(status, created_at DESC, job_id DESC)"
+            )
 
     @staticmethod
     def _serialize(value: Any) -> str | None:
@@ -88,6 +119,10 @@ class RepairJobManager:
         publish_requested: bool = False,
     ) -> dict[str, Any]:
         """Register a new repair job."""
+        if not job_id or len(job_id) > 128:
+            raise ValueError("job_id must contain between 1 and 128 characters.")
+        if not repository or len(repository) > 2048:
+            raise ValueError("repository must contain between 1 and 2048 characters.")
 
         now = datetime.now(timezone.utc).isoformat()
 
@@ -105,7 +140,7 @@ class RepairJobManager:
         }
 
         with self.lock:
-            with self._connect() as connection:
+            with self._connection() as connection:
                 connection.execute(
                     """
                     INSERT INTO repair_jobs (
@@ -153,9 +188,18 @@ class RepairJobManager:
             raise ValueError(
                 f"Unsupported job fields: {sorted(invalid_fields)}"
             )
+        if "status" in updates and updates["status"] not in {
+            "queued", "running", "waiting_for_review", "completed", "failed"
+        }:
+            raise ValueError("Unsupported repair job status.")
+        if "message" in updates and (
+            not isinstance(updates["message"], str)
+            or len(updates["message"]) > 2000
+        ):
+            raise ValueError("Job message must be a string of at most 2000 characters.")
 
         with self.lock:
-            with self._connect() as connection:
+            with self._connection() as connection:
                 row = connection.execute(
                     "SELECT * FROM repair_jobs WHERE job_id = ?",
                     (job_id,),
@@ -199,7 +243,7 @@ class RepairJobManager:
         """Retrieve a repair job."""
 
         with self.lock:
-            with self._connect() as connection:
+            with self._connection() as connection:
                 row = connection.execute(
                     "SELECT * FROM repair_jobs WHERE job_id = ?",
                     (job_id,),
@@ -212,7 +256,7 @@ class RepairJobManager:
         """Atomically claim a review-paused job without losing its checkpoint."""
         now = datetime.now(timezone.utc).isoformat()
         with self.lock:
-            with self._connect() as connection:
+            with self._connection() as connection:
                 cursor = connection.execute(
                     """
                     UPDATE repair_jobs
@@ -229,7 +273,7 @@ class RepairJobManager:
         """Return an unstarted review claim to the review queue."""
         now = datetime.now(timezone.utc).isoformat()
         with self.lock:
-            with self._connect() as connection:
+            with self._connection() as connection:
                 cursor = connection.execute(
                     """
                     UPDATE repair_jobs
@@ -257,7 +301,7 @@ class RepairJobManager:
         """
         now = datetime.now(timezone.utc).isoformat()
         with self.lock:
-            with self._connect() as connection:
+            with self._connection() as connection:
                 cursor = connection.execute(
                     """
                     UPDATE repair_jobs
@@ -290,7 +334,7 @@ class RepairJobManager:
             raise ValueError("offset cannot be negative")
 
         with self.lock:
-            with self._connect() as connection:
+            with self._connection() as connection:
                 where_clause = "WHERE status = ?" if status else ""
                 parameters: tuple[Any, ...] = (status,) if status else ()
                 total = connection.execute(

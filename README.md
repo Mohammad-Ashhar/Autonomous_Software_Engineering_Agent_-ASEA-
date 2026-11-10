@@ -101,7 +101,7 @@ The supported settings in `.env.example` are:
 
 | Variable | Purpose | Default |
 | --- | --- | --- |
-| `OLLAMA_BASE_URL` | OpenAI-compatible Ollama API endpoint | `http://localhost:11434/v1` |
+| `ASEA_ENV` | Runtime environment (`development` or `production`) | `development` |\n| `ASEA_API_KEY` | Optional shared Bearer key protecting API routes; required in production mode | Empty |\n| `OLLAMA_BASE_URL` | OpenAI-compatible Ollama API endpoint | `http://localhost:11434/v1` |
 | `OLLAMA_MODEL` | Model name sent to the configured LLM endpoint | `qwen2.5-coder:1.5b` |
 | `GITHUB_TOKEN` | GitHub token used by GitHub integration / PR publishing | Empty |
 | `GITHUB_REPOSITORY` | Repository used by the publishing integration | Empty in application defaults |
@@ -116,7 +116,7 @@ ollama serve
 
 If you change the model or endpoint, update `OLLAMA_MODEL` and `OLLAMA_BASE_URL` accordingly. The endpoint must provide the OpenAI-compatible API expected by the configured LLM client.
 
-Set `GITHUB_TOKEN` only when using GitHub operations that require authentication, such as publishing pull requests. Use a token with the minimum repository permissions required. Never commit `.env`, tokens, or other credentials.
+Set `GITHUB_TOKEN` only when using GitHub operations that require authentication, such as publishing pull requests. Use a token with the minimum repository permissions required. Never commit `.env`, tokens, or other credentials.\n\nFor a production backend, set `ASEA_ENV=production` and provide a high-entropy `ASEA_API_KEY`. The API refuses to start in production mode without this key. When configured, all routes except `/health` require `Authorization: Bearer <ASEA_API_KEY>`; CORS preflight requests remain available. Keep the key in server-side secret storage and never place it in a `NEXT_PUBLIC_*` frontend variable.
 
 ## Run ASEA
 
@@ -227,7 +227,7 @@ Do not delete or modify these databases while the API is running.
 
 ## Security and operational boundaries
 
-- The API currently has no built-in authentication or authorization. Its default server binding is loopback (`127.0.0.1`); keep it local unless you add an authenticated, appropriately configured deployment boundary.
+- API-key authentication is available for backend clients. Production mode requires `ASEA_API_KEY`; use a high-entropy secret and protect it with server-side secret storage. This is a shared-key boundary, not user identity, role-based authorization, or multi-user isolation.\n- The API's default server binding is loopback (`127.0.0.1`). Do not expose it directly to the public internet. For a browser frontend, put a properly authenticated reverse proxy or identity-aware gateway in front of the API; do not embed the shared API key in browser code.
 - CORS is currently restricted to the local frontend origins `localhost:3000` and `127.0.0.1:3000`.
 - Do not expose the API directly to the public internet. Before remote or multi-user deployment, add authentication, authorization, rate limiting, request/resource limits, secure secret management, and deployment-specific CORS rules.
 - Treat repository code, test output, and LLM-generated patches as untrusted. Review diffs before accepting them.

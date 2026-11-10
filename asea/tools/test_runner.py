@@ -26,14 +26,14 @@ class DockerTestRunner:
         ):
             raise ValueError("Test timeout must be between 1 and 3600 seconds.")
         if not isinstance(memory_limit, str) or not re.fullmatch(
-            r"\\d+(?:[bBkKmMgG])?", memory_limit.strip()
+            r"\d+(?:[bBkKmMgG])?", memory_limit.strip()
         ):
             raise ValueError(
                 "Memory limit must be a positive byte value with an optional unit."
             )
 
         memory_value = re.fullmatch(
-            r"(\\d+)([bBkKmMgG]?)", memory_limit.strip()
+            r"(\d+)([bBkKmMgG]?)", memory_limit.strip()
         )
         amount = int(memory_value.group(1))
         unit = memory_value.group(2).lower()

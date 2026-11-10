@@ -109,3 +109,72 @@ def test_retry_routes_back_while_attempts_remain(tmp_path):
         "retry_counts": {key: 2},
         "max_retries": 3,
     }) == "retry"
+
+
+
+def test_baseline_runner_exception_stops_repair_workflow(tmp_path, monkeypatch):
+    repository = tmp_path / "repository"
+    repository.mkdir()
+
+    class FailingRunner:
+        def run_tests(self, _repository):
+            raise RuntimeError("Docker daemon unavailable")
+
+    monkeypatch.setattr(graph, "DockerTestRunner", FailingRunner)
+    state = {"repo_path": str(repository), "errors": []}
+
+    result = graph.test_execution_node(state)
+
+    assert result["status"] == "baseline_test_execution_failed"
+    assert result["test_results"]["status"] == "UNKNOWN"
+    assert result["test_results"]["success"] is False
+    assert "Docker daemon unavailable" in result["errors"][-1]
+    assert graph.route_after_test_execution(result) == "finish"
+
+
+def test_unreliable_baseline_result_stops_repair_workflow(tmp_path, monkeypatch):
+    repository = tmp_path / "repository"
+    repository.mkdir()
+
+    class UnknownRunner:
+        def run_tests(self, _repository):
+            return {
+                "success": False,
+                "status": "UNKNOWN",
+                "passed": 0,
+                "failed": 0,
+                "errors": 0,
+                "total": 0,
+            }
+
+    monkeypatch.setattr(graph, "DockerTestRunner", UnknownRunner)
+    result = graph.test_execution_node({
+        "repo_path": str(repository),
+        "errors": [],
+    })
+
+    assert result["status"] == "baseline_test_execution_failed"
+    assert graph.route_after_test_execution(result) == "finish"
+    assert result["errors"]
+
+
+def test_final_validation_runner_exception_returns_structured_failure(
+    tmp_path, monkeypatch
+):
+    working_repository = tmp_path / "working"
+    working_repository.mkdir()
+
+    class FailingRunner:
+        def run_tests(self, _repository):
+            raise RuntimeError("Docker timed out")
+
+    monkeypatch.setattr(graph, "DockerTestRunner", FailingRunner)
+    result = graph.final_validation_node({
+        "working_repo_path": str(working_repository),
+        "errors": [],
+    })
+
+    assert result["status"] == "COMPLETED_WITH_REMAINING_FAILURES"
+    assert result["working_test_results"]["status"] == "UNKNOWN"
+    assert result["working_test_results"]["success"] is False
+    assert "Docker timed out" in result["errors"][-1]

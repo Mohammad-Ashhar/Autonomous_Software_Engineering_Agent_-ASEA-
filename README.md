@@ -239,6 +239,37 @@ For a rejection, provide non-empty feedback:
 
 The API accepts `publish: true` as an explicit opt-in. A pull request is attempted only after the workflow completes its approval and validation path.
 
+### Single-host production backend
+
+For a controlled single-host deployment, run the ASGI application with Uvicorn rather than the development entry point. Keep the service bound to loopback and place a TLS-terminating reverse proxy or authenticated gateway in front of it.
+
+Linux/macOS:
+
+```bash
+export ASEA_ENV=production
+export ASEA_API_KEY="$(python -c 'import secrets; print(secrets.token_urlsafe(48))')"
+uvicorn asea.api.main:app --host 127.0.0.1 --port 8000 --workers 1
+```
+
+Windows PowerShell:
+
+```powershell
+$env:ASEA_ENV = "production"
+$env:ASEA_API_KEY = (python -c "import secrets; print(secrets.token_urlsafe(48))")
+uvicorn asea.api.main:app --host 127.0.0.1 --port 8000 --workers 1
+```
+
+Use a secret manager or protected service environment file for long-lived deployments; the commands above generate a fresh key for a local run. Configure the reverse proxy to preserve the `Authorization` header, enforce TLS, apply shared request limits, and allow only the intended frontend origin. The browser frontend must not receive the backend shared key. Keep the `data/` directory on persistent storage and back up the SQLite databases when the service is stopped. The current deployment guidance targets one Uvicorn worker on one host; it is not a horizontally scaled or multi-tenant deployment recipe.
+
+After startup, verify liveness and readiness from the host:
+
+```bash
+curl --fail http://127.0.0.1:8000/health
+curl --fail http://127.0.0.1:8000/ready
+```
+
+The health route is intentionally unauthenticated for liveness probes. The readiness route is protected when an API key is configured, so include `-H "Authorization: Bearer $ASEA_API_KEY"` (or the equivalent PowerShell header) when checking production readiness.
+
 ### Web frontend
 
 In a second terminal:

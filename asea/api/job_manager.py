@@ -127,10 +127,16 @@ class RepairJobManager:
         publish_requested: bool = False,
     ) -> dict[str, Any]:
         """Register a new repair job."""
-        if not job_id or len(job_id) > 128:
+        if not isinstance(job_id, str) or not job_id.strip() or len(job_id) > 128:
             raise ValueError("job_id must contain between 1 and 128 characters.")
-        if not repository or len(repository) > 2048:
+        if (
+            not isinstance(repository, str)
+            or not repository.strip()
+            or len(repository) > 2048
+        ):
             raise ValueError("repository must contain between 1 and 2048 characters.")
+        if not isinstance(publish_requested, bool):
+            raise ValueError("publish_requested must be a boolean.")
 
         now = datetime.now(timezone.utc).isoformat()
 
@@ -198,6 +204,9 @@ class RepairJobManager:
             "error",
             "publish_requested",
         }
+
+        if not isinstance(job_id, str) or not job_id.strip() or len(job_id) > 128:
+            raise ValueError("job_id must contain between 1 and 128 characters.")
 
         invalid_fields = set(updates) - allowed_fields
 
@@ -383,6 +392,11 @@ class RepairJobManager:
             raise ValueError("limit must be between 1 and 100")
         if offset < 0:
             raise ValueError("offset cannot be negative")
+        valid_statuses = {
+            "queued", "running", "waiting_for_review", "completed", "failed"
+        }
+        if status is not None and status not in valid_statuses:
+            raise ValueError("Unsupported repair job status filter.")
 
         with self.lock:
             with self._connection() as connection:

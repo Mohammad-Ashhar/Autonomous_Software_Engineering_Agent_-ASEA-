@@ -78,3 +78,30 @@ def test_package_module_name_is_resolved(tmp_path: Path):
     source.write_text("def add(a, b):\n    return a + b\n", encoding="utf-8")
 
     assert TestGenerationAgent._module_name(tmp_path, source) == "sample.logic"
+
+
+def test_reject_generated_decorators():
+    with pytest.raises(ValueError, match="decorators"):
+        _validate_test_code(
+            "@dangerous()\\ndef test_example():\\n    assert True"
+        )
+
+
+def test_reject_generated_default_argument_execution():
+    with pytest.raises(ValueError, match="default arguments"):
+        _validate_test_code(
+            "def test_example(value=dangerous()):\\n    assert value"
+        )
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "def test_example():\\n    return ().__class__",
+        "def test_example():\\n    module.os.system('whoami')",
+        "def test_example():\\n    getattr(module, 'value')",
+    ],
+)
+def test_reject_generated_introspection_and_process_access(source):
+    with pytest.raises(ValueError, match="restricted"):
+        _validate_test_code(source)

@@ -7,7 +7,7 @@ def make_runner():
 
 def test_parse_results_counts_singular_collection_error():
     result = make_runner().parse_results(
-        "ERROR collecting tests/test_sample.py\\n"
+        "ERROR collecting tests/test_sample.py\n"
         "1 error in 0.02s",
         2,
     )
@@ -20,7 +20,7 @@ def test_parse_results_counts_singular_collection_error():
 def test_parse_results_counts_all_pytest_summary_categories():
     output = (
         "2 passed, 1 failed, 1 error, 1 skipped, "
-        "1 xfailed, 1 xpassed in 0.20s\\n"
+        "1 xfailed, 1 xpassed in 0.20s\n"
         "FAILED tests/test_math.py::test_subtract - AssertionError"
     )
 

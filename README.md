@@ -187,7 +187,7 @@ For a short, reproducible walkthrough:
 3. Start the repair workflow and inspect the proposed diff at the human-review prompt. Approve only if the change is correct.
 4. Confirm the workflow summary reports `COMPLETED`, all final tests pass, and the change is present in the ASEA workspace. Add `--publish` only when you intentionally want a GitHub pull request.
 
-The repair workflow's duration depends on the local model, whether it is already loaded, repository size, and test-suite duration. A warm small model and a small repository can make the demo substantially faster; this project does not claim a fixed 30–60 second runtime. Existing test suites are reused rather than generating new tests, which avoids unnecessary model calls for the included demo. The default Docker test-runner timeout is 120 seconds per test run.
+The repair workflow's duration depends on the local model, whether it is already loaded, repository size, and test-suite duration. A warm small model and a small repository can make the demo substantially faster; this project does not claim a fixed 30–60 second runtime. Each Ollama request has a 60-second timeout and automatic retries are disabled, so a stalled model call fails fast instead of silently retrying for several minutes. Existing test suites are reused rather than generating new tests, which avoids unnecessary model calls for the included demo. The default Docker test-runner timeout is 120 seconds per test run.
 
 CLI exit codes: `0` means the command completed successfully and (for repair) final validation passed; `1` means a command or runtime error; `2` means the repair workflow finished without full validation, so publishing is blocked.
 

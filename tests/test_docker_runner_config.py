@@ -6,7 +6,9 @@ from asea.tools.test_runner import DockerTestRunner
 @pytest.mark.parametrize("timeout", [0, -1, 3601, float("inf"), float("nan"), True, "120"])
 def test_runner_rejects_invalid_timeout(monkeypatch, timeout):
     def unexpected_client():
-        raise AssertionError("Docker client must not be initialized for invalid settings.")
+        raise AssertionError(
+            "Docker client must not initialize for invalid settings."
+        )
 
     monkeypatch.setattr("asea.tools.test_runner.docker.from_env", unexpected_client)
     with pytest.raises(ValueError, match="timeout"):

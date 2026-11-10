@@ -133,10 +133,10 @@ def test_symlink_target_cannot_escape_repository(tmp_path):
 
 
 def test_apply_patch_preserves_git_and_runtime_directories(tmp_path):
-    (tmp_path / "safe.py").write_text("value = 1\\n", encoding="utf-8")
+    (tmp_path / "safe.py").write_text("value = 1\n", encoding="utf-8")
     git_dir = tmp_path / ".git"
     git_dir.mkdir()
-    (git_dir / "HEAD").write_text("ref: refs/heads/main\\n", encoding="utf-8")
+    (git_dir / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
     artifacts = tmp_path / "artifacts"
     artifacts.mkdir()
     (artifacts / "run.json").write_text('{"run": 1}', encoding="utf-8")
@@ -153,7 +153,7 @@ def test_apply_patch_preserves_git_and_runtime_directories(tmp_path):
 
     PatchValidatorAgent().apply_patch(tmp_path, patch)
 
-    assert (tmp_path / "safe.py").read_text(encoding="utf-8") == "value = 2\\n"
-    assert (git_dir / "HEAD").read_text(encoding="utf-8") == "ref: refs/heads/main\\n"
+    assert (tmp_path / "safe.py").read_text(encoding="utf-8") == "value = 2\n"
+    assert (git_dir / "HEAD").read_text(encoding="utf-8") == "ref: refs/heads/main\n"
     assert (artifacts / "run.json").read_text(encoding="utf-8") == '{"run": 1}'
     assert (workspaces / "state.txt").read_text(encoding="utf-8") == "keep"

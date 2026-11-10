@@ -156,7 +156,29 @@ Display the active environment configuration:
 asea status
 ```
 
-### Backend API
+### End-to-end repair demonstration
+
+The included `demo_repo_multi/` fixture contains a deliberate defect: `is_positive(0)` incorrectly returns `True`, and its regression test catches the problem. Use it to walk through the repair workflow without publishing anything:
+
+1. Confirm the fixture starts with a failing test:
+
+   ```bash
+   cd demo_repo_multi
+   python -m pytest -q
+   cd ..
+   ```
+
+2. Run ASEA against the fixture:
+
+   ```bash
+   asea repair ./demo_repo_multi
+   ```
+
+3. Follow the workflow output as ASEA analyzes the repository, generates a candidate patch, and validates it in the Docker sandbox. Review the resulting diff before accepting it. This local demo does not request GitHub publishing.
+
+Build the sandbox image and configure the LLM before running the repair demonstration, as described above. The fixture is intentionally faulty; do not use it as application code.
+
+## Backend API
 
 Start the FastAPI development server:
 
@@ -237,7 +259,7 @@ Do not delete or modify these databases while the API is running.
 - API-key authentication is available for backend clients. Production mode requires `ASEA_API_KEY`; use a high-entropy secret and protect it with server-side secret storage. This is a shared-key boundary, not user identity, role-based authorization, or multi-user isolation.
 - The API's default server binding is loopback (`127.0.0.1`). Do not expose it directly to the public internet. For a browser frontend, put a properly authenticated reverse proxy or identity-aware gateway in front of the API; do not embed the shared API key in browser code.
 - CORS is currently restricted to the local frontend origins `localhost:3000` and `127.0.0.1:3000`.
-- Do not expose the API directly to the public internet. Before remote or multi-user deployment, add authentication, authorization, rate limiting, request/resource limits, secure secret management, and deployment-specific CORS rules.
+- Before remote deployment, use a trusted reverse proxy or API gateway for TLS termination, identity/authorization where needed, shared rate limiting, request/resource limits, and deployment-specific CORS. Keep API secrets in server-side secret storage.
 - Treat repository code, test output, and LLM-generated patches as untrusted. Review diffs before accepting them.
 - The test runner mounts the target repository read-only, disables container networking, and applies memory, CPU, process, and timeout limits. This is defense in depth, not a guarantee that arbitrary code is safe.
 - Docker test-runner settings are validated before connecting to Docker: timeout must be 1–3600 seconds, and memory must be 16 MiB–8 GiB (for example, `512m`). Empty image names and malformed resource values are rejected at startup.

@@ -85,8 +85,14 @@ class DockerTestRunner:
         total = sum(counts.values())
         if exit_code == 5:
             status = "NO_TESTS"
-        elif exit_code == 0:
+        elif exit_code == 0 and total > 0 and not (
+            counts["failed"] or counts["errors"]
+        ):
             status = "PASSED"
+        elif exit_code == 0:
+            # A zero exit code without a parseable test summary is not proof
+            # that any tests actually ran successfully.
+            status = "UNKNOWN"
         else:
             status = "FAILED"
 
@@ -188,7 +194,7 @@ class DockerTestRunner:
 
             return {
                 **results,
-                "success": exit_code == 0,
+                "success": results["status"] == "PASSED",
                 "timed_out": False,
                 "exit_code": exit_code,
                 "duration": duration,

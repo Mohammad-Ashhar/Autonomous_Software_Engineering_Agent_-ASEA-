@@ -15,7 +15,7 @@ from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.types import Command
 from pydantic import BaseModel, ConfigDict, Field
 
-from asea.api.job_manager import repair_jobs
+from asea.api.job_manager import JobQueueFullError, repair_jobs
 from asea.api.protection import RequestProtectionMiddleware
 from asea.api.workspace_cleanup import cleanup_repair_workspace
 from asea.cli import resolve_repository
@@ -414,11 +414,18 @@ def start_repair(request: RepairRequest):
 
     job_id = str(uuid4())
 
-    job = repair_jobs.create_job(
-        job_id=job_id,
-        repository=repository,
-        publish_requested=request.publish,
-    )
+    try:
+        job = repair_jobs.create_job(
+            job_id=job_id,
+            repository=repository,
+            publish_requested=request.publish,
+        )
+    except JobQueueFullError as error:
+        raise HTTPException(
+            status_code=503,
+            detail="ASEA is at capacity. Please retry later.",
+            headers={"Retry-After": "30"},
+        ) from error
 
     try:
         executor.submit(

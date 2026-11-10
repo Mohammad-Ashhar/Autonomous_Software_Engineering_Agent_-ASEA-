@@ -406,10 +406,12 @@ If no issues are found:
                     "AI response contains an invalid bugs list."
                 )
 
-        except (ValueError, TypeError, json.JSONDecodeError, RuntimeError) as exc:
+        except Exception as exc:  # noqa: BLE001
+            # Preserve deterministic AST findings when an LLM provider,
+            # network client, or response parser fails unexpectedly.
             print(
                 f"WARNING: Ollama analysis failed for "
-                f"{file_path.name}: {exc}"
+                f"{file_path.name}: {type(exc).__name__}: {exc}"
             )
             bugs = []
 

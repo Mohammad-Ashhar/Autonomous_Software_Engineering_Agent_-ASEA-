@@ -1,11 +1,14 @@
 import logging
+import os
+import secrets
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal
 from uuid import uuid4
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.types import Command
@@ -29,8 +32,33 @@ CHECKPOINT_DB_PATH = (
 )
 
 
+def validate_api_security_configuration(environment: str, api_key: str | None) -> None:
+    """Require an API key before starting in production mode."""
+    if environment.lower() == "production" and not api_key:
+        raise RuntimeError(
+            "ASEA_API_KEY must be configured when ASEA_ENV=production."
+        )
+
+
+def is_valid_api_key(authorization: str | None, expected_key: str) -> bool:
+    """Validate a Bearer token without leaking timing information."""
+    if not authorization:
+        return False
+    scheme, separator, supplied_key = authorization.partition(" ")
+    return (
+        bool(separator)
+        and scheme.lower() == "bearer"
+        and bool(supplied_key)
+        and secrets.compare_digest(supplied_key, expected_key)
+    )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    validate_api_security_configuration(
+        os.getenv("ASEA_ENV", "development"),
+        os.getenv("ASEA_API_KEY"),
+    )
     CHECKPOINT_DB_PATH.parent.mkdir(
         parents=True,
         exist_ok=True,
@@ -250,6 +278,23 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def require_api_key(request: Request, call_next):
+    """Protect API operations when an API key is configured."""
+    api_key = os.getenv("ASEA_API_KEY")
+    if api_key and request.url.path != "/health" and request.method != "OPTIONS":
+        if not is_valid_api_key(
+            request.headers.get("authorization"),
+            api_key,
+        ):
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "A valid Bearer API key is required."},
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+    return await call_next(request)
 
 
 class AnalyzeRequest(BaseModel):

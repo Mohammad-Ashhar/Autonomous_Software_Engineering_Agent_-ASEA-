@@ -239,6 +239,11 @@ class RepairJobManager:
 
                 return self._row_to_dict(updated_row)
 
+    def check_database(self) -> None:
+        """Raise when the persistent job database cannot be queried."""
+        with self._connection() as connection:
+            connection.execute("SELECT 1").fetchone()
+
     def get_job(self, job_id: str) -> dict[str, Any] | None:
         """Retrieve a repair job."""
 

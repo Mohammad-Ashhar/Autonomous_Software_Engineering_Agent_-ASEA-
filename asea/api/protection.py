@@ -8,6 +8,10 @@ from __future__ import annotations
 import json
 import os
 import time
+
+# Keep the clock reference local so tests can control limiter time without
+# altering the process-wide clock used by asyncio/AnyIO and HTTP clients.
+_monotonic = time.monotonic
 from collections import deque
 from threading import Lock
 from typing import Any
@@ -110,7 +114,7 @@ class RequestProtectionMiddleware:
         if method != "OPTIONS" and path != "/health":
             client_info = scope.get("client")
             client = str(client_info[0]) if client_info else "unknown"
-            allowed, retry_after = self._allow_request(client, time.monotonic())
+            allowed, retry_after = self._allow_request(client, _monotonic())
             if not allowed:
                 await _json_response(
                     send,

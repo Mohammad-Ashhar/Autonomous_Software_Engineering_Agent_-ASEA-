@@ -288,3 +288,51 @@ def test_connection_context_rolls_back_failed_transaction(tmp_path):
             )
             raise RuntimeError("force rollback")
     assert manager.get_job("rollback-001") is None
+
+
+def test_active_job_admission_limit_is_enforced(tmp_path, monkeypatch):
+    import pytest
+    from asea.api.job_manager import JobQueueFullError
+
+    manager = create_test_manager(tmp_path / "queue_limit.db")
+    monkeypatch.setenv("ASEA_MAX_ACTIVE_REPAIR_JOBS", "1")
+    manager.create_job("active-001", "repo-one")
+    with pytest.raises(JobQueueFullError):
+        manager.create_job("active-002", "repo-two")
+    manager.update_job("active-001", status="completed")
+    assert manager.create_job("active-003", "repo-three")["status"] == "queued"
+
+
+def test_active_job_limit_is_bounded(monkeypatch):
+    monkeypatch.setenv("ASEA_MAX_ACTIVE_REPAIR_JOBS", "999999")
+    assert RepairJobManager._maximum_active_jobs() == 500
+    monkeypatch.setenv("ASEA_MAX_ACTIVE_REPAIR_JOBS", "invalid")
+    assert RepairJobManager._maximum_active_jobs() == 20
+    monkeypatch.setenv("ASEA_MAX_ACTIVE_REPAIR_JOBS", "0")
+    assert RepairJobManager._maximum_active_jobs() == 1
+
+
+def test_prune_terminal_jobs_preserves_active_and_review_jobs(tmp_path):
+    manager = create_test_manager(tmp_path / "retention.db")
+    for job_id in ("queued-retain", "review-retain", "done-prune", "failed-prune"):
+        manager.create_job(job_id, "repo")
+    manager.update_job("review-retain", status="waiting_for_review")
+    manager.update_job("done-prune", status="completed")
+    manager.update_job("failed-prune", status="failed")
+    with manager._connection() as connection:
+        connection.execute(
+            "UPDATE repair_jobs SET updated_at = '2000-01-01T00:00:00+00:00' "
+            "WHERE job_id IN ('done-prune', 'failed-prune')"
+        )
+    assert manager.prune_terminal_jobs(retention_days=30) == 2
+    assert manager.get_job("done-prune") is None
+    assert manager.get_job("failed-prune") is None
+    assert manager.get_job("queued-retain") is not None
+    assert manager.get_job("review-retain") is not None
+
+
+def test_prune_terminal_jobs_validates_retention_window(tmp_path):
+    import pytest
+    manager = create_test_manager(tmp_path / "retention_validation.db")
+    with pytest.raises(ValueError, match="retention_days"):
+        manager.prune_terminal_jobs(retention_days=0)

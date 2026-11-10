@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import pytest
@@ -20,7 +21,7 @@ def test_parse_fenced_python_response():
 
 
 def test_parse_json_response():
-    response = '{"tests": "def test_example():\n    assert True"}'
+    response = json.dumps({"tests": "def test_example():\n    assert True"})
     assert _parse_response(response).startswith("def test_example()")
 
 

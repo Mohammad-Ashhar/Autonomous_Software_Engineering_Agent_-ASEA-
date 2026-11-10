@@ -78,9 +78,9 @@ def test_validated_patch_preserves_git_and_runtime_directories(tmp_path):
                 "success": True,
             }
 
-    (tmp_path / "module.py").write_text("value = 1\\n", encoding="utf-8")
+    (tmp_path / "module.py").write_text("value = 1\n", encoding="utf-8")
     for directory, filename, value in (
-        (".git", "HEAD", "ref: refs/heads/main\\n"),
+        (".git", "HEAD", "ref: refs/heads/main\n"),
         ("artifacts", "run.json", '{"run": 1}'),
         ("workspaces", "state.txt", "keep"),
     ):
@@ -113,9 +113,9 @@ def test_validated_patch_preserves_git_and_runtime_directories(tmp_path):
     )
 
     assert result["status"] == "PATCH_VALIDATED"
-    assert (tmp_path / "module.py").read_text(encoding="utf-8") == "value = 2\\n"
+    assert (tmp_path / "module.py").read_text(encoding="utf-8") == "value = 2\n"
     git_head = (tmp_path / ".git" / "HEAD").read_text(encoding="utf-8")
-    assert git_head == "ref: refs/heads/main\\n"
+    assert git_head == "ref: refs/heads/main\n"
     artifact = (tmp_path / "artifacts" / "run.json").read_text(encoding="utf-8")
     assert artifact == '{"run": 1}'
     assert (tmp_path / "workspaces" / "state.txt").read_text(encoding="utf-8") == "keep"

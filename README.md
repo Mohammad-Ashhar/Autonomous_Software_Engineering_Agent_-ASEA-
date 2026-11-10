@@ -285,3 +285,10 @@ The GitHub Actions workflow runs Python linting, compilation, Docker sandbox ima
 ## Current scope
 
 ASEA is under active development. The current analyzer, test-generation, and repair workflow is primarily designed for Python repositories. API authentication, multi-user isolation, job cancellation, distributed workers, and production deployment hardening are not currently provided by the repository.
+
+
+### API request protections
+
+The API applies a per-process, per-client sliding-window rate limit and rejects request bodies larger than 2 MiB by default. Configure these limits with `ASEA_RATE_LIMIT_REQUESTS`, `ASEA_RATE_LIMIT_WINDOW_SECONDS`, and `ASEA_MAX_REQUEST_BODY_BYTES`. Rate-limit responses use HTTP 429 and include `Retry-After`. The `/health` endpoint and CORS preflight requests are exempt.
+
+Responses include baseline browser security headers. CORS permits only the configured local frontend origins, GET/POST/OPTIONS methods, and Authorization/Content-Type headers. The in-memory limiter is per process; multi-worker or multi-instance deployments must also enforce shared limits at a trusted reverse proxy or API gateway.

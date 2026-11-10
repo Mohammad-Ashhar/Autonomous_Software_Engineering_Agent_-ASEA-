@@ -395,7 +395,9 @@ class RepairJobManager:
         valid_statuses = {
             "queued", "running", "waiting_for_review", "completed", "failed"
         }
-        if status is not None and status not in valid_statuses:
+        if status is not None and (
+            not isinstance(status, str) or status not in valid_statuses
+        ):
             raise ValueError("Unsupported repair job status filter.")
 
         with self.lock:

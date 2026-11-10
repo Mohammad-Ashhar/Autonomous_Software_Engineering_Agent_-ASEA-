@@ -108,6 +108,10 @@ The supported settings in `.env.example` are:
 | `GITHUB_TOKEN` | GitHub token used by GitHub integration / PR publishing | Empty |
 | `GITHUB_REPOSITORY` | Repository used by the publishing integration | Empty in application defaults |
 | `GITHUB_BASE_BRANCH` | Target base branch for publishing | `MohammadAshhar/deepseek-langraph` |
+| `ASEA_RATE_LIMIT_REQUESTS` | Maximum API requests per client in the configured window | `60` |
+| `ASEA_RATE_LIMIT_WINDOW_SECONDS` | API rate-limit window in seconds | `60` |
+| `ASEA_MAX_REQUEST_BODY_BYTES` | Maximum accepted API request body size | `2097152` (2 MiB) |
+| `ASEA_MAX_ACTIVE_REPAIR_JOBS` | Maximum queued/running repair jobs admitted by the API | `20` (maximum `500`) |
 
 For the default configuration, install and start Ollama, then pull the configured model:
 

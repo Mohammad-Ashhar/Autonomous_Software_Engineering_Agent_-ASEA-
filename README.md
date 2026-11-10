@@ -234,6 +234,7 @@ Do not delete or modify these databases while the API is running.
 - Do not expose the API directly to the public internet. Before remote or multi-user deployment, add authentication, authorization, rate limiting, request/resource limits, secure secret management, and deployment-specific CORS rules.
 - Treat repository code, test output, and LLM-generated patches as untrusted. Review diffs before accepting them.
 - The test runner mounts the target repository read-only, disables container networking, and applies memory, CPU, process, and timeout limits. This is defense in depth, not a guarantee that arbitrary code is safe.
+- Docker test-runner settings are validated before connecting to Docker: timeout must be 1–3600 seconds, and memory must be 16 MiB–8 GiB (for example, `512m`). Empty image names and malformed resource values are rejected at startup.
 - Use a dedicated Docker host/account and avoid granting ASEA broader host privileges than necessary.
 - GitHub publishing is opt-in. Keep tokens out of source control and grant only the permissions needed to create branches and pull requests.
 

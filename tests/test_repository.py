@@ -138,3 +138,18 @@ def test_clone_rejects_symlinked_destination(tmp_path):
         manager.clone_repository("https://github.com/example/project")
 
     assert (external_repository / ".git").is_dir()
+
+def test_python_file_discovery_skips_symlinks_outside_repository(tmp_path):
+    manager = RepositoryManager(tmp_path / "workspace")
+    project = tmp_path / "demo"
+    project.mkdir()
+
+    inside_file = project / "main.py"
+    inside_file.write_text("print('inside')")
+    outside_file = tmp_path / "secret.py"
+    outside_file.write_text("print('outside')")
+    (project / "linked.py").symlink_to(outside_file)
+
+    files = manager.get_python_files(project)
+
+    assert files == [inside_file.resolve()]

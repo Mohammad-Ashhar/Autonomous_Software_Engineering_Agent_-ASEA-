@@ -59,3 +59,10 @@ def test_parse_results_ignores_test_output_that_looks_like_summary():
     assert result["passed"] == 2
     assert result["failed"] == 1
     assert result["total"] == 3
+
+
+def test_parse_results_does_not_claim_success_without_a_summary():
+    result = make_runner().parse_results("", 0)
+
+    assert result["status"] == "UNKNOWN"
+    assert result["total"] == 0

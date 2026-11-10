@@ -165,6 +165,16 @@ button, a {
   margin-left: auto;
 }
 
+.engine-dot.offline,
+.system-indicator.offline span {
+  background: var(--red);
+}
+
+.engine-dot.checking,
+.system-indicator.checking span {
+  background: var(--warning, #d69e36);
+}
+
 .sidebar-bottom {
   margin-top: auto;
 }

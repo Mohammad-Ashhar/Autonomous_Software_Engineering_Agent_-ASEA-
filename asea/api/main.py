@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 import re
@@ -68,6 +69,7 @@ def is_valid_api_key(authorization: str | None, expected_key: str) -> bool:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global executor
     validate_api_security_configuration(
         os.getenv("ASEA_ENV", "development"),
         os.getenv("ASEA_API_KEY"),
@@ -76,6 +78,9 @@ async def lifespan(app: FastAPI):
         parents=True,
         exist_ok=True,
     )
+    # A fresh executor is required for every application lifespan. This keeps
+    # test clients and ASGI reloads from reusing an executor already shut down.
+    executor = ThreadPoolExecutor(max_workers=1)
 
     with SqliteSaver.from_conn_string(
         str(CHECKPOINT_DB_PATH)
@@ -99,8 +104,16 @@ async def lifespan(app: FastAPI):
         try:
             yield
         finally:
-            logging.info("ASEA API is shutting down; stopping queued background work.")
-            executor.shutdown(wait=False, cancel_futures=True)
+            logging.info(
+                "ASEA API is shutting down; draining active background work."
+            )
+            # Keep the SQLite checkpointer open until the running workflow has
+            # finished. Cancel queued jobs, but do not abandon active work.
+            await asyncio.to_thread(
+                executor.shutdown,
+                wait=True,
+                cancel_futures=True,
+            )
 
 executor = ThreadPoolExecutor(max_workers=1)
 

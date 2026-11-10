@@ -181,3 +181,23 @@ def test_bug_detector_integrates_cross_file_findings(tmp_path):
     assert result["dependency_analysis"]["cross_file_issue_count"] == 1
     assert result["confirmed_bug_count"] == 1
     assert result["detected_bugs"][0]["source"] == "dependency_ast"
+
+
+
+def test_llm_provider_failure_preserves_deterministic_ast_findings(tmp_path):
+    agent = BugDetectorAgent()
+    source = tmp_path / "logic.py"
+    source.write_text(
+        "def is_even(number):\n    return number % 2 == 1\n",
+        encoding="utf-8",
+    )
+
+    def fail_request(**_kwargs):
+        raise ConnectionError("LLM provider is unavailable")
+
+    with patch.object(agent.llm, "chat", side_effect=fail_request):
+        findings = agent.analyze_file(source)
+
+    assert len(findings) == 1
+    assert findings[0]["title"] == "Incorrect even-number check"
+    assert findings[0]["source"] == "ast"

@@ -83,12 +83,12 @@ def test_repair_job_http_lifecycle_from_submission_to_history(
 
     client = TestClient(main.app)
     submitted = client.post(
-            "/repair",
-            json={
-                "repository": "/tmp/asea-e2e-repository",
-                "publish": False,
-            },
-        )
+        "/repair",
+        json={
+            "repository": "/tmp/asea-e2e-repository",
+            "publish": False,
+        },
+    )
 
     assert submitted.status_code == 202
     job_id = submitted.json()["job_id"]

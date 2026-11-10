@@ -123,13 +123,17 @@ class PatchGeneratorAgent:
                 continue
 
             for node in ast.walk(function):
-                if not isinstance(node, ast.Return) or not isinstance(node.value, ast.Compare):
+                if not isinstance(node, ast.Return):
+                    continue
+                if not isinstance(node.value, ast.Compare):
                     continue
                 comparison = node.value
                 if len(comparison.ops) != 1 or len(comparison.comparators) != 1:
                     continue
                 comparator = comparison.comparators[0]
-                if not isinstance(comparator, ast.Constant) or comparator.value != 0 and target_name == "is_positive":
+                if not isinstance(comparator, ast.Constant):
+                    continue
+                if target_name == "is_positive" and comparator.value != 0:
                     continue
 
                 line_index = node.lineno - 1

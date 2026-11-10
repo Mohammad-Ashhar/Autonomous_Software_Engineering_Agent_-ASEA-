@@ -37,7 +37,7 @@ class RepositoryManager:
             len(parts) != 2
             or not all(parts)
             or any(part in {".", ".."} for part in parts)
-            or any("%" in part or "\\\\" in part for part in parts)
+            or any("%" in part or "\\" in part for part in parts)
         ):
             raise ValueError("Invalid GitHub repository URL.")
 

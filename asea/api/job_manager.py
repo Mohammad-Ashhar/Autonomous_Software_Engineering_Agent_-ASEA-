@@ -30,7 +30,6 @@ class RepairJobManager:
         connection = sqlite3.connect(str(self.db_path), timeout=timeout)
         connection.row_factory = sqlite3.Row
         connection.execute(f"PRAGMA busy_timeout = {int(timeout * 1000)}")
-        connection.execute("PRAGMA journal_mode = WAL")
         connection.execute("PRAGMA synchronous = NORMAL")
         return connection
 
@@ -58,6 +57,9 @@ class RepairJobManager:
         """Create the repair jobs table if it does not exist."""
 
         with self._connection() as connection:
+            # WAL is persistent; configure it once instead of on every
+            # short-lived connection to avoid unnecessary lock traffic.
+            connection.execute("PRAGMA journal_mode = WAL")
             connection.execute(
                 """
                 CREATE TABLE IF NOT EXISTS repair_jobs (

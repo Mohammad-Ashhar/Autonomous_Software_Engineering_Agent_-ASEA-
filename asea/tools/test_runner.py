@@ -58,7 +58,7 @@ class DockerTestRunner:
             "xpassed": 0,
         }
         summary_pattern = re.compile(
-            r"\\b(\\d+)\\s+(passed|failed|errors?|skipped|xfailed|xpassed)\\b",
+            r"\b(\d+)\s+(passed|failed|errors?|skipped|xfailed|xpassed)\b",
             re.IGNORECASE,
         )
 
@@ -68,7 +68,7 @@ class DockerTestRunner:
             counts[key] += int(match.group(1))
 
         failed_tests = re.findall(
-            r"^FAILED\\s+(.+?)(?:\\s+-|$)",
+            r"^FAILED\s+(.+?)(?:\s+-|$)",
             output,
             re.MULTILINE,
         )

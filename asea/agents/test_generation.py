@@ -13,7 +13,13 @@ IGNORED_PARTS = {
 
 BLOCKED_NAMES = {
     "__import__", "eval", "exec", "compile", "open", "input",
-    "globals", "locals", "breakpoint"
+    "globals", "locals", "breakpoint", "getattr", "setattr", "delattr",
+}
+BLOCKED_ATTRIBUTES = {
+    "__class__", "__bases__", "__subclasses__", "__globals__",
+    "__builtins__", "__dict__", "__mro__", "__getattribute__",
+    "system", "popen", "spawn", "remove", "unlink", "write_text",
+    "write_bytes", "mkdir", "rmdir", "rename", "replace",
 }
 
 
@@ -59,11 +65,35 @@ def _validate_test_code(source: str) -> ast.Module:
     if len(test_functions) != len(tree.body):
         raise ValueError("Generated tests must contain only test functions.")
 
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Name) and node.id in BLOCKED_NAMES:
-            raise ValueError(
-                f"Generated tests contain a restricted name: {node.id}"
+    for function in test_functions:
+        if function.decorator_list:
+            raise ValueError("Generated tests may not use decorators.")
+        if function.args.defaults or function.args.kw_defaults:
+            raise ValueError("Generated tests may not use default arguments.")
+        if function.returns or any(
+            argument.annotation is not None
+            for argument in (
+                function.args.posonlyargs
+                + function.args.args
+                + function.args.kwonlyargs
             )
+        ):
+            raise ValueError("Generated tests may not use annotations.")
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name):
+            if node.id in BLOCKED_NAMES or node.id.startswith("__"):
+                raise ValueError(
+                    f"Generated tests contain a restricted name: {node.id}"
+                )
+        elif isinstance(node, ast.Attribute):
+            if (
+                node.attr in BLOCKED_ATTRIBUTES
+                or node.attr.startswith("__")
+            ):
+                raise ValueError(
+                    f"Generated tests contain a restricted attribute: {node.attr}"
+                )
 
     return tree
 

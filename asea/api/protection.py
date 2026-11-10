@@ -8,13 +8,13 @@ from __future__ import annotations
 import json
 import os
 import time
+from collections import deque
+from threading import Lock
+from typing import Any
 
 # Keep the clock reference local so tests can control limiter time without
 # altering the process-wide clock used by asyncio/AnyIO and HTTP clients.
 _monotonic = time.monotonic
-from collections import deque
-from threading import Lock
-from typing import Any
 
 
 def _positive_int(name: str, default: int) -> int:

@@ -48,33 +48,32 @@ class DockerTestRunner:
         self.memory_limit = memory_limit.strip().lower()
 
     def parse_results(self, output, exit_code):
+        """Parse pytest's concise summary, including singular error counts."""
         counts = {
             "passed": 0,
             "failed": 0,
             "errors": 0,
             "skipped": 0,
             "xfailed": 0,
-            "xpassed": 0
+            "xpassed": 0,
         }
+        summary_pattern = re.compile(
+            r"\\b(\\d+)\\s+(passed|failed|errors?|skipped|xfailed|xpassed)\\b",
+            re.IGNORECASE,
+        )
 
-        for key in counts:
-            match = re.search(
-                rf"(\d+)\s+{key}",
-                output,
-                re.IGNORECASE
-            )
-
-            if match:
-                counts[key] = int(match.group(1))
+        for match in summary_pattern.finditer(output):
+            label = match.group(2).lower()
+            key = "errors" if label in {"error", "errors"} else label
+            counts[key] += int(match.group(1))
 
         failed_tests = re.findall(
-            r"^FAILED\s+(.+?)(?:\s+-|$)",
+            r"^FAILED\\s+(.+?)(?:\\s+-|$)",
             output,
-            re.MULTILINE
+            re.MULTILINE,
         )
 
         total = sum(counts.values())
-
         if exit_code == 5:
             status = "NO_TESTS"
         elif exit_code == 0:
@@ -86,7 +85,7 @@ class DockerTestRunner:
             "status": status,
             "total": total,
             **counts,
-            "failed_tests": failed_tests
+            "failed_tests": failed_tests,
         }
 
     def run_tests(self, repository_path):

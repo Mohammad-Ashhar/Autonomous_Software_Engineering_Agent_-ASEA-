@@ -125,7 +125,7 @@ def test_validated_patch_preserves_git_and_runtime_directories(tmp_path):
 
 def test_syntax_only_patch_is_intermediate_without_reliable_tests(tmp_path):
     source = tmp_path / "module.py"
-    source.write_text("def value():\\n    try\\n        return 1\\n", encoding="utf-8")
+    source.write_text("def value():\n    try\n        return 1\n", encoding="utf-8")
     patch = """--- a/module.py
 +++ b/module.py
 @@ -1,3 +1,3 @@
@@ -156,5 +156,5 @@ def test_syntax_only_patch_is_intermediate_without_reliable_tests(tmp_path):
     assert result["patch_applied"] is True
     assert result["tests_passed"] is False
     assert source.read_text(encoding="utf-8") == (
-        "def value():\\n    try:\\n        return 1\\n"
+        "def value():\n    try:\n        return 1\n"
     )

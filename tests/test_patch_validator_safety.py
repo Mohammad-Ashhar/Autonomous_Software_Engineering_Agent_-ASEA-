@@ -137,7 +137,7 @@ def test_syntax_only_patch_is_intermediate_without_reliable_tests(tmp_path):
     )
     patch = """--- a/module.py
 +++ b/module.py
-@@ -1,5 +1,5 @@
+@@ -1,3 +1,5 @@
  def value():
 -    try
 +    try:

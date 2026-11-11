@@ -100,14 +100,15 @@ def test_patch_generator_uses_safe_positive_boundary_fallback_on_llm_timeout(tmp
 
 
 def test_patch_generator_repairs_missing_try_colon_without_llm(tmp_path):
-    source = (
-        "import json\\n"
-        "def calculate_average_scores(payload):\\n"
-        "    try\\n"
-        "        return json.loads(payload)\\n"
-        "    except json.JSONDecodeError:\\n"
-        "        return {}\\n"
-    )
+    source = "\\n".join([
+        "import json",
+        "def calculate_average_scores(payload):",
+        "    try",
+        "        return json.loads(payload)",
+        "    except json.JSONDecodeError:",
+        "        return {}",
+        "",
+    ])
     file_path = tmp_path / "bug.py"
     file_path.write_text(source, encoding="utf-8")
     agent = PatchGeneratorAgent()

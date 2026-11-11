@@ -40,6 +40,7 @@ class FakeGraph:
 def test_completed_repair_cleans_workspace(monkeypatch):
     jobs = FakeRepairJobs()
     result = {
+        "status": "COMPLETED",
         "repo_path": "/source",
         "working_repo_path": "/workspaces/asea_run_1/repository",
     }

@@ -593,7 +593,7 @@ If no issues are found:
             except ValueError:
                 continue
             message = str(parse_error.get("error", "Python syntax error"))
-            line_match = re.search(r"line (\\d+)", message)
+            line_match = re.search(r"line (\d+)", message)
             line = int(line_match.group(1)) if line_match else 1
             detected_bugs.append({
                 "title": "Python syntax error",

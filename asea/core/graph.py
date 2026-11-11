@@ -6,7 +6,7 @@ from typing import Any
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
 
-from asea.agents.bug_detector import bug_detector_node
+from asea.agents.bug_detector import BugDetectorAgent, bug_detector_node
 from asea.agents.patch_generator import PatchGeneratorAgent
 from asea.agents.patch_validator import PatchValidatorAgent
 from asea.agents.test_generation import test_generation_node
@@ -628,6 +628,48 @@ def patch_validation_node(state: ASEAState) -> dict[str, Any]:
     }
 
     if validation_result.get("status") == "PATCH_VALIDATED":
+
+        # A deterministic syntax repair is an intermediate step, not proof
+        # that the underlying module is fully correct. Re-analyze the now
+        # parseable file so semantic defects hidden behind the syntax error
+        # can enter the normal prioritized repair queue.
+        latest_patch = patches[-1] if patches else {}
+        if latest_patch.get("repair_scope") == "syntax_only":
+            try:
+                original_file = Path(bug["file"]).resolve()
+                relative_file = original_file.relative_to(repo_path)
+                repaired_file = (working_repo / relative_file).resolve()
+                repaired_file.relative_to(working_repo)
+                follow_up_findings = BugDetectorAgent().analyze_file(
+                    repaired_file
+                )
+                detected = list(state.get("detected_bugs", []))
+                prioritized = list(state.get("prioritized_bugs", []))
+                known_keys = {
+                    get_bug_key(item)
+                    for item in detected + prioritized
+                }
+                new_findings = [
+                    item for item in follow_up_findings
+                    if item.get("classification") == "confirmed_bug"
+                    and get_bug_key(item) not in known_keys
+                ]
+                detected.extend(new_findings)
+                prioritized.extend(new_findings)
+                updates["detected_bugs"] = detected
+                updates["prioritized_bugs"] = prioritized
+                if new_findings:
+                    print(
+                        "POST-SYNTAX REANALYSIS FOUND:",
+                        len(new_findings),
+                        "additional confirmed bug(s)"
+                    )
+            except Exception as error:  # noqa: BLE001
+                errors = list(state.get("errors", []))
+                errors.append(
+                    "Post-syntax repair analysis failed: " + str(error)
+                )
+                updates["errors"] = errors
 
         processed_keys = list(
             state.get("processed_bug_keys", [])

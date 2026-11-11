@@ -502,7 +502,8 @@ class PatchValidatorAgent:
                     "regression_free": False,
                     "reason": (
                         "Syntax is repaired and the candidate parses. "
-                        "Semantic reanalysis and full test validation are still required."
+                        "Semantic reanalysis and full test validation are "
+                        "still required."
                     ),
                 }
 

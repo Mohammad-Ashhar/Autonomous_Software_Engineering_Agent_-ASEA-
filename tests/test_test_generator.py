@@ -106,3 +106,16 @@ def test_reject_generated_default_argument_execution():
 def test_reject_generated_introspection_and_process_access(source):
     with pytest.raises(ValueError, match="restricted"):
         _validate_test_code(source)
+
+
+
+def test_syntactically_invalid_application_module_remains_eligible(tmp_path: Path):
+    source = tmp_path / "broken.py"
+    source.write_text(
+        "def calculate(value):\n    try\n        return value\n",
+        encoding="utf-8",
+    )
+
+    modules = TestGenerationAgent()._source_modules(tmp_path)
+
+    assert modules == [(source, "broken")]

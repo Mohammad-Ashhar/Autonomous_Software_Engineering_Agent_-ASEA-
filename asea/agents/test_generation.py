@@ -224,12 +224,36 @@ class TestGenerationAgent:
             }
         ]
 
-        response = self.llm.chat(
-            messages=prompt,
-            temperature=0.1,
-            max_tokens=1200
-        )
-        return _parse_response(response)
+        last_error: Exception | None = None
+        for attempt in range(1, 3):
+            attempt_prompt = list(prompt)
+            if last_error is not None:
+                attempt_prompt.append({
+                    "role": "user",
+                    "content": (
+                        "Your previous response was rejected because it was "
+                        "not safe, valid pytest function code. Correct this "
+                        "specific issue and return only valid test functions. "
+                        f"Validation error: {last_error}"
+                    ),
+                })
+
+            try:
+                response = self.llm.chat(
+                    messages=attempt_prompt,
+                    temperature=0.1,
+                    max_tokens=1200
+                )
+                test_code = _parse_response(response)
+                _validate_test_code(test_code)
+                return test_code
+            except Exception as error:  # noqa: BLE001
+                last_error = error
+
+        raise ValueError(
+            "Model failed to produce valid, safe pytest code after "
+            f"2 attempts: {last_error}"
+        ) from last_error
 
     def run(self, repository_path: str | Path) -> dict[str, Any]:
         repository = Path(repository_path).resolve()

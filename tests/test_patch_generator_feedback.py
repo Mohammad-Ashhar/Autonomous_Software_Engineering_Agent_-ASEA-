@@ -97,3 +97,30 @@ def test_patch_generator_uses_safe_positive_boundary_fallback_on_llm_timeout(tmp
     assert result["generator"] == "deterministic_fallback"
     assert "-    return number >= 0" in result["patch"]
     assert "+    return number > 0" in result["patch"]
+
+
+def test_patch_generator_repairs_missing_try_colon_without_llm(tmp_path):
+    source = (
+        "import json\\n"
+        "def calculate_average_scores(payload):\\n"
+        "    try\\n"
+        "        return json.loads(payload)\\n"
+        "    except json.JSONDecodeError:\\n"
+        "        return {}\\n"
+    )
+    file_path = tmp_path / "bug.py"
+    file_path.write_text(source, encoding="utf-8")
+    agent = PatchGeneratorAgent()
+
+    def invalid_model_output(**_kwargs):
+        return "def still_broken(:"
+
+    agent.llm.chat = invalid_model_output
+    result = agent.generate_patch(
+        file_path,
+        {"title": "Python syntax error", "line": 3},
+    )
+
+    assert result["generator"] == "deterministic_fallback"
+    assert "+    try:" in result["patch"]
+    assert "-    try" in result["patch"]

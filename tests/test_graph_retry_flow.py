@@ -112,7 +112,7 @@ def test_retry_routes_back_while_attempts_remain(tmp_path):
 
 
 
-def test_baseline_runner_exception_stops_repair_workflow(tmp_path, monkeypatch):
+def test_baseline_runner_exception_allows_static_analysis(tmp_path, monkeypatch):
     repository = tmp_path / "repository"
     repository.mkdir()
 
@@ -129,10 +129,10 @@ def test_baseline_runner_exception_stops_repair_workflow(tmp_path, monkeypatch):
     assert result["test_results"]["status"] == "UNKNOWN"
     assert result["test_results"]["success"] is False
     assert "Docker daemon unavailable" in result["errors"][-1]
-    assert graph.route_after_test_execution(result) == "finish"
+    assert graph.route_after_test_execution(result) == "continue"
 
 
-def test_unreliable_baseline_result_stops_repair_workflow(tmp_path, monkeypatch):
+def test_unreliable_baseline_result_allows_static_analysis(tmp_path, monkeypatch):
     repository = tmp_path / "repository"
     repository.mkdir()
 
@@ -153,8 +153,8 @@ def test_unreliable_baseline_result_stops_repair_workflow(tmp_path, monkeypatch)
         "errors": [],
     })
 
-    assert result["status"] == "baseline_test_execution_failed"
-    assert graph.route_after_test_execution(result) == "finish"
+    assert result["status"] == "baseline_test_execution_unavailable"
+    assert graph.route_after_test_execution(result) == "continue"
     assert result["errors"]
 
 

@@ -98,9 +98,10 @@ def test_execution_node(state: ASEAState) -> dict[str, Any]:
         }
 
     if results.get("status") not in {"PASSED", "FAILED"}:
+        status = results.get("status", "UNKNOWN")
         message = (
-            "Baseline test execution did not produce a reliable test result "
-            f"(status={results.get('status', 'UNKNOWN')})."
+            "Baseline tests were not available for comparison "
+            f"(status={status}); continuing with static analysis and repair."
         )
         errors.append(message)
         return {
@@ -108,7 +109,11 @@ def test_execution_node(state: ASEAState) -> dict[str, Any]:
             "working_test_results": results,
             "errors": errors,
             "current_agent": "test_execution",
-            "status": "baseline_test_execution_failed",
+            "status": (
+                "baseline_tests_unavailable"
+                if status == "NO_TESTS"
+                else "baseline_test_execution_unavailable"
+            ),
         }
 
     return {
@@ -120,10 +125,8 @@ def test_execution_node(state: ASEAState) -> dict[str, Any]:
 
 
 def route_after_test_execution(state: ASEAState) -> str:
-    """Do not start repairs when baseline tests could not be measured."""
-    if state.get("status") == "baseline_tests_completed":
-        return "continue"
-    return "finish"
+    """Always continue analysis; baseline tests are evidence, not a gate."""
+    return "continue"
 
 
 # --------------------------------------------------

@@ -178,3 +178,49 @@ def test_final_validation_runner_exception_returns_structured_failure(
     assert result["working_test_results"]["status"] == "UNKNOWN"
     assert result["working_test_results"]["success"] is False
     assert "Docker timed out" in result["errors"][-1]
+
+
+def test_syntax_only_validation_reanalyzes_file_for_hidden_bugs(
+    tmp_path, monkeypatch
+):
+    state, working_source, key = _state(tmp_path)
+    state["patches"] = [{
+        "bug_key": key,
+        "repair_scope": "syntax_only",
+        "patch": "diff",
+        "attempt": 1,
+    }]
+    state["detected_bugs"] = [state["current_bug"]]
+    state["prioritized_bugs"] = [state["current_bug"]]
+    state["processed_bug_keys"] = []
+    state["repaired_bugs"] = []
+    state["validation_results"] = []
+
+    class ValidatingAgent:
+        def validate_patch(self, **_kwargs):
+            return {
+                "status": "PATCH_VALIDATED",
+                "test_results": {"status": "PASSED", "total": 1},
+            }
+
+    class FollowUpDetector:
+        def analyze_file(self, file_path):
+            assert file_path == working_source
+            return [{
+                "file": str(file_path),
+                "line": 3,
+                "title": "Possible division by zero",
+                "classification": "confirmed_bug",
+                "severity": "high",
+            }]
+
+    monkeypatch.setattr(graph, "PatchValidatorAgent", ValidatingAgent)
+    monkeypatch.setattr(graph, "BugDetectorAgent", FollowUpDetector)
+
+    result = graph.patch_validation_node(state)
+
+    assert len(result["prioritized_bugs"]) == 2
+    assert result["prioritized_bugs"][-1]["title"] == (
+        "Possible division by zero"
+    )
+    assert result["repaired_bugs"][0]["status"] == "REPAIRED"

@@ -104,7 +104,46 @@ class PatchGeneratorAgent:
     def deterministic_fallback(file_path: Path, bug: dict[str, Any]) -> str:
         """Apply only narrowly recognized, syntax-verified Python fixes."""
         source = file_path.read_text(encoding="utf-8", errors="replace")
-        tree = ast.parse(source)
+        try:
+            tree = ast.parse(source)
+        except SyntaxError as error:
+            # Repair only a clearly identified missing colon on a compound
+            # statement header. Do not guess at other syntax errors.
+            if error.msg != "expected ':'" or not error.lineno:
+                raise
+
+            lines = source.splitlines(keepends=True)
+            index = error.lineno - 1
+            if index < 0 or index >= len(lines):
+                raise
+
+            line = lines[index]
+            body, separator, comment = line.partition("#")
+            stripped = body.rstrip()
+            header_patterns = (
+                r"^(?:async\s+)?def\s+.+\)\s*(?:->\s*.+)?$",
+                r"^class\s+.+$",
+                r"^(?:if|elif|while|for|with|except)\s+.+$",
+                r"^(?:try|else|finally)\s*$",
+                r"^async\s+(?:for|with)\s+.+$",
+            )
+            import re
+            if not any(
+                re.match(pattern, stripped.strip())
+                for pattern in header_patterns
+            ):
+                raise ValueError(
+                    "Syntax error is not a recognized missing-colon header."
+                ) from error
+
+            lines[index] = (
+                stripped + ":" + ("  #" + comment if separator else "")
+                + ("\n" if line.endswith("\n") else "")
+            )
+            corrected = "".join(lines)
+            ast.parse(corrected)
+            return corrected
+
         target_name = str(bug.get("function", "")).strip()
         title = str(bug.get("title", "")).lower()
         if not target_name:

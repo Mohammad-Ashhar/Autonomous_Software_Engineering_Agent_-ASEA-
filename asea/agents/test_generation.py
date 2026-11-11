@@ -225,7 +225,7 @@ class TestGenerationAgent:
         ]
 
         last_error: Exception | None = None
-        for attempt in range(1, 3):
+        for _attempt in range(1, 3):
             attempt_prompt = list(prompt)
             if last_error is not None:
                 attempt_prompt.append({

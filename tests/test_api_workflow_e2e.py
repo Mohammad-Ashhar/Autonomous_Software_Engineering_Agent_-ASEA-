@@ -166,3 +166,55 @@ def test_patch_review_http_route_claims_and_schedules_once(monkeypatch):
     )
     assert duplicate.status_code == 409
     assert len(executor.submitted) == 1
+
+
+class UnsuccessfulGraph:
+    def invoke(self, initial_state, config):
+        return {
+            "status": "baseline_test_execution_failed",
+            "errors": [
+                "Baseline test execution did not produce a reliable test result (status=NO_TESTS)."
+            ],
+            "test_generation_results": {"status": "NO_ELIGIBLE_MODULES"},
+        }
+
+    def get_state(self, config):
+        return SimpleNamespace(interrupts=[])
+
+
+def test_unfinished_workflow_is_not_reported_as_completed(monkeypatch):
+    jobs = InMemoryRepairJobs()
+    monkeypatch.delenv("ASEA_API_KEY", raising=False)
+    monkeypatch.setattr(main, "repair_jobs", jobs)
+    monkeypatch.setattr(main, "executor", SynchronousExecutor())
+    monkeypatch.setattr(main, "resolve_repository", lambda repository: repository)
+    monkeypatch.setattr(
+        main,
+        "create_initial_state",
+        lambda repository, review_mode: {"repo_path": repository},
+    )
+    monkeypatch.setattr(main.app.state, "graph", UnsuccessfulGraph(), raising=False)
+    monkeypatch.setattr(main, "cleanup_repair_workspace", lambda *_args: True)
+
+    client = TestClient(main.app)
+    submitted = client.post(
+        "/repair",
+        json={"repository": "/tmp/asea-invalid-repository", "publish": False},
+    )
+
+    assert submitted.status_code == 202
+    job_id = submitted.json()["job_id"]
+
+    status = client.get(f"/repair/{job_id}")
+    assert status.status_code == 200
+    assert status.json()["status"] == "failed"
+    assert "did not complete successfully" in status.json()["message"]
+    assert "NO_TESTS" in status.json()["error"]
+    assert status.json()["result"]["workflow"]["status"] == (
+        "baseline_test_execution_failed"
+    )
+
+    history = client.get("/repairs?status=completed")
+    assert history.json()["total"] == 0
+    failed_history = client.get("/repairs?status=failed")
+    assert failed_history.json()["total"] == 1

@@ -137,7 +137,9 @@ def test_syntax_only_patch_is_intermediate_without_reliable_tests(tmp_path):
 
     class TestsMustNotRun:
         def run_tests(self, _repository_path):
-            raise AssertionError("Intermediate syntax repairs must not be marked complete by tests.")
+            raise AssertionError(
+                "Intermediate syntax repairs must not be marked complete by tests."
+            )
 
     validator = PatchValidatorAgent()
     validator.test_runner = TestsMustNotRun()

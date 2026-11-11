@@ -119,3 +119,43 @@ def test_syntactically_invalid_application_module_remains_eligible(tmp_path: Pat
     modules = TestGenerationAgent()._source_modules(tmp_path)
 
     assert modules == [(source, "broken")]
+
+
+def test_invalid_model_output_is_retried_with_validation_feedback(tmp_path: Path):
+    source = tmp_path / "sample.py"
+    source.write_text("def add(a, b):\\n    return a + b\\n", encoding="utf-8")
+    agent = TestGenerationAgent()
+    responses = iter([
+        "def test_broken(:",
+        "def test_add():\\n    assert module.add(2, 3) == 5",
+    ])
+    calls = []
+
+    def fake_chat(**kwargs):
+        calls.append(kwargs["messages"])
+        return next(responses)
+
+    agent.llm.chat = fake_chat
+    generated = agent._generate_for_module(source, "sample")
+
+    assert generated.startswith("def test_add")
+    assert len(calls) == 2
+    assert "Validation error" in calls[1][-1]["content"]
+
+
+def test_invalid_model_output_fails_after_bounded_retry(tmp_path: Path):
+    source = tmp_path / "sample.py"
+    source.write_text("def add(a, b):\\n    return a + b\\n", encoding="utf-8")
+    agent = TestGenerationAgent()
+    calls = []
+
+    def fake_chat(**kwargs):
+        calls.append(kwargs)
+        return "def test_broken(:"
+
+    agent.llm.chat = fake_chat
+
+    with pytest.raises(ValueError, match="after 2 attempts"):
+        agent._generate_for_module(source, "sample")
+
+    assert len(calls) == 2

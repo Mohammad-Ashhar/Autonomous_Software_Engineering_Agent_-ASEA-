@@ -100,7 +100,7 @@ def test_patch_generator_uses_safe_positive_boundary_fallback_on_llm_timeout(tmp
 
 
 def test_patch_generator_repairs_missing_try_colon_without_llm(tmp_path):
-    source = "\\n".join([
+    source = "\n".join([
         "import json",
         "def calculate_average_scores(payload):",
         "    try",

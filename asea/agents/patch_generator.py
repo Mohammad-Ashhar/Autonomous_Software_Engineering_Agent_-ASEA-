@@ -242,6 +242,13 @@ class PatchGeneratorAgent:
         )
 
         generator = "ollama"
+        repair_scope = "complete"
+        try:
+            ast.parse(original)
+            original_has_syntax_error = False
+        except SyntaxError:
+            original_has_syntax_error = True
+
         retry_feedback = self.format_retry_feedback(previous_feedback)
 
         messages = [
@@ -305,6 +312,8 @@ Rules:
             )
 
             generator = "deterministic_fallback"
+            if original_has_syntax_error:
+                repair_scope = "syntax_only"
 
         patch = self.generate_unified_diff(
             original,
@@ -322,5 +331,6 @@ Rules:
             "patch": patch,
             "attempt": attempt,
             "generator": generator,
+            "repair_scope": repair_scope,
             "status": "PATCH_GENERATED"
         }

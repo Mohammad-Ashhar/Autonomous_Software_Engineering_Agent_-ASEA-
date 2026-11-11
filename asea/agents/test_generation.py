@@ -168,10 +168,13 @@ class TestGenerationAgent:
 
             try:
                 source = path.read_text(encoding="utf-8-sig")
-                ast.parse(source)
-            except (OSError, SyntaxError, UnicodeError):
+            except (OSError, UnicodeError):
                 continue
 
+            # Keep syntactically invalid modules eligible. ASEA can still
+            # generate import-based tests from their source; collection will
+            # expose the syntax failure, and the bug detector records the
+            # parser diagnostic so the repair workflow can address it.
             if source.strip():
                 candidates.append((path, module_name))
 

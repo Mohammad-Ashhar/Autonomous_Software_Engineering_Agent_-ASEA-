@@ -125,3 +125,4 @@ def test_patch_generator_repairs_missing_try_colon_without_llm(tmp_path):
     assert result["generator"] == "deterministic_fallback"
     assert "+    try:" in result["patch"]
     assert "-    try" in result["patch"]
+    assert result["repair_scope"] == "syntax_only"

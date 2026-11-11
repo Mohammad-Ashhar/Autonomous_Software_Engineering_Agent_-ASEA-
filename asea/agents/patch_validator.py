@@ -1,3 +1,4 @@
+import ast
 import shutil
 import subprocess
 import tempfile
@@ -334,6 +335,52 @@ class PatchValidatorAgent:
             baseline_failed
         )
 
+    def _promote_candidate(
+        self,
+        working_repo_path: Path,
+        candidate_repo: Path,
+    ) -> None:
+        """Atomically promote a validated candidate while preserving runtime state."""
+        backup_repo = (
+            working_repo_path.parent
+            / f".{working_repo_path.name}.asea-backup-{uuid4().hex}"
+        )
+        working_repo_path.rename(backup_repo)
+        try:
+            candidate_repo.rename(working_repo_path)
+            for directory_name in (
+                ".git", ".venv", "venv", "artifacts", "workspaces",
+            ):
+                original_directory = backup_repo / directory_name
+                if original_directory.exists():
+                    destination = working_repo_path / directory_name
+                    destination_exists = (
+                        destination.exists() or destination.is_symlink()
+                    )
+                    if directory_name == ".git" and destination_exists:
+                        if destination.is_dir() and not destination.is_symlink():
+                            shutil.rmtree(destination)
+                        else:
+                            destination.unlink()
+                    elif destination_exists:
+                        raise FileExistsError(
+                            f"Cannot restore preserved directory: {directory_name}"
+                        )
+                    original_directory.rename(destination)
+        except Exception:
+            for directory_name in (
+                ".git", ".venv", "venv", "artifacts", "workspaces",
+            ):
+                restored = working_repo_path / directory_name
+                original = backup_repo / directory_name
+                if restored.exists() and not original.exists():
+                    restored.rename(original)
+            if working_repo_path.exists():
+                working_repo_path.rename(candidate_repo)
+            backup_repo.rename(working_repo_path)
+            raise
+        shutil.rmtree(backup_repo, ignore_errors=True)
+
     def validate_patch(
         self,
         repository_path: Path,
@@ -418,6 +465,47 @@ class PatchValidatorAgent:
                     "reason": str(error)
                 }
 
+            if patch_result.get("repair_scope") == "syntax_only":
+                import_path = Path(patch_result.get("file", "")).resolve()
+                try:
+                    relative_path = import_path.relative_to(working_repo_path)
+                except ValueError as error:
+                    raise ValueError(
+                        "Syntax repair target is outside the working repository."
+                    ) from error
+                candidate_file = (candidate_repo / relative_path).resolve()
+                try:
+                    candidate_file.relative_to(candidate_repo.resolve())
+                except ValueError as error:
+                    raise ValueError(
+                        "Syntax repair target escapes the candidate repository."
+                    ) from error
+                if not candidate_file.is_file():
+                    raise FileNotFoundError(
+                        f"Syntax repair target not found: {candidate_file}"
+                    )
+                try:
+                    ast.parse(candidate_file.read_text(encoding="utf-8-sig"))
+                except (SyntaxError, UnicodeError) as error:
+                    return {
+                        "status": "PATCH_REJECTED",
+                        "patch_applied": True,
+                        "tests_passed": False,
+                        "regression_free": False,
+                        "reason": f"Intermediate syntax repair did not parse: {error}",
+                    }
+                self._promote_candidate(working_repo_path, candidate_repo)
+                return {
+                    "status": "PATCH_INTERMEDIATE",
+                    "patch_applied": True,
+                    "tests_passed": False,
+                    "regression_free": False,
+                    "reason": (
+                        "Syntax is repaired and the candidate parses. "
+                        "Semantic reanalysis and full test validation are still required."
+                    ),
+                }
+
             if self.test_runner is None:
                 self.test_runner = DockerTestRunner()
             test_results = self.test_runner.run_tests(
@@ -462,68 +550,7 @@ class PatchValidatorAgent:
                     "test_results": test_results
                 }
 
-            # Never reuse or delete a predictable backup path: it may
-            # belong to the user or another concurrent repair operation.
-            backup_repo = (
-                working_repo_path.parent
-                / f".{working_repo_path.name}.asea-backup-{uuid4().hex}"
-            )
-
-            working_repo_path.rename(backup_repo)
-
-            try:
-                candidate_repo.rename(working_repo_path)
-
-                # Candidate copies omit runtime state by design. Restore it
-                # only after the validated source tree is promoted.
-                preserved_directories = (
-                    ".git",
-                    ".venv",
-                    "venv",
-                    "artifacts",
-                    "workspaces",
-                )
-                for directory_name in preserved_directories:
-                    original_directory = backup_repo / directory_name
-                    if original_directory.exists():
-                        destination = working_repo_path / directory_name
-                        destination_exists = (
-                            destination.exists() or destination.is_symlink()
-                        )
-                        if directory_name == ".git" and destination_exists:
-                            if destination.is_dir() and not destination.is_symlink():
-                                shutil.rmtree(destination)
-                            else:
-                                destination.unlink()
-                        elif destination_exists:
-                            raise FileExistsError(
-                                f"Cannot restore preserved directory: {directory_name}"
-                            )
-                        original_directory.rename(destination)
-
-            except Exception:
-                # Roll back any runtime directories already moved, then
-                # restore the complete original workspace.
-                for directory_name in (
-                    ".git",
-                    ".venv",
-                    "venv",
-                    "artifacts",
-                    "workspaces",
-                ):
-                    restored = working_repo_path / directory_name
-                    original = backup_repo / directory_name
-                    if restored.exists() and not original.exists():
-                        restored.rename(original)
-                if working_repo_path.exists():
-                    working_repo_path.rename(candidate_repo)
-                backup_repo.rename(working_repo_path)
-                raise
-
-            shutil.rmtree(
-                backup_repo,
-                ignore_errors=True
-            )
+            self._promote_candidate(working_repo_path, candidate_repo)
 
             return {
                 "status": "PATCH_VALIDATED",

@@ -173,7 +173,8 @@ class UnsuccessfulGraph:
         return {
             "status": "baseline_test_execution_failed",
             "errors": [
-                "Baseline test execution did not produce a reliable test result (status=NO_TESTS)."
+                "Baseline test execution did not produce a reliable test result "
+                "(status=NO_TESTS)."
             ],
             "test_generation_results": {"status": "NO_ELIGIBLE_MODULES"},
         }

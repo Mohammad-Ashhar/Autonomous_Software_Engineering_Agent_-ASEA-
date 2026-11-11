@@ -119,6 +119,31 @@ async def lifespan(app: FastAPI):
 executor = ThreadPoolExecutor(max_workers=1)
 
 
+def _workflow_job_outcome(result: dict[str, Any]) -> tuple[str, str, str | None]:
+    """Map LangGraph terminal states to truthful API job outcomes."""
+    workflow_status = result.get("status")
+
+    if workflow_status == "COMPLETED":
+        return (
+            "completed",
+            "ASEA repair workflow completed successfully.",
+            None,
+        )
+
+    if workflow_status == "COMPLETED_WITH_REMAINING_FAILURES":
+        message = "ASEA finished, but validation found remaining failures."
+    else:
+        message = (
+            "ASEA repair did not complete successfully "
+            f"(workflow status: {workflow_status or 'UNKNOWN'})."
+        )
+
+    errors = result.get("errors", [])
+    details = "; ".join(str(item) for item in errors if item)
+    error = details or message
+    return "failed", message, error
+
+
 def run_repair_job(
     job_id: str,
     repository: str,
@@ -171,9 +196,9 @@ def run_repair_job(
 
         else:
             job_result = {"workflow": result}
-            message = "ASEA repair workflow completed."
+            terminal_status, message, workflow_error = _workflow_job_outcome(result)
 
-            if publish:
+            if publish and terminal_status == "completed":
                 publishing_result = publish_validated_repairs(result)
                 job_result["publishing"] = publishing_result
                 message = "ASEA repair completed and pull request created."
@@ -181,9 +206,10 @@ def run_repair_job(
             cleanup_repair_workspace(result.get("repo_path", ""), result)
             repair_jobs.update_job(
                 job_id,
-                status="completed",
+                status=terminal_status,
                 message=message,
                 result=job_result,
+                error=workflow_error,
             )
 
     except Exception:
@@ -261,16 +287,17 @@ def resume_repair_job(
 
         else:
             job_result = {"workflow": result}
-            message = "ASEA repair workflow completed."
-            if publish:
+            terminal_status, message, workflow_error = _workflow_job_outcome(result)
+            if publish and terminal_status == "completed":
                 job_result["publishing"] = publish_validated_repairs(result)
                 message = "ASEA repair completed and pull request created."
             cleanup_repair_workspace(result.get("repo_path", ""), result)
             repair_jobs.update_job(
                 job_id,
-                status="completed",
+                status=terminal_status,
                 message=message,
                 result=job_result,
+                error=workflow_error,
             )
 
     except Exception:

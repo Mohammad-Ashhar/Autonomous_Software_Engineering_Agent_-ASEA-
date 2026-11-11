@@ -11,7 +11,8 @@ from asea.tools.test_runner import DockerTestRunner
 class PatchValidatorAgent:
 
     def __init__(self):
-        self.test_runner = DockerTestRunner()
+        # Workspace copying and patch preparation do not require Docker.
+        self.test_runner = None
 
     def create_temporary_copy(
         self,
@@ -417,6 +418,8 @@ class PatchValidatorAgent:
                     "reason": str(error)
                 }
 
+            if self.test_runner is None:
+                self.test_runner = DockerTestRunner()
             test_results = self.test_runner.run_tests(
                 candidate_repo
             )

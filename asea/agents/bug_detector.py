@@ -1,4 +1,5 @@
 import ast
+import re
 import json
 from pathlib import Path
 from typing import Any
@@ -580,6 +581,36 @@ If no issues are found:
         # actual function signatures defined in other repository files.
         dependency_results = PythonDependencyAnalyzer().analyze(repo_path)
         detected_bugs.extend(dependency_results["cross_file_findings"])
+
+        # Dependency analysis also parses every application module. Promote
+        # its parser diagnostics into findings as a defensive fallback so a
+        # syntax error can never remain only an informational parse warning.
+        for parse_error in dependency_results["parse_errors"]:
+            relative_file = parse_error.get("file", "")
+            source_file = (repo_path / relative_file).resolve()
+            try:
+                source_file.relative_to(repo_path)
+            except ValueError:
+                continue
+            message = str(parse_error.get("error", "Python syntax error"))
+            line_match = re.search(r"line (\\d+)", message)
+            line = int(line_match.group(1)) if line_match else 1
+            detected_bugs.append({
+                "title": "Python syntax error",
+                "line": line,
+                "severity": "high",
+                "classification": "confirmed_bug",
+                "confidence": 1.0,
+                "description": (
+                    f"Python cannot parse {relative_file}: {message}"
+                ),
+                "suggestion": (
+                    "Correct the syntax error before running or importing "
+                    "this module."
+                ),
+                "file": str(source_file),
+                "source": "dependency_parser",
+            })
 
         unique_findings = {}
         for finding in detected_bugs:

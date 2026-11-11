@@ -121,3 +121,38 @@ def test_validated_patch_preserves_git_and_runtime_directories(tmp_path):
     assert (tmp_path / "workspaces" / "state.txt").read_text(encoding="utf-8") == "keep"
     backup_data = (preexisting_backup / "user-data.txt").read_text(encoding="utf-8")
     assert backup_data == "preserve"
+
+
+def test_syntax_only_patch_is_intermediate_without_reliable_tests(tmp_path):
+    source = tmp_path / "module.py"
+    source.write_text("def value():\\n    try\\n        return 1\\n", encoding="utf-8")
+    patch = """--- a/module.py
++++ b/module.py
+@@ -1,3 +1,3 @@
+ def value():
+-    try
++    try:
+         return 1
+"""
+
+    class TestsMustNotRun:
+        def run_tests(self, _repository_path):
+            raise AssertionError("Intermediate syntax repairs must not be marked complete by tests.")
+
+    validator = PatchValidatorAgent()
+    validator.test_runner = TestsMustNotRun()
+    result = validator.validate_patch(
+        tmp_path,
+        {
+            "patch": patch,
+            "file": str(source),
+            "repair_scope": "syntax_only",
+        },
+    )
+
+    assert result["status"] == "PATCH_INTERMEDIATE"
+    assert result["patch_applied"] is True
+    assert result["tests_passed"] is False
+    assert source.read_text(encoding="utf-8") == (
+        "def value():\\n    try:\\n        return 1\\n"
+    )

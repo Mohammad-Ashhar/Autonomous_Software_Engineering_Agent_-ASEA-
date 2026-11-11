@@ -119,7 +119,7 @@ async def lifespan(app: FastAPI):
 executor = ThreadPoolExecutor(max_workers=1)
 
 
-def _workflow_job_outcome(result: dict[str, Any]) -> tuple[str, str, str | None]:
+def _workflow_job_outcome(result: dict[str, object]) -> tuple[str, str, str | None]:
     """Map LangGraph terminal states to truthful API job outcomes."""
     workflow_status = result.get("status")
 

@@ -42,7 +42,7 @@ class DockerTestRunner:
         if not 16 * 1024**2 <= memory_bytes <= 8 * 1024**3:
             raise ValueError("Memory limit must be between 16 MiB and 8 GiB.")
 
-        self.client = docker.from_env()
+        self.client = None
         self.image = image.strip()
         self.timeout = float(timeout)
         self.memory_limit = memory_limit.strip().lower()
@@ -114,7 +114,10 @@ class DockerTestRunner:
         start_time = time.monotonic()
 
         try:
-            container = self.client.containers.create(
+            # Defer daemon connection until execution. Analysis and workspace
+            # preparation must work even when Docker Desktop is unavailable.
+            client = docker.from_env()
+            container = client.containers.create(
                 image=self.image,
                 command=[
                     "python", "-m", "pytest",

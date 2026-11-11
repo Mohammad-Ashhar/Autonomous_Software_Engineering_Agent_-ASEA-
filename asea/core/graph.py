@@ -627,7 +627,7 @@ def patch_validation_node(state: ASEAState) -> dict[str, Any]:
         )
     }
 
-    if validation_result.get("status") == "PATCH_VALIDATED":
+    if validation_result.get("status") in {"PATCH_VALIDATED", "PATCH_INTERMEDIATE"}:
 
         # A deterministic syntax repair is an intermediate step, not proof
         # that the underlying module is fully correct. Re-analyze the now
@@ -682,32 +682,37 @@ def patch_validation_node(state: ASEAState) -> dict[str, Any]:
         audit_log = list(state.get("audit_log", []))
 
         if bug_key not in processed_keys:
-
             processed_keys.append(bug_key)
-
-            repaired_bugs.append({
-                "bug_key": bug_key,
-                "title": bug.get("title"),
-                "severity": bug.get("severity"),
-                "file": bug.get("file"),
-                "status": "REPAIRED",
-                "attempts": validation_result.get("attempt", 1)
-            })
-
-            audit_log.append({
-                "agent": "patch_validation",
-                "event": "bug_repaired",
-                "bug_key": bug_key
-            })
+            if validation_result.get("status") == "PATCH_VALIDATED":
+                repaired_bugs.append({
+                    "bug_key": bug_key,
+                    "title": bug.get("title"),
+                    "severity": bug.get("severity"),
+                    "file": bug.get("file"),
+                    "status": "REPAIRED",
+                    "attempts": validation_result.get("attempt", 1)
+                })
+                audit_log.append({
+                    "agent": "patch_validation",
+                    "event": "bug_repaired",
+                    "bug_key": bug_key
+                })
+            else:
+                audit_log.append({
+                    "agent": "patch_validation",
+                    "event": "syntax_repair_intermediate",
+                    "bug_key": bug_key
+                })
 
         updates.update({
             "processed_bug_keys": processed_keys,
             "repaired_bugs": repaired_bugs,
-            "working_test_results": validation_result.get(
-                "test_results", {}
-            ),
             "audit_log": audit_log
         })
+        if validation_result.get("status") == "PATCH_VALIDATED":
+            updates["working_test_results"] = validation_result.get(
+                "test_results", {}
+            )
 
     return updates
 
@@ -717,7 +722,7 @@ def route_after_validation(state: ASEAState) -> str:
 
     validation = state.get("current_validation", {})
 
-    if validation.get("status") == "PATCH_VALIDATED":
+    if validation.get("status") in {"PATCH_VALIDATED", "PATCH_INTERMEDIATE"}:
         return "next_bug"
 
     bug_key = get_bug_key(state.get("current_bug", {}))

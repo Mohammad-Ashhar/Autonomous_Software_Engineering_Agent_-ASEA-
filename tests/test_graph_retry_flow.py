@@ -224,3 +224,52 @@ def test_syntax_only_validation_reanalyzes_file_for_hidden_bugs(
         "Possible division by zero"
     )
     assert result["repaired_bugs"][0]["status"] == "REPAIRED"
+
+
+def test_intermediate_syntax_repair_reanalyzes_without_marking_bug_repaired(
+    tmp_path, monkeypatch
+):
+    state, working_source, key = _state(tmp_path)
+    state["patches"] = [{
+        "bug_key": key,
+        "repair_scope": "syntax_only",
+        "patch": "diff",
+        "attempt": 1,
+    }]
+    state["detected_bugs"] = [state["current_bug"]]
+    state["prioritized_bugs"] = [state["current_bug"]]
+    state["processed_bug_keys"] = []
+    state["repaired_bugs"] = []
+    state["validation_results"] = []
+
+    class IntermediateValidator:
+        def validate_patch(self, **_kwargs):
+            return {
+                "status": "PATCH_INTERMEDIATE",
+                "patch_applied": True,
+                "tests_passed": False,
+                "reason": "Syntax parsed; semantic checks pending.",
+            }
+
+    class FollowUpDetector:
+        def analyze_file(self, file_path):
+            assert file_path == working_source
+            return [{
+                "file": str(file_path),
+                "line": 3,
+                "title": "Possible division by zero",
+                "classification": "confirmed_bug",
+                "severity": "high",
+            }]
+
+    monkeypatch.setattr(graph, "PatchValidatorAgent", IntermediateValidator)
+    monkeypatch.setattr(graph, "BugDetectorAgent", FollowUpDetector)
+    result = graph.patch_validation_node(state)
+
+    assert result["current_validation"]["status"] == "PATCH_INTERMEDIATE"
+    assert len(result["prioritized_bugs"]) == 2
+    assert result["repaired_bugs"] == []
+    assert result["processed_bug_keys"] == [key]
+    assert graph.route_after_validation({
+        "current_validation": {"status": "PATCH_INTERMEDIATE"},
+    }) == "next_bug"

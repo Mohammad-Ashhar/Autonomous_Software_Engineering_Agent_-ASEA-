@@ -201,3 +201,25 @@ def test_llm_provider_failure_preserves_deterministic_ast_findings(tmp_path):
     assert len(findings) == 1
     assert findings[0]["title"] == "Incorrect even-number check"
     assert findings[0]["source"] == "ast"
+
+
+
+def test_syntax_error_is_reported_without_calling_llm(tmp_path):
+    agent = BugDetectorAgent()
+    source = tmp_path / "broken.py"
+    source.write_text(
+        "def calculate(value):\n"
+        "    try\n"
+        "        return value\n",
+        encoding="utf-8",
+    )
+
+    with patch.object(agent.llm, "chat") as chat:
+        findings = agent.analyze_file(source)
+
+    chat.assert_not_called()
+    assert len(findings) == 1
+    assert findings[0]["title"] == "Python syntax error"
+    assert findings[0]["line"] == 2
+    assert findings[0]["classification"] == "confirmed_bug"
+    assert findings[0]["source"] == "python_parser"

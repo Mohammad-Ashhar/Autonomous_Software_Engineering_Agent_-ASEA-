@@ -282,8 +282,25 @@ class BugDetectorAgent:
 
         try:
             syntax_tree = ast.parse(source_code)
-        except SyntaxError:
-            return []
+        except SyntaxError as error:
+            line = error.lineno or 1
+            return [{
+                "title": "Python syntax error",
+                "line": line,
+                "severity": "high",
+                "classification": "confirmed_bug",
+                "confidence": 1.0,
+                "description": (
+                    f"Python cannot parse this file at line {line}: "
+                    f"{error.msg}."
+                ),
+                "suggestion": (
+                    "Correct the reported Python syntax error, then rerun "
+                    "the test suite."
+                ),
+                "file": str(file_path),
+                "source": "python_parser",
+            }]
 
         # First, perform deterministic AST analysis.
         ast_findings = self.detect_ast_bugs(

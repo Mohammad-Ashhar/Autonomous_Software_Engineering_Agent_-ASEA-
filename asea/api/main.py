@@ -233,7 +233,7 @@ def run_repair_job(
                 error=workflow_error,
             )
 
-    except Exception as error:
+    except Exception:
         if graph is not None and config is not None:
             try:
                 snapshot = graph.get_state(config)
@@ -328,7 +328,7 @@ def resume_repair_job(
                 error=workflow_error,
             )
 
-    except Exception as error:
+    except Exception:
         if config is not None:
             try:
                 snapshot = graph.get_state(config)

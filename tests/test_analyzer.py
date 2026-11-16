@@ -68,3 +68,26 @@ def test_default_analysis_artifacts_are_unique_per_run(tmp_path, monkeypatch):
     assert first["output_file"] != second["output_file"]
     assert Path(first["output_file"]).is_file()
     assert Path(second["output_file"]).is_file()
+
+
+
+def test_default_cloned_analysis_artifacts_are_unique_per_run(tmp_path, monkeypatch):
+    from git import Repo
+
+    monkeypatch.chdir(tmp_path)
+    workspace = tmp_path / "workspace"
+    project = workspace / "owner__sample"
+    project.mkdir(parents=True)
+    (project / "module.py").write_text(
+        "def answer():\\n    return 42\\n",
+        encoding="utf-8",
+    )
+    Repo.init(project)
+    analyzer = RepositoryAnalyzer(workspace=workspace)
+
+    first = analyzer.analyze_cloned_repository(project)
+    second = analyzer.analyze_cloned_repository(project)
+
+    assert first["output_file"] != second["output_file"]
+    assert Path(first["output_file"]).is_file()
+    assert Path(second["output_file"]).is_file()

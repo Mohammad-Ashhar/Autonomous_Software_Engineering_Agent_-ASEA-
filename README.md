@@ -127,6 +127,22 @@ For a production backend, set `ASEA_ENV=production` and provide a high-entropy `
 
 ## Run ASEA
 
+### FastAPI backend
+
+Start the API with the safe development-server entry point:
+
+```bash
+python -m asea.api.dev_server
+```
+
+This command deliberately disables Uvicorn auto-reload. ASEA modifies files inside
+cloned and cumulative repair workspaces while jobs are running; watching those
+directories can restart the API mid-workflow and interrupt LangGraph checkpoint
+writes. Do not start the repair API with `--reload` while running repairs.
+
+The host and port can be configured with `ASEA_API_HOST` and `ASEA_API_PORT`.
+The default address is `http://127.0.0.1:8000`.
+
 ### CLI
 
 Analyze a local repository:

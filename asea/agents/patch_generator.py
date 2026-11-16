@@ -10,6 +10,7 @@ class PatchGeneratorAgent:
 
     def __init__(self):
         self.llm = OllamaClient()
+        self.last_attempt_trace: list[dict[str, Any]] = []
 
     @staticmethod
     def clean_response(response: str) -> str:
@@ -285,13 +286,14 @@ Rules:
             }
         ]
 
+        self.last_attempt_trace = []
+        response = None
         try:
             response = self.llm.chat(
                 messages=messages,
                 temperature=0.1,
                 max_tokens=2500
             )
-
             corrected = self.clean_response(response)
             self.validate_source_code(corrected)
 
@@ -300,17 +302,54 @@ Rules:
                     "AI returned unchanged source code."
                 )
 
+            self.last_attempt_trace.append({
+                "stage": "llm_generation",
+                "status": "succeeded",
+                "response_excerpt": response[:12000],
+            })
+
         except Exception as exc:  # noqa: BLE001
+            self.last_attempt_trace.append({
+                "stage": "llm_generation",
+                "status": "failed",
+                "error_type": type(exc).__name__,
+                "error": str(exc)[:2000],
+                "response_excerpt": (
+                    response[:12000] if isinstance(response, str) else None
+                ),
+            })
             print(
-                f"WARNING: Ollama patch generation failed: {exc}"
+                f"WARNING: Ollama patch generation failed: "
+                f"{type(exc).__name__}: {exc}"
             )
             print("Trying deterministic repair fallback...")
 
-            corrected = self.deterministic_fallback(
-                file_path,
-                bug
-            )
+            try:
+                corrected = self.deterministic_fallback(
+                    file_path,
+                    bug
+                )
+            except Exception as fallback_error:  # noqa: BLE001
+                self.last_attempt_trace.append({
+                    "stage": "deterministic_fallback",
+                    "status": "failed",
+                    "error_type": type(fallback_error).__name__,
+                    "error": str(fallback_error)[:2000],
+                })
+                raise RuntimeError(
+                    "Patch generation failed. "
+                    f"LLM: {type(exc).__name__}: {exc}. "
+                    "Deterministic fallback: "
+                    f"{type(fallback_error).__name__}: {fallback_error}."
+                ) from fallback_error
 
+            self.last_attempt_trace.append({
+                "stage": "deterministic_fallback",
+                "status": "succeeded",
+                "repair_scope": (
+                    "syntax_only" if original_has_syntax_error else "complete"
+                ),
+            })
             generator = "deterministic_fallback"
             if original_has_syntax_error:
                 repair_scope = "syntax_only"
@@ -332,5 +371,6 @@ Rules:
             "attempt": attempt,
             "generator": generator,
             "repair_scope": repair_scope,
+            "generation_trace": self.last_attempt_trace,
             "status": "PATCH_GENERATED"
         }

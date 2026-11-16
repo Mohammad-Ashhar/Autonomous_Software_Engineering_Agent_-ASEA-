@@ -147,6 +147,87 @@ class PatchGeneratorAgent:
 
         target_name = str(bug.get("function", "")).strip()
         title = str(bug.get("title", "")).lower()
+
+        if "score accumulator starts at one" in title:
+            candidates = []
+            for function in ast.walk(tree):
+                if not isinstance(function, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    continue
+                for assignment in ast.walk(function):
+                    if not isinstance(assignment, ast.Assign) or len(assignment.targets) != 1:
+                        continue
+                    target = assignment.targets[0]
+                    value = assignment.value
+                    if (
+                        not isinstance(target, ast.Name)
+                        or not target.id.lower().startswith("total")
+                        or not isinstance(value, ast.Constant)
+                        or value.value != 1
+                    ):
+                        continue
+                    for loop in ast.walk(function):
+                        if not isinstance(loop, ast.For) or not isinstance(loop.target, ast.Name):
+                            continue
+                        if not isinstance(loop.iter, ast.Name) or not loop.iter.id.lower().endswith("scores"):
+                            continue
+                        if any(
+                            isinstance(child, ast.AugAssign)
+                            and isinstance(child.target, ast.Name)
+                            and child.target.id == target.id
+                            and isinstance(child.op, ast.Add)
+                            and isinstance(child.value, ast.Name)
+                            and child.value.id == loop.target.id
+                            for child in ast.walk(loop)
+                        ):
+                            candidates.append(value)
+            if len(candidates) != 1:
+                raise ValueError("No unique score accumulator initialization matched.")
+            value = candidates[0]
+            lines[value.lineno - 1] = (
+                lines[value.lineno - 1][:value.col_offset]
+                + "0"
+                + lines[value.lineno - 1][value.end_col_offset:]
+            )
+            corrected = "".join(lines)
+            ast.parse(corrected)
+            return corrected
+
+        if "empty score list causes division by zero" in title:
+            candidates = []
+            for function in ast.walk(tree):
+                if not isinstance(function, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    continue
+                for assignment in ast.walk(function):
+                    if not isinstance(assignment, ast.Assign) or not any(
+                        isinstance(target, ast.Name) and target.id == "avg"
+                        for target in assignment.targets
+                    ):
+                        continue
+                    value = assignment.value
+                    if (
+                        isinstance(value, ast.BinOp)
+                        and isinstance(value.op, ast.Div)
+                        and isinstance(value.right, ast.Call)
+                        and isinstance(value.right.func, ast.Name)
+                        and value.right.func.id == "len"
+                        and len(value.right.args) == 1
+                        and isinstance(value.right.args[0], ast.Name)
+                        and value.right.args[0].id.lower().endswith("scores")
+                    ):
+                        candidates.append(assignment)
+            if len(candidates) != 1:
+                raise ValueError("No unique average calculation matched.")
+            assignment = candidates[0]
+            line = lines[assignment.lineno - 1]
+            indentation = line[:len(line) - len(line.lstrip())]
+            lines[assignment.lineno - 1] = (
+                indentation + "avg = total_score / len(scores) if scores else 0"
+                + ("\\n" if line.endswith("\\n") else "")
+            )
+            corrected = "".join(lines)
+            ast.parse(corrected)
+            return corrected
+
         if not target_name:
             if "even" in title:
                 target_name = "is_even"

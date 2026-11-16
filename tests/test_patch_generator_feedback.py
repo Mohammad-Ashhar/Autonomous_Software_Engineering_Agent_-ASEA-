@@ -133,7 +133,10 @@ def test_patch_generator_repairs_missing_try_colon_without_llm(tmp_path):
 
 def test_patch_generator_records_invalid_llm_output_and_fallback_failure(tmp_path):
     file_path = tmp_path / "unknown.py"
-    file_path.write_text("def calculate(value):\\n    return value + 1\\n", encoding="utf-8")
+    file_path.write_text(
+        "def calculate(value):\\n    return value + 1\\n",
+        encoding="utf-8",
+    )
     agent = PatchGeneratorAgent()
 
     def invalid_model_output(**_kwargs):

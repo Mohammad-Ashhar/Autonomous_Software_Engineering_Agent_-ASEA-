@@ -55,29 +55,24 @@ def test_accept_matching_source_repository(tmp_path):
     source_path = repo_path / "demo_repo"
     source_path.mkdir()
 
-    source_git_repo, git_root = validate_source_repository(
+    source_git_repo, git_root, repository_name = validate_source_repository(
         source_path,
-        "Mohammad-Ashhar/ASEA",
     )
 
     assert source_git_repo.working_tree_dir is not None
     assert Path(git_root) == repo_path.resolve()
+    assert repository_name == "mohammad-ashhar/asea"
 
 
-def test_reject_unrelated_source_repository(tmp_path):
+def test_accept_any_github_source_repository_without_global_pin(tmp_path):
     repo_path = create_git_repository(
-        tmp_path / "unrelated",
+        tmp_path / "another-project",
         "https://github.com/someone/another-project.git",
     )
 
-    with pytest.raises(
-        RuntimeError,
-        match="does not match",
-    ):
-        validate_source_repository(
-            repo_path,
-            "Mohammad-Ashhar/ASEA",
-        )
+    _, _, repository_name = validate_source_repository(repo_path)
+
+    assert repository_name == "someone/another-project"
 
 
 def test_reject_repository_without_origin(tmp_path):
@@ -89,10 +84,7 @@ def test_reject_repository_without_origin(tmp_path):
         RuntimeError,
         match="no origin remote",
     ):
-        validate_source_repository(
-            repo_path,
-            "Mohammad-Ashhar/ASEA",
-        )
+        validate_source_repository(repo_path)
 
 
 def test_reject_directory_outside_git_repository(tmp_path):
@@ -103,7 +95,4 @@ def test_reject_directory_outside_git_repository(tmp_path):
         RuntimeError,
         match="not inside a valid Git repository",
     ):
-        validate_source_repository(
-            outside_path,
-            "Mohammad-Ashhar/ASEA",
-        )
+        validate_source_repository(outside_path)

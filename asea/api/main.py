@@ -355,15 +355,28 @@ app = FastAPI(
     lifespan=lifespan,
 )
 app.add_middleware(RequestProtectionMiddleware)
+def configured_cors_origins() -> list[str]:
+    """Read explicit browser origins; retain local defaults for development."""
+    raw_origins = os.getenv("ASEA_CORS_ORIGINS", "")
+    if raw_origins.strip():
+        origins = [origin.strip().rstrip("/") for origin in raw_origins.split(",")]
+        if any(not origin.startswith(("http://", "https://")) for origin in origins):
+            raise RuntimeError(
+                "ASEA_CORS_ORIGINS must contain comma-separated http(s) origins."
+            )
+        return origins
+    if os.getenv("ASEA_ENV", "development").strip().lower() == "production":
+        return []
+    return ["http://localhost:3000", "http://127.0.0.1:3000"]
+
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-    ],
+    allow_origins=configured_cors_origins(),
     allow_credentials=True,
     allow_methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type"],
+    allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
+    expose_headers=["X-Request-ID"],
 )
 
 

@@ -172,3 +172,47 @@ def test_patch_generator_records_successful_llm_generation(tmp_path):
     assert result["generation_trace"][0]["stage"] == "llm_generation"
     assert result["generation_trace"][0]["status"] == "succeeded"
     assert "return a + b" in result["generation_trace"][0]["response_excerpt"]
+
+def test_score_accumulator_fallback_initializes_total_to_zero(tmp_path):
+    file_path = tmp_path / "bug.py"
+    file_path.write_text(
+        "def calculate(scores):\\n"
+        "    total_score = 1\\n"
+        "    for score in scores:\\n"
+        "        total_score += score\\n"
+        "    return total_score\\n",
+        encoding="utf-8",
+    )
+    agent = PatchGeneratorAgent()
+    agent.llm.chat = lambda **_kwargs: "invalid python"
+
+    result = agent.generate_patch(
+        file_path,
+        {"title": "Score accumulator starts at one"},
+    )
+
+    assert "-    total_score = 1" in result["patch"]
+    assert "+    total_score = 0" in result["patch"]
+
+
+def test_empty_score_fallback_guards_average_division(tmp_path):
+    file_path = tmp_path / "bug.py"
+    file_path.write_text(
+        "def calculate(scores):\\n"
+        "    total_score = 0\\n"
+        "    for score in scores:\\n"
+        "        total_score += score\\n"
+        "    avg = total_score / len(scores)\\n"
+        "    return avg\\n",
+        encoding="utf-8",
+    )
+    agent = PatchGeneratorAgent()
+    agent.llm.chat = lambda **_kwargs: "invalid python"
+
+    result = agent.generate_patch(
+        file_path,
+        {"title": "Empty score list causes division by zero"},
+    )
+
+    assert "-    avg = total_score / len(scores)" in result["patch"]
+    assert "+    avg = total_score / len(scores) if scores else 0" in result["patch"]

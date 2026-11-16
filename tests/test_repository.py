@@ -56,6 +56,9 @@ def test_python_file_discovery(tmp_path):
         "https://github.com/user/repo/extra",
         "https://github.com/user\\repo",
         "https://github.com/user/repo\\",
+        "https://github.com/user name/repo",
+        "https://github.com/user/repo name",
+        "https://github.com/user/.git",
     ],
 )
 def test_github_url_rejects_ambiguous_or_unsafe_urls(tmp_path, url):
@@ -140,15 +143,20 @@ def test_failed_clone_cleans_temporary_workspace(tmp_path, monkeypatch):
     manager = RepositoryManager(tmp_path / "workspace")
 
     def fail_clone(url, destination, **kwargs):
-        raise repository_module.GitCommandError("clone", 1)
+        raise repository_module.GitCommandError(
+            "clone",
+            1,
+            stderr="remote diagnostic containing a-secret-token",
+        )
 
     import asea.tools.repository as repository_module
 
     monkeypatch.setattr(repository_module.Repo, "clone_from", fail_clone)
 
-    with pytest.raises(RuntimeError, match="Repository cloning failed"):
+    with pytest.raises(RuntimeError, match="Repository cloning failed") as error:
         manager.clone_repository("https://github.com/example/project")
 
+    assert "a-secret-token" not in str(error.value)
     assert list(manager.workspace.iterdir()) == []
 
 def test_clone_rejects_symlinked_destination(tmp_path):

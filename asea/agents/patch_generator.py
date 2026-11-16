@@ -154,7 +154,10 @@ class PatchGeneratorAgent:
                 if not isinstance(function, (ast.FunctionDef, ast.AsyncFunctionDef)):
                     continue
                 for assignment in ast.walk(function):
-                    if (\n                        not isinstance(assignment, ast.Assign)\n                        or len(assignment.targets) != 1\n                    ):
+                    if (
+                        not isinstance(assignment, ast.Assign)
+                        or len(assignment.targets) != 1
+                    ):
                         continue
                     target = assignment.targets[0]
                     value = assignment.value
@@ -166,9 +169,15 @@ class PatchGeneratorAgent:
                     ):
                         continue
                     for loop in ast.walk(function):
-                        if (\n                            not isinstance(loop, ast.For)\n                            or not isinstance(loop.target, ast.Name)\n                        ):
+                        if (
+                            not isinstance(loop, ast.For)
+                            or not isinstance(loop.target, ast.Name)
+                        ):
                             continue
-                        if (\n                            not isinstance(loop.iter, ast.Name)\n                            or not loop.iter.id.lower().endswith("scores")\n                        ):
+                        if (
+                            not isinstance(loop.iter, ast.Name)
+                            or not loop.iter.id.lower().endswith("scores")
+                        ):
                             continue
                         if any(
                             isinstance(child, ast.AugAssign)

@@ -111,3 +111,77 @@ def test_failed_repair_cleans_checkpoint_workspace(monkeypatch):
 
     assert cleanups == [("/source", checkpoint)]
     assert jobs.updates[-1][1]["status"] == "failed"
+
+
+def test_publish_failure_does_not_hide_successful_repair(monkeypatch):
+    jobs = FakeRepairJobs({"publish_requested": True})
+    result = {
+        "status": "COMPLETED",
+        "repo_path": "/source",
+        "working_repo_path": "/workspaces/asea_run_publish/repository",
+        "working_test_results": {"success": True},
+    }
+    graph = FakeGraph(result)
+    cleanups = []
+    monkeypatch.setattr(main, "repair_jobs", jobs)
+    monkeypatch.setattr(main, "resolve_repository", lambda _repo: "/source")
+    monkeypatch.setattr(main, "create_initial_state", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(main.app.state, "graph", graph, raising=False)
+    monkeypatch.setattr(
+        main,
+        "publish_validated_repairs",
+        lambda _state: (_ for _ in ()).throw(RuntimeError("GitHub unavailable")),
+    )
+    monkeypatch.setattr(
+        main,
+        "cleanup_repair_workspace",
+        lambda repository, state: cleanups.append((repository, state)) or True,
+    )
+
+    main.run_repair_job("job-publish-failure", "/source", publish=True)
+
+    update = jobs.updates[-1][1]
+    assert update["status"] == "completed"
+    assert update["error"] is None
+    assert update["result"]["publishing"] == {
+        "status": "PUBLISH_FAILED",
+        "error": "GitHub unavailable",
+    }
+    assert "validation passed" in update["message"]
+    assert len(cleanups) == 1
+
+
+def test_review_resume_keeps_completed_repair_when_publish_fails(monkeypatch):
+    jobs = FakeRepairJobs({"publish_requested": True})
+    result = {
+        "status": "COMPLETED",
+        "repo_path": "/source",
+        "working_repo_path": "/workspaces/asea_run_resume_publish/repository",
+        "working_test_results": {"success": True},
+    }
+    graph = FakeGraph(result)
+    cleanups = []
+    monkeypatch.setattr(main, "repair_jobs", jobs)
+    monkeypatch.setattr(main.app.state, "graph", graph, raising=False)
+    monkeypatch.setattr(
+        main,
+        "publish_validated_repairs",
+        lambda _state: (_ for _ in ()).throw(RuntimeError("permission denied")),
+    )
+    monkeypatch.setattr(
+        main,
+        "cleanup_repair_workspace",
+        lambda repository, state: cleanups.append((repository, state)) or True,
+    )
+
+    main.resume_repair_job("job-resume-publish-failure", "approved", "")
+
+    update = jobs.updates[-1][1]
+    assert update["status"] == "completed"
+    assert update["error"] is None
+    assert update["result"]["publishing"] == {
+        "status": "PUBLISH_FAILED",
+        "error": "permission denied",
+    }
+    assert "validation passed" in update["message"]
+    assert len(cleanups) == 1

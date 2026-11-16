@@ -1,6 +1,4 @@
 import runpy
-from unittest.mock import patch
-
 from asea.agents.bug_detector import BugDetectorAgent
 from asea.agents.patch_generator import PatchGeneratorAgent
 
@@ -30,7 +28,9 @@ test_payload = '{"Alice": [85, 90, 78], "Bob": []}'
 """
 
 
-def test_original_buggy_average_score_file_can_be_repaired_without_llm(tmp_path):
+def test_original_buggy_average_score_file_can_be_repaired_without_llm(
+    tmp_path, monkeypatch
+):
     source_file = tmp_path / "bug.py"
     source_file.write_text(BUGGY_SOURCE, encoding="utf-8")
     generator = PatchGeneratorAgent()
@@ -43,12 +43,11 @@ def test_original_buggy_average_score_file_can_be_repaired_without_llm(tmp_path)
     source_file.write_text(syntax_fixed, encoding="utf-8")
 
     detector = BugDetectorAgent()
-    with patch.object(
-        detector.llm,
-        "chat",
-        side_effect=ConnectionError("Ollama unavailable in regression test"),
-    ):
-        findings = detector.analyze_file(source_file)
+    def unavailable_llm(**_kwargs):
+        raise ConnectionError("Ollama unavailable in regression test")
+
+    monkeypatch.setattr(detector.llm, "chat", unavailable_llm)
+    findings = detector.analyze_file(source_file)
 
     findings_by_title = {finding["title"]: finding for finding in findings}
     assert "Score accumulator starts at one" in findings_by_title

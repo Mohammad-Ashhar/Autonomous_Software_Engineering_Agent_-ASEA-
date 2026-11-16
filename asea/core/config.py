@@ -9,7 +9,12 @@ ENV_FILE = PROJECT_ROOT / ".env"
 
 # Explicit process environment variables (for example, deployment secrets) take
 # precedence over values in the local .env file.
-load_dotenv(dotenv_path=ENV_FILE, override=False)
+def load_environment(env_file: Path = ENV_FILE) -> None:
+    """Load dotenv defaults without overriding explicitly configured env vars."""
+    load_dotenv(dotenv_path=env_file, override=False)
+
+
+load_environment()
 
 
 @dataclass(frozen=True)

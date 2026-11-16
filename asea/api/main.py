@@ -144,6 +144,21 @@ def _workflow_job_outcome(result: dict[str, object]) -> tuple[str, str, str | No
     return "failed", message, error
 
 
+def _publish_repair_result(result: dict[str, object]) -> dict[str, object]:
+    """Keep GitHub publishing failures separate from validated repair outcomes."""
+    try:
+        return {
+            **publish_validated_repairs(result),
+            "status": "PULL_REQUEST_CREATED",
+        }
+    except Exception as error:
+        logging.exception("ASEA repair passed validation but publishing failed.")
+        return {
+            "status": "PUBLISH_FAILED",
+            "error": str(error),
+        }
+
+
 def run_repair_job(
     job_id: str,
     repository: str,
@@ -199,9 +214,15 @@ def run_repair_job(
             terminal_status, message, workflow_error = _workflow_job_outcome(result)
 
             if publish and terminal_status == "completed":
-                publishing_result = publish_validated_repairs(result)
+                publishing_result = _publish_repair_result(result)
                 job_result["publishing"] = publishing_result
-                message = "ASEA repair completed and pull request created."
+                if publishing_result["status"] == "PULL_REQUEST_CREATED":
+                    message = "ASEA repair completed and pull request created."
+                else:
+                    message = (
+                        "ASEA repair completed and validation passed, "
+                        "but GitHub publishing failed."
+                    )
 
             cleanup_repair_workspace(result.get("repo_path", ""), result)
             repair_jobs.update_job(
@@ -289,8 +310,15 @@ def resume_repair_job(
             job_result = {"workflow": result}
             terminal_status, message, workflow_error = _workflow_job_outcome(result)
             if publish and terminal_status == "completed":
-                job_result["publishing"] = publish_validated_repairs(result)
-                message = "ASEA repair completed and pull request created."
+                publishing_result = _publish_repair_result(result)
+                job_result["publishing"] = publishing_result
+                if publishing_result["status"] == "PULL_REQUEST_CREATED":
+                    message = "ASEA repair completed and pull request created."
+                else:
+                    message = (
+                        "ASEA repair completed and validation passed, "
+                        "but GitHub publishing failed."
+                    )
             cleanup_repair_workspace(result.get("repo_path", ""), result)
             repair_jobs.update_job(
                 job_id,

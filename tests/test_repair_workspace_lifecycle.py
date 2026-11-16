@@ -186,7 +186,10 @@ def test_review_resume_keeps_completed_repair_when_publish_fails(monkeypatch):
     assert "validation passed" in update["message"]
     assert len(cleanups) == 1
 
-def test_failed_workflow_preserves_primary_error_when_checkpoint_is_closed(monkeypatch):
+def test_failed_workflow_logs_primary_error_when_checkpoint_is_closed(
+    monkeypatch,
+    caplog,
+):
     jobs = FakeRepairJobs()
     graph = FakeGraph(
         {},
@@ -206,7 +209,7 @@ def test_failed_workflow_preserves_primary_error_when_checkpoint_is_closed(monke
 
     update = jobs.updates[-1][1]
     assert update["status"] == "failed"
-    assert update["error"] == (
-        "ValueError: patch generation failed: invalid Python"
-    )
+    assert update["error"] == "An internal error occurred during repair."
+    assert "patch generation failed: invalid Python" in caplog.text
+    assert "Cannot operate on a closed database." in caplog.text
 

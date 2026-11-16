@@ -446,6 +446,9 @@ def human_patch_review_node(state: ASEAState) -> dict[str, Any]:
                 "No patch content available.",
             ),
             "attempt": patch.get("attempt", 1),
+            "generator": patch.get("generator", "unknown"),
+            "repair_scope": patch.get("repair_scope", "complete"),
+            "generation_trace": patch.get("generation_trace", []),
         })
 
         if not isinstance(review_response, dict):

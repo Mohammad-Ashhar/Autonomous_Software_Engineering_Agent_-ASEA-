@@ -1,3 +1,5 @@
+import os
+
 from asea.core.config import load_environment
 
 
@@ -12,5 +14,5 @@ def test_process_environment_takes_precedence_over_dotenv(tmp_path, monkeypatch)
 
     load_environment(env_file)
 
-    assert __import__("os").environ["ASEA_TEST_CONFIG_VALUE"] == "from-process"
-    assert __import__("os").environ["ASEA_TEST_FILE_ONLY"] == "file-value"
+    assert os.environ["ASEA_TEST_CONFIG_VALUE"] == "from-process"
+    assert os.environ["ASEA_TEST_FILE_ONLY"] == "file-value"

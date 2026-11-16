@@ -10,11 +10,11 @@ from asea.agents.bug_detector import BugDetectorAgent, bug_detector_node
 from asea.agents.patch_generator import PatchGeneratorAgent
 from asea.agents.patch_validator import PatchValidatorAgent
 from asea.agents.test_generation import test_generation_node
-from asea.tools.workspace import repair_workspace_root
 from asea.core.state import ASEAState
 from asea.tools.analyzer import RepositoryAnalyzer
 from asea.tools.dependency_analyzer import PythonDependencyAnalyzer
 from asea.tools.test_runner import DockerTestRunner
+from asea.tools.workspace import repair_workspace_root
 
 # --------------------------------------------------
 # 1. REPOSITORY ANALYSIS

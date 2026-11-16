@@ -273,3 +273,93 @@ def test_intermediate_syntax_repair_reanalyzes_without_marking_bug_repaired(
     assert graph.route_after_validation({
         "current_validation": {"status": "PATCH_INTERMEDIATE"},
     }) == "next_bug"
+
+
+
+def test_final_validation_overwrites_stale_test_results_and_refreshes_analysis(
+    tmp_path, monkeypatch
+):
+    working_repository = tmp_path / "working"
+    working_repository.mkdir()
+    final_tests = {
+        "status": "PASSED",
+        "success": True,
+        "total": 2,
+        "passed": 2,
+        "failed": 0,
+        "errors": 0,
+    }
+
+    class PassingRunner:
+        def run_tests(self, _repository):
+            return final_tests
+
+    class DependencyAnalyzer:
+        def analyze(self, repository):
+            assert repository == working_repository
+            return {
+                "module_count": 1,
+                "dependency_count": 0,
+                "cross_file_findings": [],
+                "dependency_map": {},
+                "parse_errors": [],
+            }
+
+    monkeypatch.setattr(graph, "DockerTestRunner", PassingRunner)
+    monkeypatch.setattr(graph, "PythonDependencyAnalyzer", DependencyAnalyzer)
+    result = graph.final_validation_node({
+        "working_repo_path": str(working_repository),
+        "test_results": {"status": "FAILED", "success": False},
+        "working_test_results": {"status": "FAILED", "success": False},
+        "baseline_test_results": {"status": "FAILED", "success": False},
+        "dependency_analysis": {
+            "parse_errors": [{"file": "bug.py", "error": "expected ':'"}],
+        },
+        "errors": [],
+    })
+
+    assert result["status"] == "COMPLETED"
+    assert result["test_results"] == final_tests
+    assert result["working_test_results"] == final_tests
+    assert result["final_validation_results"] == final_tests
+    assert result["dependency_analysis"]["parse_errors"] == []
+    assert result["post_repair_analysis"]["module_count"] == 1
+
+
+def test_final_validation_does_not_claim_success_when_no_tests_passed(
+    tmp_path, monkeypatch
+):
+    working_repository = tmp_path / "working"
+    working_repository.mkdir()
+
+    class NoTestsRunner:
+        def run_tests(self, _repository):
+            return {
+                "status": "NO_TESTS",
+                "success": False,
+                "total": 0,
+                "passed": 0,
+                "failed": 0,
+                "errors": 0,
+            }
+
+    class DependencyAnalyzer:
+        def analyze(self, _repository):
+            return {
+                "module_count": 0,
+                "dependency_count": 0,
+                "cross_file_findings": [],
+                "dependency_map": {},
+                "parse_errors": [],
+            }
+
+    monkeypatch.setattr(graph, "DockerTestRunner", NoTestsRunner)
+    monkeypatch.setattr(graph, "PythonDependencyAnalyzer", DependencyAnalyzer)
+    result = graph.final_validation_node({
+        "working_repo_path": str(working_repository),
+        "errors": [],
+    })
+
+    assert result["status"] == "COMPLETED_WITH_REMAINING_FAILURES"
+    assert result["test_results"]["status"] == "NO_TESTS"
+    assert result["test_results"]["success"] is False

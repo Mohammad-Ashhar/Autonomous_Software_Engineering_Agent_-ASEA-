@@ -109,7 +109,7 @@ The supported settings in `.env.example` are:
 | `ASEA_RATE_LIMIT_REQUESTS` | Maximum API requests per client in the configured window | `60` |
 | `ASEA_RATE_LIMIT_WINDOW_SECONDS` | API rate-limit window in seconds | `60` |
 | `ASEA_MAX_REQUEST_BODY_BYTES` | Maximum accepted API request body size | `2097152` (2 MiB) |
-| `ASEA_MAX_ACTIVE_REPAIR_JOBS` | Maximum queued/running repair jobs admitted by the API | `20` (maximum `500`) |
+| `ASEA_MAX_ACTIVE_REPAIR_JOBS` | Maximum queued, running, and review-paused repair jobs admitted by the API | `20` (maximum `500`) |
 
 For the default configuration, install and start Ollama, then pull the configured model:
 

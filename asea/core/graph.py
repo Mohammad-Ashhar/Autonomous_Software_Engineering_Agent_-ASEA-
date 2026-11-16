@@ -658,6 +658,24 @@ def patch_validation_node(state: ASEAState) -> dict[str, Any]:
         # can enter the normal prioritized repair queue.
         latest_patch = patches[-1] if patches else {}
         if latest_patch.get("repair_scope") == "syntax_only":
+            # Refresh the test baseline after syntax becomes importable. This
+            # lets later semantic patches reduce existing failures one at a
+            # time without being rejected as regressions against a collection
+            # error from the original syntax-broken repository.
+            try:
+                intermediate_tests = DockerTestRunner().run_tests(working_repo)
+                if (
+                    intermediate_tests.get("status") in {"PASSED", "FAILED"}
+                    and intermediate_tests.get("total", 0) > 0
+                ):
+                    updates["working_test_results"] = intermediate_tests
+            except Exception as error:  # noqa: BLE001
+                errors = list(state.get("errors", []))
+                errors.append(
+                    "Post-syntax test baseline refresh failed: " + str(error)
+                )
+                updates["errors"] = errors
+
             try:
                 original_file = Path(bug["file"]).resolve()
                 relative_file = original_file.relative_to(repo_path)

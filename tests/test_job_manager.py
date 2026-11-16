@@ -430,3 +430,24 @@ def test_database_busy_timeout_is_bounded(monkeypatch, configured, expected):
     monkeypatch.setenv("ASEA_SQLITE_BUSY_TIMEOUT_SECONDS", configured)
 
     assert RepairJobManager._database_timeout() == expected
+
+
+
+def test_active_job_admission_limit_counts_jobs_waiting_for_review(
+    tmp_path, monkeypatch
+):
+    manager = create_test_manager(tmp_path / "review_admission.db")
+    monkeypatch.setenv("ASEA_MAX_ACTIVE_REPAIR_JOBS", "1")
+
+    manager.create_job("review-capacity-001", "repo-one")
+    manager.update_job(
+        "review-capacity-001",
+        status="waiting_for_review",
+        review_request={"patch": "diff"},
+    )
+
+    with pytest.raises(JobQueueFullError):
+        manager.create_job("review-capacity-002", "repo-two")
+
+    manager.update_job("review-capacity-001", status="completed")
+    assert manager.create_job("review-capacity-003", "repo-three")["status"] == "queued"

@@ -172,7 +172,7 @@ class BugDetectorAgent:
         # empty score lists, which make len(scores) a zero divisor.
         has_empty_score_example = False
         for constant in ast.walk(syntax_tree):
-            if not isinstance(constant, ast.Constant) or not isinstance(constant.value, str):
+            if (\n                not isinstance(constant, ast.Constant)\n                or not isinstance(constant.value, str)\n            ):
                 continue
             try:
                 sample = json.loads(constant.value)
@@ -198,7 +198,7 @@ class BugDetectorAgent:
             ]
             for loop in score_loops:
                 for assignment in ast.walk(function):
-                    if not isinstance(assignment, ast.Assign) or len(assignment.targets) != 1:
+                    if (\n                        not isinstance(assignment, ast.Assign)\n                        or len(assignment.targets) != 1\n                    ):
                         continue
                     target = assignment.targets[0]
                     value = assignment.value
@@ -228,7 +228,7 @@ class BugDetectorAgent:
                             "confidence": 1.0,
                             "description": (
                                 f"'{target.id}' is initialized to 1 before "
-                                "the loop adds every score, inflating each total by one."
+                                "the loop adds every score, inflating the total by one."
                             ),
                             "suggestion": "Initialize the score accumulator to 0.",
                             "file": str(file_path),

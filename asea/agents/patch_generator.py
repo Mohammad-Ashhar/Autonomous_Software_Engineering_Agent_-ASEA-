@@ -222,7 +222,7 @@ class PatchGeneratorAgent:
             indentation = line[:len(line) - len(line.lstrip())]
             lines[assignment.lineno - 1] = (
                 indentation + "avg = total_score / len(scores) if scores else 0"
-                + ("\\n" if line.endswith("\\n") else "")
+                + ("\n" if line.endswith("\n") else "")
             )
             corrected = "".join(lines)
             ast.parse(corrected)

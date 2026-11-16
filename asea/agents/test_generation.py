@@ -212,15 +212,15 @@ class TestGenerationAgent:
             return None
 
         return (
-            "def test_average_scores_calculates_mean():\\n"
+            "def test_average_scores_calculates_mean():\n"
             "    result = module.calculate_average_scores("
-            "'{\\\"Alice\\\": [85, 90, 78]}')\\n"
-            "    assert result['Alice'] == 253 / 3\\n"
-            "\\n"
-            "def test_average_scores_handles_empty_list():\\n"
+            "'{\"Alice\": [85, 90, 78]}')\n"
+            "    assert result['Alice'] == 253 / 3\n"
+            "\n"
+            "def test_average_scores_handles_empty_list():\n"
             "    result = module.calculate_average_scores("
-            "'{\\\"Bob\\\": []}')\\n"
-            "    assert result['Bob'] == 0\\n"
+            "'{\"Bob\": []}')\n"
+            "    assert result['Bob'] == 0\n"
         )
 
     def _generate_for_module(

@@ -13,6 +13,9 @@ class ASEAState(TypedDict, total=False):
     # Cumulative repair workspace
     working_repo_path: str
     working_test_results: dict[str, Any]
+    final_validation_results: dict[str, Any]
+    baseline_test_results: dict[str, Any]
+    post_repair_analysis: dict[str, Any]
 
     # Initial analysis
     baseline_results: dict[str, Any]

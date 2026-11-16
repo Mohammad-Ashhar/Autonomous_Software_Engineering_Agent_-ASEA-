@@ -690,11 +690,21 @@ def patch_validation_node(state: ASEAState) -> dict[str, Any]:
                     get_bug_key(item)
                     for item in detected + prioritized
                 }
-                new_findings = [
-                    item for item in follow_up_findings
-                    if item.get("classification") == "confirmed_bug"
-                    and get_bug_key(item) not in known_keys
-                ]
+                # Findings are discovered in the cumulative workspace, but
+                # bug identity and patch routing are anchored to the original
+                # repository. Normalize their file paths before adding them to
+                # state so the next patch-generation pass can safely map each
+                # finding back into the cumulative workspace.
+                new_findings = []
+                for finding in follow_up_findings:
+                    if finding.get("classification") != "confirmed_bug":
+                        continue
+                    normalized_finding = dict(finding)
+                    normalized_finding["file"] = str(original_file)
+                    finding_key = get_bug_key(normalized_finding)
+                    if finding_key not in known_keys:
+                        new_findings.append(normalized_finding)
+                        known_keys.add(finding_key)
                 detected.extend(new_findings)
                 prioritized.extend(new_findings)
                 updates["detected_bugs"] = detected

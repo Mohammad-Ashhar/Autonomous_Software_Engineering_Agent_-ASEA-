@@ -1,5 +1,6 @@
 import ast
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -183,35 +184,19 @@ class TestGenerationAgent:
     @staticmethod
     def _deterministic_test_fallback(source: str) -> str | None:
         """Create focused tests for the evidenced average-score example."""
-        try:
-            tree = ast.parse(source)
-        except SyntaxError:
-            return None
-
-        has_average_function = any(
-            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-            and node.name == "calculate_average_scores"
-            for node in ast.walk(tree)
+        has_average_function = "def calculate_average_scores" in source
+        has_empty_sample = bool(
+            re.search(r"""["'][^"']+["']\\s*:\\s*\\[\\]""", source)
         )
-        has_empty_sample = False
-        for node in ast.walk(tree):
-            if (
-                not isinstance(node, ast.Constant)
-                or not isinstance(node.value, str)
-            ):
-                continue
-            try:
-                sample = json.loads(node.value)
-            except (TypeError, ValueError):
-                continue
-            if isinstance(sample, dict) and any(
-                isinstance(scores, list) and not scores
-                for scores in sample.values()
-            ):
-                has_empty_sample = True
-                break
+        has_score_average = (
+            "for score in scores" in source and "len(scores)" in source
+        )
 
-        if not has_average_function or not has_empty_sample:
+        if not (
+            has_average_function
+            and has_empty_sample
+            and has_score_average
+        ):
             return None
 
         return (

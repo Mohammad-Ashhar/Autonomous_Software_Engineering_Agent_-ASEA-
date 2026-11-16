@@ -1,6 +1,10 @@
 
+const configuredApiUrl = process.env.NEXT_PUBLIC_API_URL?.trim();
 const API_URL =
-  process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+  configuredApiUrl ||
+  (process.env.NODE_ENV === "production"
+    ? ""
+    : "http://127.0.0.1:8000");
 
 export interface AnalyzeResponse {
   status: string;
@@ -23,6 +27,7 @@ export interface RepairJob {
   error?: string | null;
   review_request?: Record<string, unknown> | null;
   result?: Record<string, unknown> | null;
+  publish_requested?: boolean;
 }
 
 export interface ReviewRequest {
@@ -34,6 +39,12 @@ async function request<T>(
   endpoint: string,
   options: RequestInit = {},
 ): Promise<T> {
+  if (!API_URL) {
+    throw new Error(
+      "NEXT_PUBLIC_API_URL must be configured for production builds.",
+    );
+  }
+
   let response: Response;
 
   try {

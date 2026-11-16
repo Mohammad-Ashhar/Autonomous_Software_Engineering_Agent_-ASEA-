@@ -105,7 +105,8 @@ def validate_source_repository(
         source_repository = normalize_github_repository(remote_url)
     except ValueError as error:
         raise RuntimeError(
-            f"Publishing blocked: source repository is not a supported GitHub remote: {error}"
+            "Publishing blocked: source repository is not a supported "
+            f"GitHub remote: {error}"
         ) from error
 
     return source_git_repo, git_root, source_repository

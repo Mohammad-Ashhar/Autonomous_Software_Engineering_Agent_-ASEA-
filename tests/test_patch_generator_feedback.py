@@ -126,3 +126,46 @@ def test_patch_generator_repairs_missing_try_colon_without_llm(tmp_path):
     assert "+    try:" in result["patch"]
     assert "-    try" in result["patch"]
     assert result["repair_scope"] == "syntax_only"
+
+
+
+def test_patch_generator_records_invalid_llm_output_and_fallback_failure(tmp_path):
+    file_path = tmp_path / "unknown.py"
+    file_path.write_text("def calculate(value):\\n    return value + 1\\n", encoding="utf-8")
+    agent = PatchGeneratorAgent()
+
+    def invalid_model_output(**_kwargs):
+        return "not valid python"
+
+    agent.llm.chat = invalid_model_output
+
+    import pytest
+
+    with pytest.raises(RuntimeError, match="Deterministic fallback"):
+        agent.generate_patch(
+            file_path,
+            {"title": "Unsupported calculation defect"},
+        )
+
+    assert agent.last_attempt_trace[0]["stage"] == "llm_generation"
+    assert agent.last_attempt_trace[0]["status"] == "failed"
+    assert "not valid python" in agent.last_attempt_trace[0]["response_excerpt"]
+    assert agent.last_attempt_trace[1]["stage"] == "deterministic_fallback"
+    assert agent.last_attempt_trace[1]["status"] == "failed"
+
+
+def test_patch_generator_records_successful_llm_generation(tmp_path):
+    file_path = tmp_path / "logic.py"
+    file_path.write_text("def add(a, b):\\n    return a - b\\n", encoding="utf-8")
+    agent = PatchGeneratorAgent()
+    agent.llm.chat = lambda **_kwargs: "def add(a, b):\\n    return a + b\\n"
+
+    result = agent.generate_patch(
+        file_path,
+        {"title": "Incorrect addition"},
+    )
+
+    assert result["generator"] == "ollama"
+    assert result["generation_trace"][0]["stage"] == "llm_generation"
+    assert result["generation_trace"][0]["status"] == "succeeded"
+    assert "return a + b" in result["generation_trace"][0]["response_excerpt"]

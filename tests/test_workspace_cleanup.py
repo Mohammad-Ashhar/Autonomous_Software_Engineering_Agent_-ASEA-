@@ -72,3 +72,25 @@ def test_cleanup_rejects_symlinked_repository_directory(tmp_path):
         {"working_repo_path": str(linked_repo)},
     )
     assert (external_repo / "keep.txt").is_file()
+
+
+
+def test_cleanup_of_one_job_preserves_another_jobs_workspace(tmp_path):
+    repository = tmp_path / "source"
+    repository.mkdir()
+    workspace_root = tmp_path / "workspaces"
+
+    first_workspace = workspace_root / "asea_run_first" / "repository"
+    second_workspace = workspace_root / "asea_run_second" / "repository"
+    first_workspace.mkdir(parents=True)
+    second_workspace.mkdir(parents=True)
+    (first_workspace / "candidate.py").write_text("first", encoding="utf-8")
+    (second_workspace / "candidate.py").write_text("second", encoding="utf-8")
+
+    assert cleanup_repair_workspace(
+        repository,
+        {"working_repo_path": str(first_workspace)},
+    )
+
+    assert not first_workspace.parent.exists()
+    assert (second_workspace / "candidate.py").read_text(encoding="utf-8") == "second"

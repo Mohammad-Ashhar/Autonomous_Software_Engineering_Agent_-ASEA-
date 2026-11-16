@@ -93,6 +93,7 @@ def test_execution_node(state: ASEAState) -> dict[str, Any]:
         }
         return {
             "test_results": results,
+            "baseline_test_results": results,
             "working_test_results": results,
             "errors": errors,
             "current_agent": "test_execution",
@@ -108,6 +109,7 @@ def test_execution_node(state: ASEAState) -> dict[str, Any]:
         errors.append(message)
         return {
             "test_results": results,
+            "baseline_test_results": results,
             "working_test_results": results,
             "errors": errors,
             "current_agent": "test_execution",
@@ -1092,6 +1094,9 @@ def create_initial_state(repo_path: str, review_mode: str = "cli") -> ASEAState:
         "patch_review_decision": "",
         "patch_review_feedback": "",
         "review_history": [],
+        "baseline_test_results": {},
+        "final_validation_results": {},
+        "post_repair_analysis": {},
         "status": "initialized",
     }
 

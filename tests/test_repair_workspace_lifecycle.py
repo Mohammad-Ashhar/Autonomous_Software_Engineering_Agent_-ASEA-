@@ -213,3 +213,40 @@ def test_failed_workflow_logs_primary_error_when_checkpoint_is_closed(
     assert "patch generation failed: invalid Python" in caplog.text
     assert "Cannot operate on a closed database." in caplog.text
 
+
+
+
+def test_resume_failure_persists_actionable_exception_details(monkeypatch):
+    jobs = FakeRepairJobs()
+    graph = FakeGraph(
+        {},
+        error=RuntimeError("Cannot resume: checkpoint thread is missing"),
+    )
+    graph.get_state = lambda _config: (_ for _ in ()).throw(
+        RuntimeError("Cannot operate on a closed database.")
+    )
+    monkeypatch.setattr(main, "repair_jobs", jobs)
+    monkeypatch.setattr(main.app.state, "graph", graph, raising=False)
+
+    main.resume_repair_job("job-resume-diagnostic", "approved", "")
+
+    update = jobs.updates[-1][1]
+    assert update["status"] == "failed"
+    assert update["error"] == (
+        "RuntimeError: Cannot resume: checkpoint thread is missing"
+    )
+
+
+def test_safe_error_detail_redacts_common_credentials():
+    error = RuntimeError(
+        "GitHub rejected token ghp_1234567890abcdefghijklmnop "
+        "and Authorization: Bearer abcdefghijklmnopqrstuvwxyz123456"
+    )
+
+    detail = main._safe_error_detail(error)
+
+    assert "checkpoint" not in detail
+    assert "ghp_1234567890abcdefghijklmnop" not in detail
+    assert "abcdefghijklmnopqrstuvwxyz123456" not in detail
+    assert "[REDACTED_GITHUB_TOKEN]" in detail
+    assert "[REDACTED]" in detail

@@ -134,7 +134,7 @@ def test_patch_generator_repairs_missing_try_colon_without_llm(tmp_path):
 def test_patch_generator_records_invalid_llm_output_and_fallback_failure(tmp_path):
     file_path = tmp_path / "unknown.py"
     file_path.write_text(
-        "def calculate(value):\\n    return value + 1\\n",
+        "def calculate(value):\n    return value + 1\n",
         encoding="utf-8",
     )
     agent = PatchGeneratorAgent()
@@ -159,9 +159,9 @@ def test_patch_generator_records_invalid_llm_output_and_fallback_failure(tmp_pat
 
 def test_patch_generator_records_successful_llm_generation(tmp_path):
     file_path = tmp_path / "logic.py"
-    file_path.write_text("def add(a, b):\\n    return a - b\\n", encoding="utf-8")
+    file_path.write_text("def add(a, b):\n    return a - b\n", encoding="utf-8")
     agent = PatchGeneratorAgent()
-    agent.llm.chat = lambda **_kwargs: "def add(a, b):\\n    return a + b\\n"
+    agent.llm.chat = lambda **_kwargs: "def add(a, b):\n    return a + b\n"
 
     result = agent.generate_patch(
         file_path,

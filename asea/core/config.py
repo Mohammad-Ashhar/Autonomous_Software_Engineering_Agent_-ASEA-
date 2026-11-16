@@ -7,7 +7,9 @@ from dotenv import load_dotenv
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 ENV_FILE = PROJECT_ROOT / ".env"
 
-load_dotenv(dotenv_path=ENV_FILE, override=True)
+# Explicit process environment variables (for example, deployment secrets) take
+# precedence over values in the local .env file.
+load_dotenv(dotenv_path=ENV_FILE, override=False)
 
 
 @dataclass(frozen=True)

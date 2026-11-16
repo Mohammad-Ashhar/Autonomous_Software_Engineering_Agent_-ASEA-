@@ -23,7 +23,7 @@ class RepositoryAnalyzer:
     def analyze_cloned_repository(
         self,
         folder,
-        output_file="artifacts/repo_map.json"
+        output_file=None
     ):
         repo_path = self.repository_manager.load_cloned_repository(folder)
 

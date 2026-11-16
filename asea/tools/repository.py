@@ -1,5 +1,6 @@
 import base64
 import os
+import re
 import shutil
 import tempfile
 from pathlib import Path
@@ -41,7 +42,8 @@ class RepositoryManager:
             len(parts) != 2
             or not all(parts)
             or any(part in {".", ".."} for part in parts)
-            or any("%" in part or "\\" in part for part in parts)
+            or any(not re.fullmatch(r"[A-Za-z0-9_.-]+", part) for part in parts)
+            or parts[1].lower() == ".git"
         ):
             raise ValueError("Invalid GitHub repository URL.")
 
@@ -144,10 +146,13 @@ class RepositoryManager:
                     return self._existing_clone(destination, url)
                 raise
 
-        except GitCommandError as error:
+        except GitCommandError:
+            # Git stderr can contain server responses or credential-related
+            # diagnostics. Keep the public error generic and do not echo them.
             raise RuntimeError(
-                f"Repository cloning failed: {error}"
-            ) from error
+                "Repository cloning failed. Verify the URL, network access, "
+                "and GitHub token permissions."
+            ) from None
         finally:
             if temporary_path.exists():
                 shutil.rmtree(temporary_path, ignore_errors=True)

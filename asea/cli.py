@@ -152,8 +152,8 @@ def status():
     table.add_row("LLM model", settings.ollama_model)
     table.add_row("LLM endpoint", settings.ollama_base_url)
     table.add_row(
-        "GitHub repository",
-        settings.github_repository or "Not configured",
+        "Publishing target",
+        "Resolved from each repair command",
     )
     table.add_row(
         "GitHub token",

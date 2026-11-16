@@ -3,7 +3,6 @@ import runpy
 from asea.agents.bug_detector import BugDetectorAgent
 from asea.agents.patch_generator import PatchGeneratorAgent
 
-
 BUGGY_SOURCE = """import json
 
 def calculate_average_scores(student_data_json):

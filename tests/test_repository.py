@@ -80,7 +80,7 @@ def test_github_clones_with_same_repository_name_use_distinct_paths(
     manager = RepositoryManager(tmp_path / "workspace")
     destinations = []
 
-    def fake_clone_from(url, destination):
+    def fake_clone_from(url, destination, **kwargs):
         clone_path = Path(destination)
         destinations.append(clone_path)
         owner, repository = url.rstrip("/").split("/")[-2:]
@@ -104,10 +104,42 @@ def test_github_clones_with_same_repository_name_use_distinct_paths(
     assert (second / ".git").is_dir()
 
 
+def test_private_clone_uses_temporary_authorization_header(tmp_path, monkeypatch):
+    import base64
+    from types import SimpleNamespace
+
+    import asea.tools.repository as repository_module
+
+    manager = RepositoryManager(tmp_path / "workspace")
+    captured = {}
+
+    def fake_clone_from(url, destination, env=None):
+        captured["url"] = url
+        captured["env"] = env
+        (Path(destination) / ".git").mkdir()
+
+    monkeypatch.setattr(
+        repository_module,
+        "get_settings",
+        lambda: SimpleNamespace(github_token="test-token"),
+    )
+    monkeypatch.setenv("GIT_CONFIG_COUNT", "0")
+    monkeypatch.setattr(repository_module.Repo, "clone_from", fake_clone_from)
+
+    manager.clone_repository("https://github.com/private-owner/private-project")
+
+    environment = captured["env"]
+    assert captured["url"] == "https://github.com/private-owner/private-project"
+    assert environment["GIT_CONFIG_KEY_0"] == "http.extraheader"
+    expected = base64.b64encode(b"x-access-token:test-token").decode("ascii")
+    assert environment["GIT_CONFIG_VALUE_0"] == f"AUTHORIZATION: basic {expected}"
+    assert "test-token" not in captured["url"]
+
+
 def test_failed_clone_cleans_temporary_workspace(tmp_path, monkeypatch):
     manager = RepositoryManager(tmp_path / "workspace")
 
-    def fail_clone(url, destination):
+    def fail_clone(url, destination, **kwargs):
         raise repository_module.GitCommandError("clone", 1)
 
     import asea.tools.repository as repository_module

@@ -233,7 +233,7 @@ def run_repair_job(
                 error=workflow_error,
             )
 
-    except Exception:
+    except Exception as error:
         if graph is not None and config is not None:
             try:
                 snapshot = graph.get_state(config)
@@ -255,8 +255,8 @@ def run_repair_job(
         repair_jobs.update_job(
             job_id,
             status="failed",
-            message="ASEA repair workflow failed.",
-            error="An internal error occurred during repair.",
+            message="ASEA repair workflow crashed before completion.",
+            error=f"{type(error).__name__}: {str(error)[:1800]}",
         )
 def resume_repair_job(
     job_id: str,
@@ -328,7 +328,7 @@ def resume_repair_job(
                 error=workflow_error,
             )
 
-    except Exception:
+    except Exception as error:
         if config is not None:
             try:
                 snapshot = graph.get_state(config)
@@ -345,8 +345,8 @@ def resume_repair_job(
         repair_jobs.update_job(
             job_id,
             status="failed",
-            message="Failed to resume ASEA repair workflow.",
-            error="An internal error occurred while processing the review.",
+            message="ASEA failed while resuming the reviewed repair.",
+            error=f"{type(error).__name__}: {str(error)[:1800]}",
         )        
 app = FastAPI(
     title="ASEA API",

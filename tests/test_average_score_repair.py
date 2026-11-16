@@ -1,5 +1,4 @@
 import importlib.util
-from pathlib import Path
 from unittest.mock import patch
 
 from asea.agents.bug_detector import BugDetectorAgent

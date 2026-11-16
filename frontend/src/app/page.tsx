@@ -267,6 +267,27 @@ async function handleStartRepair() {
     setIsStartingRepair(false);
   }
 }
+async function openRepairJob(job: RepairJob) {
+  setRepairJob({
+    job_id: job.job_id,
+    status: job.status,
+    message: job.message || "Loaded from repair history.",
+  });
+  setRepairStatus(null);
+  setRepository(job.repository);
+  setAnalysisResult(null);
+  setReviewFeedback("");
+  setNotice(`Loaded repair job ${job.job_id}.`);
+  try {
+    const status = await getRepairStatus(job.job_id);
+    setRepairStatus(status);
+  } catch (error) {
+    setNotice(
+      error instanceof Error ? error.message : "Unable to load this repair job.",
+    );
+  }
+}
+
 async function handlePatchReview(decision: "approved" | "rejected") {
   if (!repairJob?.job_id) {
     setNotice("No active repair job found.");
@@ -583,6 +604,27 @@ async function handlePatchReview(decision: "approved" | "rejected") {
   </>
 )}
 
+    {publishingResult?.status === "PUBLISH_FAILED" && (
+      <p role="alert">
+        <strong>Repair validated; GitHub publishing failed.</strong>{" "}
+        {typeof publishingResult.error === "string"
+          ? publishingResult.error
+          : "Check the backend GitHub token and repository permissions."}
+        {" "}The validated repair remains completed; publishing can be retried after a safe retry workflow is implemented.
+      </p>
+    )}
+    {publishingResult?.status === "PULL_REQUEST_CREATED" && !pullRequest && (
+      <p><strong>GitHub publishing completed.</strong> Pull request details were not included in the response.</p>
+    )}
+    {repairStatus?.status === "completed" && !publishingResult && (
+      <p>
+        <strong>Repair completed.</strong>{" "}
+        {repairStatus.publish_requested
+          ? "Publishing was requested but no pull-request result was recorded."
+          : "No pull request was requested for this job."}
+      </p>
+    )}
+
     {pullRequest && typeof pullRequest.url === "string" && (
       <p className="pull-request-link">
         <strong>Pull request created:</strong>{" "}
@@ -668,6 +710,16 @@ async function handlePatchReview(decision: "approved" | "rejected") {
                       <div className="job-details">
                         <strong>{job.name}</strong>
                         <span>{job.detail}</span>
+                        <button
+                          className="job-open"
+                          type="button"
+                          onClick={() => {
+                            const selected = repairHistory.find((item) => item.job_id === job.key);
+                            if (selected) void openRepairJob(selected);
+                          }}
+                        >
+                          Open job
+                        </button>
                       </div>
                       <div className="job-result">
                         <span className={`status-badge ${job.color}`}>{job.status}</span>

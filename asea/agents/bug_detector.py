@@ -172,7 +172,10 @@ class BugDetectorAgent:
         # empty score lists, which make len(scores) a zero divisor.
         has_empty_score_example = False
         for constant in ast.walk(syntax_tree):
-            if (\n                not isinstance(constant, ast.Constant)\n                or not isinstance(constant.value, str)\n            ):
+            if (
+                not isinstance(constant, ast.Constant)
+                or not isinstance(constant.value, str)
+            ):
                 continue
             try:
                 sample = json.loads(constant.value)
@@ -198,7 +201,10 @@ class BugDetectorAgent:
             ]
             for loop in score_loops:
                 for assignment in ast.walk(function):
-                    if (\n                        not isinstance(assignment, ast.Assign)\n                        or len(assignment.targets) != 1\n                    ):
+                    if (
+                        not isinstance(assignment, ast.Assign)
+                        or len(assignment.targets) != 1
+                    ):
                         continue
                     target = assignment.targets[0]
                     value = assignment.value

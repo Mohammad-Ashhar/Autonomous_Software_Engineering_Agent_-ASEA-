@@ -1,3 +1,5 @@
+import pytest
+
 from asea.agents.patch_generator import PatchGeneratorAgent
 
 
@@ -138,8 +140,6 @@ def test_patch_generator_records_invalid_llm_output_and_fallback_failure(tmp_pat
         return "not valid python"
 
     agent.llm.chat = invalid_model_output
-
-    import pytest
 
     with pytest.raises(RuntimeError, match="Deterministic fallback"):
         agent.generate_patch(

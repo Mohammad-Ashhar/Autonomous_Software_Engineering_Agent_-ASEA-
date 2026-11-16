@@ -105,9 +105,7 @@ The supported settings in `.env.example` are:
 | `ASEA_API_KEY` | Optional shared Bearer key protecting API routes; required in production mode | Empty |
 | `OLLAMA_BASE_URL` | OpenAI-compatible Ollama API endpoint | `http://localhost:11434/v1` |
 | `OLLAMA_MODEL` | Model name sent to the configured LLM endpoint | `qwen2.5-coder:1.5b` |
-| `GITHUB_TOKEN` | GitHub token used by GitHub integration / PR publishing | Empty |
-| `GITHUB_REPOSITORY` | Repository used by the publishing integration | Empty in application defaults |
-| `GITHUB_BASE_BRANCH` | Target base branch for publishing | `MohammadAshhar/deepseek-langraph` |
+| `GITHUB_TOKEN` | GitHub token used to access the repository supplied to the repair command and publish a PR | Empty |
 | `ASEA_RATE_LIMIT_REQUESTS` | Maximum API requests per client in the configured window | `60` |
 | `ASEA_RATE_LIMIT_WINDOW_SECONDS` | API rate-limit window in seconds | `60` |
 | `ASEA_MAX_REQUEST_BODY_BYTES` | Maximum accepted API request body size | `2097152` (2 MiB) |
@@ -122,7 +120,7 @@ ollama serve
 
 If you change the model or endpoint, update `OLLAMA_MODEL` and `OLLAMA_BASE_URL` accordingly. The endpoint must provide the OpenAI-compatible API expected by the configured LLM client.
 
-Set `GITHUB_TOKEN` only when using GitHub operations that require authentication, such as publishing pull requests. Use a token with the minimum repository permissions required. Never commit `.env`, tokens, or other credentials.
+Set `GITHUB_TOKEN` when publishing to GitHub. ASEA derives the target repository from the URL or local Git remote supplied to each repair command and discovers that repository's default branch through the GitHub API. No global repository or base-branch setting is required. The token must have access to the selected repository, with permission to read repository metadata, create branches/push contents, and create pull requests. Never commit `.env`, tokens, or other credentials.
 
 For a production backend, set `ASEA_ENV=production` and provide a high-entropy `ASEA_API_KEY`. The API refuses to start in production mode without this key. When configured, all routes except `/health` require `Authorization: Bearer <ASEA_API_KEY>`; CORS preflight requests remain available. Keep the key in server-side secret storage and never place it in a `NEXT_PUBLIC_*` frontend variable.
 
@@ -151,8 +149,10 @@ asea repair ./path/to/python-repository
 Opt in to GitHub pull-request publishing:
 
 ```bash
-asea repair ./path/to/python-repository --publish
+asea repair https://github.com/owner/repository --publish
 ```
+
+The repository and base branch are resolved from this command's target; the same ASEA installation can publish repairs to different repositories as long as the configured GitHub token has access. ASEA asks for human approval of patches before validation and publishing. It creates a repair branch and pull request; it never pushes directly to the default branch or merges automatically. For a local repository, publishing requires a valid GitHub `origin` remote.
 
 Display the active environment configuration:
 

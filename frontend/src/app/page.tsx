@@ -527,13 +527,33 @@ async function handlePatchReview(decision: "approved" | "rejected") {
   <>
     <strong>Patch Review Required</strong>
 
-    <pre>
-      {JSON.stringify(
-        repairStatus.review_request,
-        null,
-        2
+    <div className="patch-diagnostics">
+      <p><b>Generator:</b> {String(reviewRequest?.generator ?? "unknown")}</p>
+      <p><b>Repair scope:</b> {String(reviewRequest?.repair_scope ?? "complete")}</p>
+      {Array.isArray(reviewRequest?.generation_trace) && reviewRequest.generation_trace.length > 0 && (
+        <details>
+          <summary>Generation diagnostics ({reviewRequest.generation_trace.length} steps)</summary>
+          {reviewRequest.generation_trace.map((item, index) => {
+            const trace = readRecord(item);
+            if (!trace) return null;
+            return (
+              <article key={index}>
+                <strong>{String(trace.stage ?? "generation")} · {String(trace.status ?? "unknown")}</strong>
+                {typeof trace.error === "string" && <p>{trace.error}</p>}
+                {typeof trace.response_excerpt === "string" && (
+                  <pre>{trace.response_excerpt}</pre>
+                )}
+                {typeof trace.reason === "string" && <p>{trace.reason}</p>}
+              </article>
+            );
+          })}
+        </details>
       )}
-    </pre>
+      <details>
+        <summary>Full review payload</summary>
+        <pre>{JSON.stringify(repairStatus.review_request, null, 2)}</pre>
+      </details>
+    </div>
 
     <textarea
       className="review-feedback"

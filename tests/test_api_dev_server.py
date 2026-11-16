@@ -3,7 +3,11 @@ from asea.api import dev_server
 
 def test_development_server_disables_auto_reload(monkeypatch):
     calls = []
-    monkeypatch.setattr(dev_server.uvicorn, "run", lambda *args, **kwargs: calls.append((args, kwargs)))
+
+    def fake_run(*args, **kwargs):
+        calls.append((args, kwargs))
+
+    monkeypatch.setattr(dev_server.uvicorn, "run", fake_run)
     monkeypatch.setenv("ASEA_API_HOST", "0.0.0.0")
     monkeypatch.setenv("ASEA_API_PORT", "8123")
 

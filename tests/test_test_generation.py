@@ -7,11 +7,16 @@ def test_average_score_test_fallback_works_when_ollama_is_unavailable(tmp_path):
         """import json
 
 def calculate_average_scores(student_data_json):
-    data = json.loads(student_data_json)
-    return {
-        student: sum(scores) / len(scores) if scores else 0
-        for student, scores in data.items()
-    }
+    try
+        data = json.loads(student_data_json)
+        results = {}
+        for student, scores in data.items():
+            total_score = 1
+            for score in scores:
+                total_score += score
+            avg = total_score / len(scores)
+            results[student] = avg
+        return results
 
 test_payload = '{"Alice": [85, 90, 78], "Bob": []}'
 """,

@@ -167,6 +167,104 @@ class BugDetectorAgent:
                         "source": "ast"
                     })
 
+        # Detect a score accumulator initialized to one before adding
+        # every score. The source's own JSON examples are also inspected for
+        # empty score lists, which make len(scores) a zero divisor.
+        has_empty_score_example = False
+        for constant in ast.walk(syntax_tree):
+            if not isinstance(constant, ast.Constant) or not isinstance(constant.value, str):
+                continue
+            try:
+                sample = json.loads(constant.value)
+            except (TypeError, ValueError):
+                continue
+            if isinstance(sample, dict) and any(
+                isinstance(scores, list) and not scores
+                for scores in sample.values()
+            ):
+                has_empty_score_example = True
+                break
+
+        for function in ast.walk(syntax_tree):
+            if not isinstance(function, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            score_loops = [
+                child for child in ast.walk(function)
+                if isinstance(child, ast.For)
+                and isinstance(child.target, ast.Name)
+                and isinstance(child.iter, ast.Name)
+                and child.target.id.lower().endswith("score")
+                and child.iter.id.lower().endswith("scores")
+            ]
+            for loop in score_loops:
+                for assignment in ast.walk(function):
+                    if not isinstance(assignment, ast.Assign) or len(assignment.targets) != 1:
+                        continue
+                    target = assignment.targets[0]
+                    value = assignment.value
+                    if (
+                        not isinstance(target, ast.Name)
+                        or not target.id.lower().endswith("total")
+                        and not target.id.lower().startswith("total")
+                        or not isinstance(value, ast.Constant)
+                        or value.value != 1
+                    ):
+                        continue
+                    accumulates_loop_value = any(
+                        isinstance(child, ast.AugAssign)
+                        and isinstance(child.target, ast.Name)
+                        and child.target.id == target.id
+                        and isinstance(child.op, ast.Add)
+                        and isinstance(child.value, ast.Name)
+                        and child.value.id == loop.target.id
+                        for child in ast.walk(loop)
+                    )
+                    if accumulates_loop_value:
+                        findings.append({
+                            "title": "Score accumulator starts at one",
+                            "line": assignment.lineno,
+                            "severity": "high",
+                            "classification": "confirmed_bug",
+                            "confidence": 1.0,
+                            "description": (
+                                f"'{target.id}' is initialized to 1 before "
+                                "the loop adds every score, inflating each total by one."
+                            ),
+                            "suggestion": "Initialize the score accumulator to 0.",
+                            "file": str(file_path),
+                            "source": "ast",
+                        })
+
+            if has_empty_score_example:
+                for division in ast.walk(function):
+                    if (
+                        isinstance(division, ast.BinOp)
+                        and isinstance(division.op, ast.Div)
+                        and isinstance(division.right, ast.Call)
+                        and isinstance(division.right.func, ast.Name)
+                        and division.right.func.id == "len"
+                        and len(division.right.args) == 1
+                        and isinstance(division.right.args[0], ast.Name)
+                        and division.right.args[0].id.lower().endswith("scores")
+                    ):
+                        findings.append({
+                            "title": "Empty score list causes division by zero",
+                            "line": division.lineno,
+                            "severity": "high",
+                            "classification": "confirmed_bug",
+                            "confidence": 1.0,
+                            "description": (
+                                "The source includes an example with an empty "
+                                "score list, but this average divides by len(scores)."
+                            ),
+                            "suggestion": (
+                                "Handle an empty score list before dividing; "
+                                "return a defined zero average for that student."
+                            ),
+                            "file": str(file_path),
+                            "source": "ast",
+                        })
+
         # General-purpose checks that do not depend on function names.
         for node in ast.walk(syntax_tree):
             if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):

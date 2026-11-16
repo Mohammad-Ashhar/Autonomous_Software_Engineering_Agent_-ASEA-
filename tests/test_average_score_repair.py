@@ -1,5 +1,5 @@
-import runpy
 from unittest.mock import patch
+import runpy
 
 from asea.agents.bug_detector import BugDetectorAgent
 from asea.agents.patch_generator import PatchGeneratorAgent

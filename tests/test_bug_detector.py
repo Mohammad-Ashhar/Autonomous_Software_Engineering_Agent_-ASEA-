@@ -223,3 +223,35 @@ def test_syntax_error_is_reported_without_calling_llm(tmp_path):
     assert findings[0]["line"] == 2
     assert findings[0]["classification"] == "confirmed_bug"
     assert findings[0]["source"] == "python_parser"
+
+def test_score_calculation_defects_are_detected_from_source_evidence():
+    agent = BugDetectorAgent()
+    source = '''
+import json
+
+def calculate_average_scores(student_data_json):
+    data = json.loads(student_data_json)
+    results = {}
+    for student, scores in data.items():
+        total_score = 1
+        for score in scores:
+            total_score += score
+        avg = total_score / len(scores)
+        results[student] = avg
+    return results
+
+test_payload = '{"Alice": [85, 90, 78], "Bob": []}'
+'''
+    findings = agent.detect_ast_bugs(
+        ast.parse(source),
+        Path("bug.py"),
+    )
+
+    titles = {finding["title"] for finding in findings}
+    assert "Score accumulator starts at one" in titles
+    assert "Empty score list causes division by zero" in titles
+    assert all(
+        finding["classification"] == "confirmed_bug"
+        for finding in findings
+        if finding["title"] in titles
+    )

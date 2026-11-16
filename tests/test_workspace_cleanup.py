@@ -94,3 +94,26 @@ def test_cleanup_of_one_job_preserves_another_jobs_workspace(tmp_path):
 
     assert not first_workspace.parent.exists()
     assert (second_workspace / "candidate.py").read_text(encoding="utf-8") == "second"
+
+
+
+def test_managed_clone_uses_existing_workspace_root(tmp_path, monkeypatch):
+    from asea.api import workspace_cleanup
+
+    managed_root = tmp_path / "workspaces"
+    managed_root.mkdir()
+    monkeypatch.chdir(tmp_path)
+    repository = managed_root / "owner__repo"
+    repository.mkdir()
+    run_directory = managed_root / "asea_run_managed"
+    working_repo = run_directory / "repository"
+    working_repo.mkdir(parents=True)
+    (working_repo / "module.py").write_text("value = 1", encoding="utf-8")
+
+    assert workspace_cleanup.repair_workspace_root(repository) == managed_root
+    assert workspace_cleanup.cleanup_repair_workspace(
+        repository,
+        {"working_repo_path": str(working_repo)},
+    )
+    assert not run_directory.exists()
+    assert repository.is_dir()

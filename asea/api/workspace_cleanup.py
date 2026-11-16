@@ -2,6 +2,15 @@ import shutil
 from pathlib import Path
 
 
+def repair_workspace_root(repository_path: str | Path) -> Path:
+    """Resolve the shared workspace root without nesting workspaces twice."""
+    repository = Path(repository_path).resolve()
+    managed_root = Path("workspaces").resolve()
+    if repository.parent == managed_root:
+        return managed_root
+    return repository.parent / "workspaces"
+
+
 def cleanup_repair_workspace(repository_path: str | Path, state: dict) -> bool:
     """Remove a terminal repair's isolated workspace, never a repository."""
     working_path = state.get("working_repo_path")
@@ -9,7 +18,7 @@ def cleanup_repair_workspace(repository_path: str | Path, state: dict) -> bool:
         return False
 
     repository = Path(repository_path).resolve()
-    workspace_root = repository.parent / "workspaces"
+    workspace_root = repair_workspace_root(repository)
     working_repo = Path(working_path).absolute()
 
     # Check the original path components before resolving anything: resolve()

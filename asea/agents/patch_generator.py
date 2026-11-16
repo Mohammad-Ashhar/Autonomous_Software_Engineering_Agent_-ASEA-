@@ -145,6 +145,7 @@ class PatchGeneratorAgent:
             ast.parse(corrected)
             return corrected
 
+        lines = source.splitlines(keepends=True)
         target_name = str(bug.get("function", "")).strip()
         title = str(bug.get("title", "")).lower()
 
@@ -243,7 +244,6 @@ class PatchGeneratorAgent:
             elif "positive" in title:
                 target_name = "is_positive"
 
-        lines = source.splitlines(keepends=True)
         candidates = []
 
         for function in ast.walk(tree):

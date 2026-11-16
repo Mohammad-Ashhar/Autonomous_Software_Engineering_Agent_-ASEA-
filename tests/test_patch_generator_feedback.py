@@ -176,11 +176,11 @@ def test_patch_generator_records_successful_llm_generation(tmp_path):
 def test_score_accumulator_fallback_initializes_total_to_zero(tmp_path):
     file_path = tmp_path / "bug.py"
     file_path.write_text(
-        "def calculate(scores):\\n"
-        "    total_score = 1\\n"
-        "    for score in scores:\\n"
-        "        total_score += score\\n"
-        "    return total_score\\n",
+        "def calculate(scores):\n"
+        "    total_score = 1\n"
+        "    for score in scores:\n"
+        "        total_score += score\n"
+        "    return total_score\n",
         encoding="utf-8",
     )
     agent = PatchGeneratorAgent()
@@ -198,12 +198,12 @@ def test_score_accumulator_fallback_initializes_total_to_zero(tmp_path):
 def test_empty_score_fallback_guards_average_division(tmp_path):
     file_path = tmp_path / "bug.py"
     file_path.write_text(
-        "def calculate(scores):\\n"
-        "    total_score = 0\\n"
-        "    for score in scores:\\n"
-        "        total_score += score\\n"
-        "    avg = total_score / len(scores)\\n"
-        "    return avg\\n",
+        "def calculate(scores):\n"
+        "    total_score = 0\n"
+        "    for score in scores:\n"
+        "        total_score += score\n"
+        "    avg = total_score / len(scores)\n"
+        "    return avg\n",
         encoding="utf-8",
     )
     agent = PatchGeneratorAgent()

@@ -977,3 +977,23 @@ button, a {
   color: var(--accent);
   overflow-wrap: anywhere;
 }
+
+
+.job-open {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  margin-top: 7px;
+  padding: 0 9px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.job-open:hover {
+  border-color: var(--accent);
+}

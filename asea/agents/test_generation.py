@@ -195,7 +195,7 @@ class TestGenerationAgent:
         )
         has_empty_sample = False
         for node in ast.walk(tree):
-            if not isinstance(node, ast.Constant) or not isinstance(node.value, str):
+            if (\n                not isinstance(node, ast.Constant)\n                or not isinstance(node.value, str)\n            ):
                 continue
             try:
                 sample = json.loads(node.value)

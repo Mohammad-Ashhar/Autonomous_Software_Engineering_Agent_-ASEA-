@@ -1,9 +1,13 @@
+import base64
+import os
 import shutil
 import tempfile
 from pathlib import Path
 from urllib.parse import urlparse
 
 from git import GitCommandError, InvalidGitRepositoryError, Repo
+
+from asea.core.config import get_settings
 
 
 class RepositoryManager:
@@ -96,7 +100,38 @@ class RepositoryManager:
         )
 
         try:
-            Repo.clone_from(url, str(temporary_path))
+            # Authenticate private-repository clones through a temporary Git
+            # HTTP header. Never place the token in the clone URL or persist it
+            # in the repository's remote configuration.
+            git_environment = os.environ.copy()
+            github_token = get_settings().github_token
+
+            if github_token:
+                encoded_credentials = base64.b64encode(
+                    f"x-access-token:{github_token}".encode("utf-8")
+                ).decode("ascii")
+                authorization = f"AUTHORIZATION: basic {encoded_credentials}"
+
+                try:
+                    config_count = int(
+                        git_environment.get("GIT_CONFIG_COUNT", "0")
+                    )
+                except ValueError:
+                    config_count = 0
+
+                git_environment["GIT_CONFIG_COUNT"] = str(config_count + 1)
+                git_environment[f"GIT_CONFIG_KEY_{config_count}"] = (
+                    "http.extraheader"
+                )
+                git_environment[f"GIT_CONFIG_VALUE_{config_count}"] = (
+                    authorization
+                )
+
+            Repo.clone_from(
+                url,
+                str(temporary_path),
+                env=git_environment,
+            )
 
             try:
                 temporary_path.rename(destination)

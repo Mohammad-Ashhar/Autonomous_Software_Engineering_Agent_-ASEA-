@@ -144,6 +144,27 @@ def _workflow_job_outcome(result: dict[str, object]) -> tuple[str, str, str | No
     return "failed", message, error
 
 
+def _safe_error_detail(error: Exception) -> str:
+    """Keep actionable exception details while redacting common credentials."""
+    detail = f"{type(error).__name__}: {error}"
+    detail = re.sub(
+        r"(?i)(gh[pousr]_[A-Za-z0-9_]{12,}|github_pat_[A-Za-z0-9_]{12,})",
+        "[REDACTED_GITHUB_TOKEN]",
+        detail,
+    )
+    detail = re.sub(
+        r"(?i)(bearer\\s+)[A-Za-z0-9._~+/-]+=*",
+        r"\\1[REDACTED]",
+        detail,
+    )
+    detail = re.sub(
+        r"(?i)(sk-[A-Za-z0-9_-]{12,}|AIza[A-Za-z0-9_-]{20,})",
+        "[REDACTED_API_KEY]",
+        detail,
+    )
+    return detail[:1800]
+
+
 def _publish_repair_result(result: dict[str, object]) -> dict[str, object]:
     """Keep GitHub publishing failures separate from validated repair outcomes."""
     try:
@@ -233,7 +254,7 @@ def run_repair_job(
                 error=workflow_error,
             )
 
-    except Exception:
+    except Exception as error:
         if graph is not None and config is not None:
             try:
                 snapshot = graph.get_state(config)
@@ -256,7 +277,7 @@ def run_repair_job(
             job_id,
             status="failed",
             message="ASEA repair workflow failed.",
-            error="An internal error occurred during repair.",
+            error=_safe_error_detail(error),
         )
 def resume_repair_job(
     job_id: str,
@@ -328,7 +349,7 @@ def resume_repair_job(
                 error=workflow_error,
             )
 
-    except Exception:
+    except Exception as error:
         if config is not None:
             try:
                 snapshot = graph.get_state(config)
@@ -350,7 +371,7 @@ def resume_repair_job(
             job_id,
             status="failed",
             message="Failed to resume ASEA repair workflow.",
-            error="An internal error occurred while processing the review.",
+            error=_safe_error_detail(error),
         )
 app = FastAPI(
     title="ASEA API",

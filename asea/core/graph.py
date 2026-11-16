@@ -363,8 +363,26 @@ def patch_generation_node(state: ASEAState) -> dict[str, Any]:
             "tests_passed": False,
             "reason": str(error),
             "bug_key": bug_key,
-            "attempt": attempt
+            "attempt": attempt,
+            "file": str(working_bug_file),
+            "generation_trace": generator.last_attempt_trace,
         }
+
+        # Failed attempts are first-class repair artifacts. Keeping them in
+        # the job result makes model and fallback failures inspectable in the
+        # dashboard/API instead of silently losing the attempt.
+        patches = list(state.get("patches", []))
+        patches.append(failed_result)
+
+        audit_log = list(state.get("audit_log", []))
+        audit_log.append({
+            "event": "patch_generation_failed",
+            "bug_key": bug_key,
+            "attempt": attempt,
+            "file": str(working_bug_file),
+            "reason": str(error),
+            "generation_trace": generator.last_attempt_trace,
+        })
 
         errors = list(state.get("errors", []))
 
@@ -374,8 +392,10 @@ def patch_generation_node(state: ASEAState) -> dict[str, Any]:
         )
 
         return {
+            "patches": patches,
             "retry_counts": retry_counts,
             "current_validation": failed_result,
+            "audit_log": audit_log,
             "errors": errors,
             "current_agent": "patch_generation",
             "status": "patch_generation_failed"

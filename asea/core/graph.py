@@ -10,8 +10,10 @@ from asea.agents.bug_detector import BugDetectorAgent, bug_detector_node
 from asea.agents.patch_generator import PatchGeneratorAgent
 from asea.agents.patch_validator import PatchValidatorAgent
 from asea.agents.test_generation import test_generation_node
+from asea.api.workspace_cleanup import repair_workspace_root
 from asea.core.state import ASEAState
 from asea.tools.analyzer import RepositoryAnalyzer
+from asea.tools.dependency_analyzer import PythonDependencyAnalyzer
 from asea.tools.test_runner import DockerTestRunner
 
 # --------------------------------------------------
@@ -118,6 +120,7 @@ def test_execution_node(state: ASEAState) -> dict[str, Any]:
 
     return {
         "test_results": results,
+        "baseline_test_results": results,
         "working_test_results": results,
         "current_agent": "test_execution",
         "status": "baseline_tests_completed"
@@ -138,7 +141,7 @@ def prepare_workspace_node(state: ASEAState) -> dict[str, Any]:
 
     repo_path = Path(state["repo_path"]).resolve()
 
-    workspace_root = repo_path.parent / "workspaces"
+    workspace_root = repair_workspace_root(repo_path)
     workspace_root.mkdir(parents=True, exist_ok=True)
 
     run_directory = Path(
@@ -883,6 +886,26 @@ def final_validation_node(state: ASEAState) -> dict[str, Any]:
             "timed_out": False,
         }
 
+    # Refresh parser/dependency diagnostics against the repaired workspace.
+    # Baseline findings remain available separately for before/after comparison.
+    post_repair_analysis = {}
+    try:
+        dependency_results = PythonDependencyAnalyzer().analyze(working_repo)
+        post_repair_analysis = {
+            "module_count": dependency_results["module_count"],
+            "dependency_count": dependency_results["dependency_count"],
+            "cross_file_issue_count": len(
+                dependency_results["cross_file_findings"]
+            ),
+            "parse_errors": dependency_results["parse_errors"],
+        }
+    except Exception as error:  # noqa: BLE001
+        logging_error = (
+            "Post-repair dependency analysis failed: "
+            f"{type(error).__name__}: {error}"
+        )
+        errors.append(logging_error)
+
     final_status = (
         "COMPLETED"
         if results.get("success", False)
@@ -890,7 +913,16 @@ def final_validation_node(state: ASEAState) -> dict[str, Any]:
     )
 
     return {
+        # Keep baseline_test_results immutable; these two fields are the
+        # authoritative terminal test outcome consumed by API and dashboard.
+        "test_results": results,
         "working_test_results": results,
+        "final_validation_results": results,
+        "post_repair_analysis": post_repair_analysis,
+        "dependency_map": dependency_results.get("dependency_map", {})
+        if post_repair_analysis else state.get("dependency_map", {}),
+        "dependency_analysis": post_repair_analysis
+        if post_repair_analysis else state.get("dependency_analysis", {}),
         "errors": errors,
         "current_agent": "final_validation",
         "status": final_status

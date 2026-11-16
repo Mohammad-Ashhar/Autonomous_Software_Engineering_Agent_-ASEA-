@@ -185,3 +185,28 @@ def test_review_resume_keeps_completed_repair_when_publish_fails(monkeypatch):
     }
     assert "validation passed" in update["message"]
     assert len(cleanups) == 1
+
+def test_failed_workflow_preserves_primary_error_when_checkpoint_is_closed(monkeypatch):
+    jobs = FakeRepairJobs()
+    graph = FakeGraph(
+        {},
+        error=ValueError("patch generation failed: invalid Python"),
+    )
+
+    def closed_checkpoint(_config):
+        raise RuntimeError("Cannot operate on a closed database.")
+
+    graph.get_state = closed_checkpoint
+    monkeypatch.setattr(main, "repair_jobs", jobs)
+    monkeypatch.setattr(main, "resolve_repository", lambda _repo: "/source")
+    monkeypatch.setattr(main, "create_initial_state", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(main.app.state, "graph", graph, raising=False)
+
+    main.run_repair_job("job-primary-error", "/source")
+
+    update = jobs.updates[-1][1]
+    assert update["status"] == "failed"
+    assert update["error"] == (
+        "ValueError: patch generation failed: invalid Python"
+    )
+

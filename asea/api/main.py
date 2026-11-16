@@ -255,8 +255,8 @@ def run_repair_job(
         repair_jobs.update_job(
             job_id,
             status="failed",
-            message="ASEA repair workflow crashed before completion.",
-            error=f"{type(error).__name__}: {str(error)[:1800]}",
+            message="ASEA repair workflow failed.",
+            error="An internal error occurred during repair.",
         )
 def resume_repair_job(
     job_id: str,
@@ -342,12 +342,16 @@ def resume_repair_job(
                     "Could not clean failed repair workspace. Job ID: %s",
                     job_id,
                 )
+        logging.exception(
+            "ASEA failed while resuming the reviewed repair. Job ID: %s",
+            job_id,
+        )
         repair_jobs.update_job(
             job_id,
             status="failed",
-            message="ASEA failed while resuming the reviewed repair.",
-            error=f"{type(error).__name__}: {str(error)[:1800]}",
-        )        
+            message="Failed to resume ASEA repair workflow.",
+            error="An internal error occurred while processing the review.",
+        )
 app = FastAPI(
     title="ASEA API",
     description="Autonomous Software Engineering Agent REST API",

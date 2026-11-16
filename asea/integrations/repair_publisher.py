@@ -70,9 +70,8 @@ def normalize_github_repository(repository_url: str) -> str:
 
 def validate_source_repository(
     original_repo: Path,
-    configured_repository: str,
-) -> tuple[Repo, Path]:
-    """Verify that the source repository belongs to the configured GitHub repo."""
+) -> tuple[Repo, Path, str]:
+    """Identify the GitHub repository from the user's supplied source checkout."""
 
     try:
         source_git_repo = Repo(
@@ -104,21 +103,12 @@ def validate_source_repository(
 
     try:
         source_repository = normalize_github_repository(remote_url)
-        expected_repository = normalize_github_repository(
-            f"https://github.com/{configured_repository}"
-        )
     except ValueError as error:
         raise RuntimeError(
-            f"Publishing blocked: repository identity validation failed: {error}"
+            f"Publishing blocked: source repository is not a supported GitHub remote: {error}"
         ) from error
 
-    if source_repository != expected_repository:
-        raise RuntimeError(
-            "Publishing blocked: source repository does not match "
-            "GITHUB_REPOSITORY."
-        )
-
-    return source_git_repo, git_root
+    return source_git_repo, git_root, source_repository
 
 
 def get_approved_repair_files(
@@ -218,20 +208,9 @@ def publish_validated_repairs(
     if not settings.github_token:
         raise ValueError("GITHUB_TOKEN is missing from .env.")
 
-    if not settings.github_repository:
-        raise ValueError("GITHUB_REPOSITORY is missing from .env.")
-
-    if not settings.github_base_branch:
-        raise ValueError("GITHUB_BASE_BRANCH is missing from .env.")
-
-    repository_name = settings.github_repository.strip()
-    base_branch = settings.github_base_branch.strip()
-
-    # Validate repository identity before any publishing operation.
-    _, git_root = validate_source_repository(
-    original_repo,
-    repository_name,
-)
+    # The target is derived from the repository URL/path supplied to ASEA.
+    # Credentials authenticate the user; they must not pin ASEA to one repo.
+    _, git_root, repository_name = validate_source_repository(original_repo)
 
     repair_files = get_approved_repair_files(
         state,
@@ -267,6 +246,11 @@ def publish_validated_repairs(
                 "Publishing blocked: GitHub repository identity mismatch."
             )
 
+        base_branch = github_repository.default_branch
+        if not base_branch:
+            raise RuntimeError(
+                "Publishing blocked: GitHub did not report a default branch."
+            )
         github_repository.get_branch(base_branch)
 
         clone_url = github_repository.clone_url
@@ -386,6 +370,7 @@ def publish_validated_repairs(
         )
 
         pull_request = create_pull_request(
+            repository=github_repository,
             head_branch=branch_name,
             base_branch=base_branch,
             title="ASEA: Automated validated code repairs",
@@ -406,6 +391,7 @@ def publish_validated_repairs(
             "status": "PULL_REQUEST_CREATED",
             "branch": branch_name,
             "base_branch": base_branch,
+            "repository": repository_name,
             "commit": publishing_repo.head.commit.hexsha,
             "files": copied_files,
             "pull_request": pull_request,

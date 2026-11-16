@@ -103,6 +103,7 @@ The supported settings in `.env.example` are:
 | --- | --- | --- |
 | `ASEA_ENV` | Runtime environment (`development` or `production`) | `development` |
 | `ASEA_API_KEY` | Optional shared Bearer key protecting API routes; required in production mode | Empty |
+| `ASEA_CORS_ORIGINS` | Comma-separated exact browser frontend origins; required for production cross-origin access | Empty in production; local origins in development |
 | `OLLAMA_BASE_URL` | OpenAI-compatible Ollama API endpoint | `http://localhost:11434/v1` |
 | `OLLAMA_MODEL` | Model name sent to the configured LLM endpoint | `qwen2.5-coder:1.5b` |
 | `GITHUB_TOKEN` | GitHub token used to access the repository supplied to the repair command and publish a PR | Empty |
@@ -246,7 +247,7 @@ For a rejection, provide non-empty feedback:
 {"decision":"rejected","feedback":"The proposed change does not handle the empty-input case."}
 ```
 
-The API accepts `publish: true` as an explicit opt-in. A pull request is attempted only after the workflow completes its approval and validation path.
+The API accepts `publish: true` as an explicit opt-in. A pull request is attempted only after the workflow completes its approval and validation path. The frontend repair history lets you reopen a prior job and inspect its persisted result, including a distinct `PUBLISH_FAILED` outcome. Publishing retry is intentionally not exposed: the current workflow cleans its temporary workspace after completion, so a safe retry requires durable validated patch artifacts and idempotent publication handling.
 
 ### Single-host production backend
 
@@ -290,7 +291,7 @@ npm ci
 npm run dev
 ```
 
-Open `http://localhost:3000`. By default, the frontend calls the API at `http://127.0.0.1:8000`. To use a different backend URL, set `NEXT_PUBLIC_API_URL` in the frontend environment before starting/building the app.
+Open `http://localhost:3000`. In development, the frontend defaults to `http://127.0.0.1:8000`. For a separately hosted backend, set `NEXT_PUBLIC_API_URL` to its public HTTPS API origin before building the frontend. Production builds fail clearly at request time if this value is missing; it is a public API base URL, not a secret. If the backend uses `ASEA_API_KEY`, do not expose that key through `NEXT_PUBLIC_*`: put a trusted authenticated gateway or server-side proxy between the browser and API. Configure the backend's `ASEA_CORS_ORIGINS` with the exact frontend origin.
 
 For a production frontend build:
 
@@ -317,7 +318,7 @@ Do not delete or modify these databases while the API is running.
 
 - API-key authentication is available for backend clients. Production mode requires `ASEA_API_KEY`; use a high-entropy secret and protect it with server-side secret storage. This is a shared-key boundary, not user identity, role-based authorization, or multi-user isolation.
 - The API's default server binding is loopback (`127.0.0.1`). Do not expose it directly to the public internet. For a browser frontend, put a properly authenticated reverse proxy or identity-aware gateway in front of the API; do not embed the shared API key in browser code.
-- CORS is currently restricted to the local frontend origins `localhost:3000` and `127.0.0.1:3000`.
+- CORS uses the local frontend origins `localhost:3000` and `127.0.0.1:3000` in development. In production, set `ASEA_CORS_ORIGINS` to a comma-separated list of exact origins (scheme + host + optional port), for example `https://asea.example.com`. Production has no implicit browser origins. Do not use `*` when credentials are enabled.
 - Before remote deployment, use a trusted reverse proxy or API gateway for TLS termination, identity/authorization where needed, shared rate limiting, request/resource limits, and deployment-specific CORS. Keep API secrets in server-side secret storage.
 - Treat repository code, test output, and LLM-generated patches as untrusted. Review diffs before accepting them.
 - The test runner mounts the target repository read-only, disables container networking, and applies memory, CPU, process, and timeout limits. This is defense in depth, not a guarantee that arbitrary code is safe.

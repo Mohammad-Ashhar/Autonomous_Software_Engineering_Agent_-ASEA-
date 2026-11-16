@@ -255,11 +255,23 @@ def publish_validated_repairs(
 
         clone_url = github_repository.clone_url
 
+        # Use the token for both private-repository clone and push without
+        # embedding credentials in the remote URL or Git configuration.
+        encoded_token = base64.b64encode(
+            f"x-access-token:{settings.github_token}".encode()
+        ).decode("ascii")
+        authorization = f"AUTHORIZATION: basic {encoded_token}"
+        git_environment = os.environ.copy()
+        git_environment["GIT_CONFIG_COUNT"] = "1"
+        git_environment["GIT_CONFIG_KEY_0"] = "http.extraheader"
+        git_environment["GIT_CONFIG_VALUE_0"] = authorization
+
         publishing_repo = Repo.clone_from(
             clone_url,
             checkout_path,
             branch=base_branch,
             depth=1,
+            env=git_environment,
         )
 
         branch_name = (
@@ -347,17 +359,6 @@ def publish_validated_repairs(
         publishing_repo.index.commit(
             f"ASEA: repair {len(copied_files)} validated file(s)"
         )
-
-        encoded_token = base64.b64encode(
-            f"x-access-token:{settings.github_token}".encode()
-        ).decode("ascii")
-
-        authorization = f"AUTHORIZATION: basic {encoded_token}"
-
-        git_environment = os.environ.copy()
-        git_environment["GIT_CONFIG_COUNT"] = "1"
-        git_environment["GIT_CONFIG_KEY_0"] = "http.extraheader"
-        git_environment["GIT_CONFIG_VALUE_0"] = authorization
 
         publishing_repo.git.execute(
             [

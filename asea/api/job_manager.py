@@ -162,7 +162,7 @@ class RepairJobManager:
                 maximum = self._maximum_active_jobs()
                 active = connection.execute(
                     "SELECT COUNT(*) FROM repair_jobs "
-                    "WHERE status IN ('queued', 'running')"
+                    "WHERE status IN ('queued', 'running', 'waiting_for_review')"
                 ).fetchone()[0]
                 if active >= maximum:
                     raise JobQueueFullError("Repair queue is full.")

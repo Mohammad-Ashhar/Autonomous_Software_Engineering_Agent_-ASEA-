@@ -186,7 +186,7 @@ class TestGenerationAgent:
         """Create focused tests for the evidenced average-score example."""
         has_average_function = "def calculate_average_scores" in source
         has_empty_sample = bool(
-            re.search(r"""["'][^"']+["']\\s*:\\s*\\[\\]""", source)
+            re.search(r"""["'][^"']+["']\s*:\s*\[\]""", source)
         )
         has_score_average = (
             "for score in scores" in source and "len(scores)" in source

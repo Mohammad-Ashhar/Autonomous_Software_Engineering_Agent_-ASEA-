@@ -1,4 +1,4 @@
-import importlib.util
+import runpy
 from unittest.mock import patch
 
 from asea.agents.bug_detector import BugDetectorAgent
@@ -64,12 +64,8 @@ def test_original_buggy_average_score_file_can_be_repaired_without_llm(tmp_path)
         )
         source_file.write_text(repaired, encoding="utf-8")
 
-    spec = importlib.util.spec_from_file_location("repaired_bug", source_file)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-
-    result = module.calculate_average_scores(
+    namespace = runpy.run_path(str(source_file))
+    result = namespace["calculate_average_scores"](
         '{"Alice": [85, 90, 78], "Bob": []}'
     )
     assert result["Alice"] == 253 / 3

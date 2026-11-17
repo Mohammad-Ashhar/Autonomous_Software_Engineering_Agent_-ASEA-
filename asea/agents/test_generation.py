@@ -112,13 +112,25 @@ def _validate_test_code(source: str) -> ast.Module:
                 f"Generated test {function.name} must call an application "
                 "function or method through the module variable."
             )
-        if not any(isinstance(node, ast.Assert) for node in function_nodes) and not any(
+        has_assertion = any(
+            isinstance(node, ast.Assert) for node in function_nodes
+        )
+        has_expected_exception_check = any(
             isinstance(node, (ast.With, ast.AsyncWith))
+            and any(
+                isinstance(item.context_expr, ast.Call)
+                and isinstance(item.context_expr.func, ast.Attribute)
+                and isinstance(item.context_expr.func.value, ast.Name)
+                and item.context_expr.func.value.id == "pytest"
+                and item.context_expr.func.attr == "raises"
+                for item in node.items
+            )
             for node in function_nodes
-        ):
+        )
+        if not has_assertion and not has_expected_exception_check:
             raise ValueError(
                 f"Generated test {function.name} contains no assertion "
-                "or exception check."
+                "or pytest.raises exception check."
             )
 
     return tree

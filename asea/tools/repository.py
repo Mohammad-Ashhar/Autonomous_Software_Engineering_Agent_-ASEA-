@@ -201,7 +201,8 @@ class RepositoryManager:
 
         return source
 
-    def get_python_files(self, repo_path):
+    @staticmethod
+    def get_python_files(repo_path):
         repo_path = Path(repo_path).resolve()
 
         ignored = {

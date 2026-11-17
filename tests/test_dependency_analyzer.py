@@ -205,11 +205,11 @@ def test_dependency_analysis_skips_python_symlinks_outside_repository(tmp_path):
     project = tmp_path / "project"
     project.mkdir()
     (project / "main.py").write_text(
-        "def run():\\n    return 1\\n",
+        "def run():\n    return 1\n",
         encoding="utf-8",
     )
     outside = tmp_path / "outside.py"
-    outside.write_text("def broken(:\\n", encoding="utf-8")
+    outside.write_text("def broken(:\n", encoding="utf-8")
     (project / "linked.py").symlink_to(outside)
 
     result = PythonDependencyAnalyzer().analyze(project)

@@ -96,36 +96,38 @@ class RepositoryAnalyzer:
         )
 
         frameworks = set()
-        if test_files:
-            frameworks.add("unittest")
-            for test_file in test_files:
-                try:
-                    source = test_file.read_text(
-                        encoding="utf-8-sig",
-                        errors="replace",
-                    )
-                except OSError:
-                    continue
-                if "pytest" in source or "assert " in source:
-                    frameworks.add("pytest")
-                if "unittest" not in source and "pytest" not in source:
-                    frameworks.discard("unittest")
-        if test_configs or any(
-            name in {"requirements.txt", "pyproject.toml"}
-            for name in manifests
-        ):
-            for manifest in manifests:
-                if manifest not in {"requirements.txt", "pyproject.toml"}:
-                    continue
-                try:
-                    content = (repo_path / manifest).read_text(
-                        encoding="utf-8",
-                        errors="replace",
-                    )
-                except OSError:
-                    continue
-                if "pytest" in content.lower():
-                    frameworks.add("pytest")
+        for test_file in test_files:
+            try:
+                source = test_file.read_text(
+                    encoding="utf-8-sig",
+                    errors="replace",
+                )
+            except OSError:
+                continue
+            if "unittest" in source:
+                frameworks.add("unittest")
+            if "pytest" in source or "assert " in source:
+                frameworks.add("pytest")
+
+        if "pytest.ini" in test_configs or "tox.ini" in test_configs:
+            frameworks.add("pytest")
+
+        for manifest in manifests:
+            if manifest not in {
+                "requirements.txt",
+                "pyproject.toml",
+                "setup.cfg",
+            }:
+                continue
+            try:
+                content = (repo_path / manifest).read_text(
+                    encoding="utf-8",
+                    errors="replace",
+                )
+            except OSError:
+                continue
+            if "pytest" in content.lower():
+                frameworks.add("pytest")
 
         return {
             "python_file_count": len(python_files),

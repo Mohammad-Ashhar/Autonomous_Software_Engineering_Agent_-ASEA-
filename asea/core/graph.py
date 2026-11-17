@@ -334,7 +334,8 @@ def patch_generation_node(state: ASEAState) -> dict[str, Any]:
             file_path=working_bug_file,
             bug=bug,
             previous_feedback=previous_feedback,
-            attempt=attempt
+            attempt=attempt,
+            diff_path=relative_path.as_posix(),
         )
 
         if not isinstance(patch_result, dict):

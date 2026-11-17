@@ -44,6 +44,8 @@ def normalize_github_repository(repository_url: str) -> str:
 
     if repository_url.startswith("git@github.com:"):
         repository_path = repository_url.split(":", 1)[1]
+        if any(value in repository_path for value in ("?", "#", "\\\\")):
+            raise ValueError("Invalid GitHub repository URL.")
 
     else:
         parsed_url = urlsplit(repository_url)
@@ -56,16 +58,37 @@ def normalize_github_repository(repository_url: str) -> str:
         if parsed_url.scheme not in ("https", "ssh"):
             raise ValueError("Unsupported GitHub remote URL scheme.")
 
+        if (
+            parsed_url.password
+            or parsed_url.query
+            or parsed_url.fragment
+            or parsed_url.port not in (
+                None,
+                443 if parsed_url.scheme == "https" else 22,
+            )
+            or (parsed_url.scheme == "https" and parsed_url.username)
+            or (
+                parsed_url.scheme == "ssh"
+                and parsed_url.username not in (None, "git")
+            )
+        ):
+            raise ValueError("Invalid GitHub repository URL.")
+
         repository_path = parsed_url.path.strip("/")
 
     repository_path = repository_path.removesuffix(".git")
-
     parts = repository_path.split("/")
 
-    if len(parts) != 2 or not all(parts):
+    if (
+        len(parts) != 2
+        or not all(parts)
+        or any(part in {".", ".."} for part in parts)
+        or any(
+            not all(char.isalnum() or char in "._-" for char in part)
+            for part in parts
+        )
+    ):
         raise ValueError("Invalid GitHub repository URL.")
-
-    return "/".join(parts).casefold()
 
 
 def validate_source_repository(

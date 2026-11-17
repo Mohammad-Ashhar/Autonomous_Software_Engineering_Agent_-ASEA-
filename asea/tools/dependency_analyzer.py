@@ -5,6 +5,8 @@ from importlib import util
 from pathlib import Path
 from typing import Any
 
+from asea.tools.repository import RepositoryManager
+
 IGNORED_PARTS = {
     ".git", ".venv", "venv", "__pycache__", "node_modules",
     "dist", "build", ".pytest_cache", ".mypy_cache", ".ruff_cache",
@@ -132,10 +134,8 @@ class PythonDependencyAnalyzer:
         trees: dict[Path, ast.Module] = {}
         parse_errors = []
 
-        for source in sorted(root.rglob("*.py")):
+        for source in RepositoryManager.get_python_files(root):
             relative = source.relative_to(root)
-            if any(part in IGNORED_PARTS for part in relative.parts):
-                continue
             if "tests" in relative.parts or source.name.startswith("test_"):
                 continue
             module = _module_name(root, source)

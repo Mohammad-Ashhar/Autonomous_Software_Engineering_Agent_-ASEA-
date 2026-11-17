@@ -323,7 +323,8 @@ class PatchGeneratorAgent:
         file_path: Path,
         bug: dict[str, Any],
         previous_feedback: dict[str, Any] | None = None,
-        attempt: int = 1
+        attempt: int = 1,
+        diff_path: str | None = None,
     ) -> dict[str, Any]:
         """Generate a patch using Ollama, learning from the last failed attempt."""
 
@@ -444,10 +445,19 @@ Rules:
             if original_has_syntax_error:
                 repair_scope = "syntax_only"
 
+        patch_target = diff_path or file_path.name
+        normalized_target = patch_target.replace("\\", "/")
+        if (
+            normalized_target.startswith("/")
+            or ".." in normalized_target.split("/")
+            or not normalized_target.strip()
+        ):
+            raise ValueError("Patch target must be a safe repository-relative path.")
+
         patch = self.generate_unified_diff(
             original,
             corrected,
-            file_path.name
+            normalized_target
         )
 
         if not patch:

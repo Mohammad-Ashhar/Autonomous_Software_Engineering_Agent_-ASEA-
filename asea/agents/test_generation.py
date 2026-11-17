@@ -87,14 +87,16 @@ def _validate_test_code(source: str) -> ast.Module:
             for node in function_nodes
         ):
             raise ValueError(
-                f"Generated test {function.name} does not exercise the application module."
+                f"Generated test {function.name} does not exercise "
+                "the application module."
             )
         if not any(isinstance(node, ast.Assert) for node in function_nodes) and not any(
             isinstance(node, (ast.With, ast.AsyncWith))
             for node in function_nodes
         ):
             raise ValueError(
-                f"Generated test {function.name} contains no assertion or exception check."
+                f"Generated test {function.name} contains no assertion "
+                "or exception check."
             )
 
     for node in ast.walk(tree):

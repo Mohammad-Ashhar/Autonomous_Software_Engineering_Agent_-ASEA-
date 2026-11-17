@@ -162,9 +162,9 @@ def test_apply_patch_targets_exact_nested_repository_path(tmp_path):
     nested = tmp_path / "nested"
     nested.mkdir()
     target = nested / "logic.py"
-    target.write_text("value = 1\\n", encoding="utf-8")
+    target.write_text("value = 1\n", encoding="utf-8")
     duplicate = tmp_path / "logic.py"
-    duplicate.write_text("value = 100\\n", encoding="utf-8")
+    duplicate.write_text("value = 100\n", encoding="utf-8")
 
     patch = """--- a/nested/logic.py
 +++ b/nested/logic.py
@@ -175,5 +175,5 @@ def test_apply_patch_targets_exact_nested_repository_path(tmp_path):
 
     PatchValidatorAgent().apply_patch(tmp_path, patch)
 
-    assert target.read_text(encoding="utf-8") == "value = 2\\n"
-    assert duplicate.read_text(encoding="utf-8") == "value = 100\\n"
+    assert target.read_text(encoding="utf-8") == "value = 2\n"
+    assert duplicate.read_text(encoding="utf-8") == "value = 100\n"

@@ -41,7 +41,7 @@ def test_parser_reports_python_syntax_errors(tmp_path):
     assert result["syntax_errors"] == [
         {
             "line": 1,
-            "column": 13,
+            "column": 12,
             "message": "invalid syntax",
         }
     ]

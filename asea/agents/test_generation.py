@@ -54,6 +54,21 @@ def _validate_test_code(source: str) -> ast.Module:
         if isinstance(node, (ast.Import, ast.ImportFrom)):
             raise ValueError("Generated tests may not add imports.")
 
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name):
+            if node.id in BLOCKED_NAMES or node.id.startswith("__"):
+                raise ValueError(
+                    f"Generated tests contain a restricted name: {node.id}"
+                )
+        elif isinstance(node, ast.Attribute):
+            if (
+                node.attr in BLOCKED_ATTRIBUTES
+                or node.attr.startswith("__")
+            ):
+                raise ValueError(
+                    f"Generated tests contain a restricted attribute: {node.attr}"
+                )
+
     test_functions = [
         node for node in tree.body
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
@@ -98,21 +113,6 @@ def _validate_test_code(source: str) -> ast.Module:
                 f"Generated test {function.name} contains no assertion "
                 "or exception check."
             )
-
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Name):
-            if node.id in BLOCKED_NAMES or node.id.startswith("__"):
-                raise ValueError(
-                    f"Generated tests contain a restricted name: {node.id}"
-                )
-        elif isinstance(node, ast.Attribute):
-            if (
-                node.attr in BLOCKED_ATTRIBUTES
-                or node.attr.startswith("__")
-            ):
-                raise ValueError(
-                    f"Generated tests contain a restricted attribute: {node.attr}"
-                )
 
     return tree
 

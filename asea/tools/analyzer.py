@@ -60,6 +60,15 @@ class RepositoryAnalyzer:
             for file in repo_map["files"]
         )
 
+        syntax_errors = [
+            {
+                "file": file["file"],
+                **error,
+            }
+            for file in repo_map["files"]
+            for error in file.get("syntax_errors", [])
+        ]
+
         return {
             "repository": repo_map["repository"],
             "path": str(repo_path),
@@ -67,5 +76,7 @@ class RepositoryAnalyzer:
             "total_functions": total_functions,
             "total_classes": total_classes,
             "total_imports": total_imports,
+            "syntax_error_count": len(syntax_errors),
+            "syntax_errors": syntax_errors,
             "output_file": str(Path(output_file).resolve())
         }

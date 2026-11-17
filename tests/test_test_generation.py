@@ -42,9 +42,9 @@ def test_generated_module_import_is_deferred_until_test_execution(
     source_file = tmp_path / "bug.py"
     marker = tmp_path / "module-imported.txt"
     source_file.write_text(
-        "from pathlib import Path\\n"
-        f"Path({str(marker)!r}).write_text('imported', encoding='utf-8')\\n"
-        "value = 1\\n",
+        "from pathlib import Path\n"
+        f"Path({str(marker)!r}).write_text('imported', encoding='utf-8')\n"
+        "value = 1\n",
         encoding="utf-8",
     )
 
@@ -58,8 +58,8 @@ def test_generated_module_import_is_deferred_until_test_execution(
         agent,
         "_generate_for_module",
         lambda _source, _module: (
-            "def test_application_value():\\n"
-            "    assert module.value == 1\\n"
+            "def test_application_value():\n"
+            "    assert module.value == 1\n"
         ),
     )
 

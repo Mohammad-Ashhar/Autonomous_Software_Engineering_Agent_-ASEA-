@@ -221,12 +221,12 @@ def test_patch_generator_uses_repository_relative_target_path(tmp_path):
     file_path = tmp_path / "nested" / "logic.py"
     file_path.parent.mkdir()
     file_path.write_text(
-        "def add(a, b):\\n    return a - b\\n",
+        "def add(a, b):\n    return a - b\n",
         encoding="utf-8",
     )
     agent = PatchGeneratorAgent()
     agent.llm.chat = lambda **_kwargs: (
-        "def add(a, b):\\n    return a + b\\n"
+        "def add(a, b):\n    return a + b\n"
     )
 
     result = agent.generate_patch(
@@ -243,12 +243,12 @@ def test_patch_generator_uses_repository_relative_target_path(tmp_path):
 def test_patch_generator_rejects_unsafe_diff_target(tmp_path, diff_path):
     file_path = tmp_path / "logic.py"
     file_path.write_text(
-        "def add(a, b):\\n    return a - b\\n",
+        "def add(a, b):\n    return a - b\n",
         encoding="utf-8",
     )
     agent = PatchGeneratorAgent()
     agent.llm.chat = lambda **_kwargs: (
-        "def add(a, b):\\n    return a + b\\n"
+        "def add(a, b):\n    return a + b\n"
     )
 
     with pytest.raises(ValueError, match="repository-relative"):

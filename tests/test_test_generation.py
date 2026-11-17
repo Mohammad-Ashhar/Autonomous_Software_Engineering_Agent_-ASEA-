@@ -91,7 +91,7 @@ def test_generated_placeholder_test_is_rejected():
 def test_generated_test_must_contain_assertion_or_exception_check():
     import pytest
 
-    with pytest.raises(ValueError, match="no assertion or exception check"):
+    with pytest.raises(ValueError, match="no assertion or pytest.raises exception check"):
         _validate_test_code(
             "def test_application_value():\n"
             "    value = module.get_value()\n"

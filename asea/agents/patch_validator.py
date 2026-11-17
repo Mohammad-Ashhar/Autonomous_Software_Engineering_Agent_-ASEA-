@@ -301,6 +301,7 @@ class PatchValidatorAgent:
         return (
             results.get("status") in {"PASSED", "FAILED"}
             and results.get("total", 0) > 0
+            and results.get("passed", 0) > 0
             and not results.get("timed_out", False)
         )
 

@@ -153,8 +153,8 @@ def _safe_error_detail(error: Exception) -> str:
         detail,
     )
     detail = re.sub(
-        r"(?i)(bearer\\s+)[A-Za-z0-9._~+/-]+=*",
-        r"\\1[REDACTED]",
+        r"(?i)(bearer\s+)[A-Za-z0-9._~+/-]+=*",
+        r"\1[REDACTED]",
         detail,
     )
     detail = re.sub(

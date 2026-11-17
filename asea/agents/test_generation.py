@@ -347,7 +347,7 @@ class TestGenerationAgent:
                     ")\n"
                     "        return getattr(imported, name)\n\n"
                     "module = _ASEALazyModule()\n\n"
-                    f"{test_code}\\n"
+                    f"{test_code}\n"
                 )
 
                 ast.parse(content)

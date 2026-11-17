@@ -81,8 +81,8 @@ def test_generated_placeholder_test_is_rejected():
 
     with pytest.raises(ValueError, match="does not exercise"):
         _validate_test_code(
-            "def test_placeholder():\\n"
-            "    assert True\\n"
+            "def test_placeholder():\n"
+            "    assert True\n"
         )
 
 
@@ -91,15 +91,15 @@ def test_generated_test_must_contain_assertion_or_exception_check():
 
     with pytest.raises(ValueError, match="no assertion or exception check"):
         _validate_test_code(
-            "def test_application_value():\\n"
-            "    value = module.get_value()\\n"
+            "def test_application_value():\n"
+            "    value = module.get_value()\n"
         )
 
 
 def test_generated_test_that_exercises_application_is_accepted():
     source = (
-        "def test_application_value():\\n"
-        "    assert module.get_value() == 1\\n"
+        "def test_application_value():\n"
+        "    assert module.get_value() == 1\n"
     )
 
     tree = _validate_test_code(source)

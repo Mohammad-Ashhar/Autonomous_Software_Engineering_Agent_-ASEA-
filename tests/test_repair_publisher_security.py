@@ -4,6 +4,7 @@ import pytest
 from git import Repo
 
 from asea.integrations.repair_publisher import (
+    get_approved_repair_files,
     normalize_github_repository,
     validate_source_repository,
 )
@@ -96,3 +97,49 @@ def test_reject_directory_outside_git_repository(tmp_path):
         match="not inside a valid Git repository",
     ):
         validate_source_repository(outside_path)
+
+@pytest.mark.parametrize(
+    ("review_history", "expected"),
+    [
+        ([], False),
+        ([{"bug_key": "bug-1", "decision": "rejected", "attempt": 2}], False),
+        ([{"bug_key": "bug-1", "decision": "approved", "attempt": 1}], False),
+        (
+            [
+                {"bug_key": "bug-1", "decision": "approved", "attempt": 2},
+                {"bug_key": "bug-1", "decision": "rejected", "attempt": 2},
+            ],
+            False,
+        ),
+        ([{"bug_key": "bug-1", "decision": "approved", "attempt": 2}], True),
+    ],
+)
+def test_only_latest_approval_for_current_attempt_can_be_published(
+    tmp_path,
+    review_history,
+    expected,
+):
+    original = tmp_path / "original"
+    working = tmp_path / "working"
+    original.mkdir()
+    working.mkdir()
+    original_file = original / "module.py"
+    working_file = working / "module.py"
+    original_file.write_text("value = 1\\n", encoding="utf-8")
+    working_file.write_text("value = 2\\n", encoding="utf-8")
+
+    state = {
+        "repaired_bugs": [
+            {
+                "status": "REPAIRED",
+                "bug_key": "bug-1",
+                "attempts": 2,
+                "file": str(original_file),
+            }
+        ],
+        "review_history": review_history,
+    }
+
+    approved = get_approved_repair_files(state, original, working)
+
+    assert (Path("module.py") in approved) is expected

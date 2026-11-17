@@ -324,7 +324,7 @@ def test_run_repair_job_records_failure_without_exposing_exception(
     assert jobs.updates[-1][1] == {
         "status": "failed",
         "message": "ASEA repair workflow failed.",
-        "error": "An internal error occurred during repair.",
+        "error": "RuntimeError: private filesystem detail",
     }
 
 
@@ -353,5 +353,5 @@ def test_resume_repair_job_records_failure_and_keeps_error_generic(
     assert jobs.updates[-1][1] == {
         "status": "failed",
         "message": "Failed to resume ASEA repair workflow.",
-        "error": "An internal error occurred while processing the review.",
+        "error": "RuntimeError: private model-provider response",
     }

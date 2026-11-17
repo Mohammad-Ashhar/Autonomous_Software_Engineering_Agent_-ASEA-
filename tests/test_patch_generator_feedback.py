@@ -216,3 +216,44 @@ def test_empty_score_fallback_guards_average_division(tmp_path):
 
     assert "-    avg = total_score / len(scores)" in result["patch"]
     assert "+    avg = total_score / len(scores) if scores else 0" in result["patch"]
+
+def test_patch_generator_uses_repository_relative_target_path(tmp_path):
+    file_path = tmp_path / "nested" / "logic.py"
+    file_path.parent.mkdir()
+    file_path.write_text(
+        "def add(a, b):\\n    return a - b\\n",
+        encoding="utf-8",
+    )
+    agent = PatchGeneratorAgent()
+    agent.llm.chat = lambda **_kwargs: (
+        "def add(a, b):\\n    return a + b\\n"
+    )
+
+    result = agent.generate_patch(
+        file_path,
+        {"title": "Incorrect addition"},
+        diff_path="nested/logic.py",
+    )
+
+    assert "--- a/nested/logic.py" in result["patch"]
+    assert "+++ b/nested/logic.py" in result["patch"]
+
+
+@pytest.mark.parametrize("diff_path", ["../outside.py", "/outside.py"])
+def test_patch_generator_rejects_unsafe_diff_target(tmp_path, diff_path):
+    file_path = tmp_path / "logic.py"
+    file_path.write_text(
+        "def add(a, b):\\n    return a - b\\n",
+        encoding="utf-8",
+    )
+    agent = PatchGeneratorAgent()
+    agent.llm.chat = lambda **_kwargs: (
+        "def add(a, b):\\n    return a + b\\n"
+    )
+
+    with pytest.raises(ValueError, match="repository-relative"):
+        agent.generate_patch(
+            file_path,
+            {"title": "Incorrect addition"},
+            diff_path=diff_path,
+        )

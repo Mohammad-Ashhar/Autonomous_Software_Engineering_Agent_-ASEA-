@@ -1,8 +1,11 @@
+import ast
 import json
 from pathlib import Path
 
 import tree_sitter_python as tspython
 from tree_sitter import Language, Parser
+
+from asea.tools.repository import RepositoryManager
 
 
 class PythonRepositoryParser:
@@ -23,8 +26,18 @@ class PythonRepositoryParser:
             "file": str(file_path),
             "functions": [],
             "classes": [],
-            "imports": []
+            "imports": [],
+            "syntax_errors": [],
         }
+
+        try:
+            ast.parse(source_code, filename=str(file_path))
+        except SyntaxError as error:
+            result["syntax_errors"].append({
+                "line": error.lineno or 1,
+                "column": error.offset or 1,
+                "message": error.msg,
+            })
 
         # Iterative traversal avoids recursive syntax-tree processing.
         stack = [(tree.root_node, None)]
@@ -78,24 +91,14 @@ class PythonRepositoryParser:
         return result
 
     def build_repository_map(self, repo_path, output_file):
-        repo_path = Path(repo_path)
-
-        manager_ignored = {
-            ".git", ".venv", "venv", "__pycache__",
-            "node_modules", "dist", "build",
-            ".pytest_cache", ".mypy_cache"
-        }
+        repo_path = Path(repo_path).resolve()
 
         repo_map = {
             "repository": repo_path.name,
             "files": []
         }
 
-        for file_path in sorted(repo_path.rglob("*.py")):
-            if manager_ignored.intersection(
-                file_path.relative_to(repo_path).parts
-            ):
-                continue
+        for file_path in RepositoryManager.get_python_files(repo_path):
 
             parsed = self.parse_file(file_path)
 

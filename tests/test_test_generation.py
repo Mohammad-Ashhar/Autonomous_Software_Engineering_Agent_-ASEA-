@@ -1,4 +1,4 @@
-from asea.agents.test_generation import TestGenerationAgent
+from asea.agents.test_generation import TestGenerationAgent, _validate_test_code
 
 
 def test_average_score_test_fallback_works_when_ollama_is_unavailable(tmp_path):
@@ -80,7 +80,7 @@ def test_generated_placeholder_test_is_rejected():
     import pytest
 
     with pytest.raises(ValueError, match="does not exercise"):
-        TestGenerationAgent._validate_test_code(
+        _validate_test_code(
             "def test_placeholder():\\n"
             "    assert True\\n"
         )
@@ -90,7 +90,7 @@ def test_generated_test_must_contain_assertion_or_exception_check():
     import pytest
 
     with pytest.raises(ValueError, match="no assertion or exception check"):
-        TestGenerationAgent._validate_test_code(
+        _validate_test_code(
             "def test_application_value():\\n"
             "    value = module.get_value()\\n"
         )
@@ -102,6 +102,6 @@ def test_generated_test_that_exercises_application_is_accepted():
         "    assert module.get_value() == 1\\n"
     )
 
-    tree = TestGenerationAgent._validate_test_code(source)
+    tree = _validate_test_code(source)
 
     assert len(tree.body) == 1

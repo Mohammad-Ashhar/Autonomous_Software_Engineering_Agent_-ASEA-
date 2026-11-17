@@ -89,6 +89,12 @@ class DockerTestRunner:
             counts["failed"] or counts["errors"]
         ):
             status = "PASSED"
+        elif exit_code == 0 and counts["passed"] > 0:
+            status = "PASSED"
+        elif exit_code == 0 and total > 0:
+            # A suite containing only skipped or expected-failure tests did
+            # not demonstrate that any assertion passed.
+            status = "NO_EXECUTED_TESTS"
         elif exit_code == 0:
             # A zero exit code without a parseable test summary is not proof
             # that any tests actually ran successfully.

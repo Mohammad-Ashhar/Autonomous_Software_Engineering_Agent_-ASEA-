@@ -44,7 +44,7 @@ def test_reject_restricted_builtins():
 
 def test_accept_simple_test_functions():
     tree = _validate_test_code(
-        "def test_example():\n    assert 2 + 2 == 4"
+        "def test_example():\n    assert module.get_value() == 4"
     )
     assert len(tree.body) == 1
 

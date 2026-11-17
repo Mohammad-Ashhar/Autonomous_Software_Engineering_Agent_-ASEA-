@@ -49,6 +49,27 @@ def test_accept_simple_test_functions():
     assert len(tree.body) == 1
 
 
+def test_accept_pytest_raises_for_application_exception():
+    source = (
+        "def test_application_error():\n"
+        "    with pytest.raises(ValueError):\n"
+        "        module.parse_value('invalid')\n"
+    )
+
+    tree = _validate_test_code(source)
+
+    assert len(tree.body) == 1
+
+
+def test_reject_unrelated_context_manager_as_exception_check():
+    with pytest.raises(ValueError, match="pytest.raises"):
+        _validate_test_code(
+            "def test_application_value():\n"
+            "    with module.transaction():\n"
+            "        module.save()\n"
+        )
+
+
 def test_reject_module_reference_without_application_call():
     with pytest.raises(ValueError, match="must call an application"):
         _validate_test_code(

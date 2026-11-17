@@ -32,3 +32,43 @@ test_payload = '{"Alice": [85, 90, 78], "Bob": []}'
     assert "test_average_scores_calculates_mean" in generated
     assert "test_average_scores_handles_empty_list" in generated
     assert "result['Bob'] == 0" in generated
+
+
+def test_generated_module_import_is_deferred_until_test_execution(
+    tmp_path, monkeypatch
+):
+    import runpy
+
+    source_file = tmp_path / "bug.py"
+    marker = tmp_path / "module-imported.txt"
+    source_file.write_text(
+        "from pathlib import Path\\n"
+        f"Path({str(marker)!r}).write_text('imported', encoding='utf-8')\\n"
+        "value = 1\\n",
+        encoding="utf-8",
+    )
+
+    agent = TestGenerationAgent()
+    monkeypatch.setattr(
+        agent,
+        "_source_modules",
+        lambda _repository: [(source_file, "bug")],
+    )
+    monkeypatch.setattr(
+        agent,
+        "_generate_for_module",
+        lambda _source, _module: (
+            "def test_application_value():\\n"
+            "    assert module.value == 1\\n"
+        ),
+    )
+
+    result = agent.run(tmp_path)
+
+    assert result["status"] == "GENERATED"
+    generated_file = tmp_path / result["generated_tests"][0]["test_file"]
+    namespace = runpy.run_path(str(generated_file))
+
+    assert not marker.exists()
+    namespace["test_application_value"]()
+    assert marker.read_text(encoding="utf-8") == "imported"

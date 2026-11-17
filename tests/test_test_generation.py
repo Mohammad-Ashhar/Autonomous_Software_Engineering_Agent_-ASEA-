@@ -44,7 +44,9 @@ def test_generated_module_import_is_deferred_until_test_execution(
     source_file.write_text(
         "from pathlib import Path\n"
         f"Path({str(marker)!r}).write_text('imported', encoding='utf-8')\n"
-        "value = 1\n",
+        "value = 1\n"
+        "def get_value():\n"
+        "    return value\n",
         encoding="utf-8",
     )
 
@@ -59,7 +61,7 @@ def test_generated_module_import_is_deferred_until_test_execution(
         "_generate_for_module",
         lambda _source, _module: (
             "def test_application_value():\n"
-            "    assert module.value == 1\n"
+            "    assert module.get_value() == 1\n"
         ),
     )
 
@@ -79,7 +81,7 @@ def test_generated_module_import_is_deferred_until_test_execution(
 def test_generated_placeholder_test_is_rejected():
     import pytest
 
-    with pytest.raises(ValueError, match="does not exercise"):
+    with pytest.raises(ValueError, match="must call an application"):
         _validate_test_code(
             "def test_placeholder():\n"
             "    assert True\n"

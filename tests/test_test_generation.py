@@ -39,7 +39,7 @@ def test_generated_module_import_is_deferred_until_test_execution(
 ):
     import runpy
 
-    source_file = tmp_path / "bug.py"
+    source_file = tmp_path / "asea_lazy_import_fixture.py"
     marker = tmp_path / "module-imported.txt"
     source_file.write_text(
         "from pathlib import Path\n"
@@ -52,7 +52,7 @@ def test_generated_module_import_is_deferred_until_test_execution(
     monkeypatch.setattr(
         agent,
         "_source_modules",
-        lambda _repository: [(source_file, "bug")],
+        lambda _repository: [(source_file, "asea_lazy_import_fixture")],
     )
     monkeypatch.setattr(
         agent,
@@ -67,6 +67,7 @@ def test_generated_module_import_is_deferred_until_test_execution(
 
     assert result["status"] == "GENERATED"
     generated_file = tmp_path / result["generated_tests"][0]["test_file"]
+    monkeypatch.syspath_prepend(str(tmp_path))
     namespace = runpy.run_path(str(generated_file))
 
     assert not marker.exists()

@@ -6,6 +6,7 @@ from typing import Any
 
 from asea.core.state import ASEAState
 from asea.tools.dependency_analyzer import PythonDependencyAnalyzer
+from asea.tools.repository import RepositoryManager
 from asea.tools.llm_client import OllamaClient
 
 
@@ -651,29 +652,7 @@ If no issues are found:
                 f"Repository directory not found: {repo_path}"
             )
 
-        ignored = {
-            ".git",
-            ".venv",
-            "venv",
-            "__pycache__",
-            "node_modules",
-            "dist",
-            "build",
-            ".pytest_cache",
-            ".mypy_cache",
-            ".ruff_cache",
-            "artifacts",
-            "workspaces"
-        }
-
-        python_files = sorted(
-            path
-            for path in repo_path.rglob("*.py")
-            if not any(
-                part in ignored
-                for part in path.relative_to(repo_path).parts
-            )
-        )
+        python_files = RepositoryManager.get_python_files(repo_path)
 
         detected_bugs = []
 

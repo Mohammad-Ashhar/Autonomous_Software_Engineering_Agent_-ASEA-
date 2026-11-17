@@ -65,7 +65,7 @@ def test_generated_module_import_is_deferred_until_test_execution(
 
     result = agent.run(tmp_path)
 
-    assert result["status"] == "GENERATED"
+    assert result["status"] == "GENERATED", result
     generated_file = tmp_path / result["generated_tests"][0]["test_file"]
     monkeypatch.syspath_prepend(str(tmp_path))
     namespace = runpy.run_path(str(generated_file))

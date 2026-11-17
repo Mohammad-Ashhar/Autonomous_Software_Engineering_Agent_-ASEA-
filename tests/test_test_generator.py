@@ -11,7 +11,7 @@ from asea.agents.test_generation import (
 
 
 def test_parse_plain_python_response():
-    source = "def test_example():\n    assert 2 + 2 == 4"
+    source = "def test_example():\n    assert module.get_value() == 4"
     assert _parse_response(source) == source
 
 

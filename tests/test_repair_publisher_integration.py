@@ -105,7 +105,7 @@ def test_approved_validated_repair_pushes_branch_and_opens_pull_request(
         "repaired_bugs": [
             {
                 "status": "REPAIRED",
-                "bug_key": f"{original_file}::2::Incorrect positive boundary",
+                "bug_key": "demo_repo/logic.py::2::Incorrect positive boundary",
                 "attempts": 1,
                 "title": "Incorrect positive boundary",
                 "file": str(original_file),

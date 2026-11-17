@@ -143,3 +143,18 @@ def test_only_latest_approval_for_current_attempt_can_be_published(
     approved = get_approved_repair_files(state, original, working)
 
     assert (Path("module.py") in approved) is expected
+
+@pytest.mark.parametrize(
+    "remote_url",
+    [
+        "https://attacker@github.com/owner/repo.git",
+        "https://github.com:8443/owner/repo.git",
+        "https://github.com/owner/repo.git?token=secret",
+        "https://github.com/owner/../repo.git",
+        "https://github.com/owner/repo%2Fother.git",
+        "ssh://attacker@github.com/owner/repo.git",
+    ],
+)
+def test_reject_unsafe_github_remote_urls(remote_url):
+    with pytest.raises(ValueError):
+        normalize_github_repository(remote_url)

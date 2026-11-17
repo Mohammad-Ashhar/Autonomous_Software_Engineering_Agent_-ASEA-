@@ -49,6 +49,22 @@ def test_accept_simple_test_functions():
     assert len(tree.body) == 1
 
 
+def test_reject_module_reference_without_application_call():
+    with pytest.raises(ValueError, match="must call an application"):
+        _validate_test_code(
+            "def test_placeholder():\n"
+            "    assert module\n"
+        )
+
+
+def test_reject_application_attribute_without_call():
+    with pytest.raises(ValueError, match="must call an application"):
+        _validate_test_code(
+            "def test_placeholder():\n"
+            "    assert module.value == 4\n"
+        )
+
+
 def test_existing_tests_are_detected(tmp_path: Path):
     tests_dir = tmp_path / "tests"
     tests_dir.mkdir()

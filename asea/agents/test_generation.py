@@ -81,6 +81,22 @@ def _validate_test_code(source: str) -> ast.Module:
         ):
             raise ValueError("Generated tests may not use annotations.")
 
+        function_nodes = list(ast.walk(function))
+        if not any(
+            isinstance(node, ast.Name) and node.id == "module"
+            for node in function_nodes
+        ):
+            raise ValueError(
+                f"Generated test {function.name} does not exercise the application module."
+            )
+        if not any(isinstance(node, ast.Assert) for node in function_nodes) and not any(
+            isinstance(node, (ast.With, ast.AsyncWith))
+            for node in function_nodes
+        ):
+            raise ValueError(
+                f"Generated test {function.name} contains no assertion or exception check."
+            )
+
     for node in ast.walk(tree):
         if isinstance(node, ast.Name):
             if node.id in BLOCKED_NAMES or node.id.startswith("__"):

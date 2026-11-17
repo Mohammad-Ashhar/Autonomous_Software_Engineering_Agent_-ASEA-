@@ -136,3 +136,56 @@ def test_approved_validated_repair_pushes_branch_and_opens_pull_request(
         .decode("utf-8")
         == "def is_positive(value):\n    return value > 0\n"
     )
+
+
+def test_publishing_is_blocked_when_final_validation_fails():
+    state = {
+        "status": "COMPLETED",
+        "working_test_results": {"success": False, "status": "FAILED"},
+    }
+
+    with pytest.raises(RuntimeError, match="final tests did not pass"):
+        publisher.publish_validated_repairs(state)
+
+
+def test_publishing_is_blocked_without_human_approval(tmp_path, monkeypatch):
+    original_path = tmp_path / "source"
+    original = _git_repo(original_path)
+    original.create_remote(
+        "origin",
+        "https://github.com/example/python-demo.git",
+    )
+    source_file = original_path / "logic.py"
+    source_file.write_text("value = 1\\n", encoding="utf-8")
+
+    working_path = tmp_path / "validated-workspace"
+    working_path.mkdir()
+    (working_path / "logic.py").write_text(
+        "value = 2\\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        publisher,
+        "get_settings",
+        lambda: SimpleNamespace(github_token="fake-token"),
+    )
+
+    state = {
+        "status": "COMPLETED",
+        "repo_path": str(original_path),
+        "working_repo_path": str(working_path),
+        "working_test_results": {"success": True, "status": "PASSED"},
+        "repaired_bugs": [
+            {
+                "status": "REPAIRED",
+                "bug_key": "logic.py::1::Changed value",
+                "attempts": 1,
+                "file": str(source_file),
+            }
+        ],
+        "review_history": [],
+    }
+
+    with pytest.raises(RuntimeError, match="No approved and validated"):
+        publisher.publish_validated_repairs(state)

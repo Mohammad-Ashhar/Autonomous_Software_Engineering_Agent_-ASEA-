@@ -90,6 +90,8 @@ def normalize_github_repository(repository_url: str) -> str:
     ):
         raise ValueError("Invalid GitHub repository URL.")
 
+    return f"{parts[0].casefold()}/{parts[1].casefold()}"
+
 
 def validate_source_repository(
     original_repo: Path,

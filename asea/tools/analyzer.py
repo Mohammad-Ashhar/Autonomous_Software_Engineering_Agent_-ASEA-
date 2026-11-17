@@ -4,7 +4,6 @@ from uuid import uuid4
 from asea.tools.parser import PythonRepositoryParser
 from asea.tools.repository import RepositoryManager
 
-
 DEPENDENCY_MANIFESTS = {
     "Pipfile",
     "poetry.lock",

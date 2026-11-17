@@ -328,6 +328,21 @@ async function handlePatchReview(decision: "approved" | "rejected") {
 
 
   const analysis = analysisResult?.analysis;
+  const preflight = readRecord(analysis?.preflight);
+  const syntaxErrors = Array.isArray(analysis?.syntax_errors)
+    ? analysis.syntax_errors.map(readRecord).filter(
+        (entry): entry is Record<string, unknown> => entry !== null,
+      )
+    : [];
+  const testFiles = Array.isArray(preflight?.test_files)
+    ? preflight.test_files.filter((item): item is string => typeof item === "string")
+    : [];
+  const dependencyManifests = Array.isArray(preflight?.dependency_manifests)
+    ? preflight.dependency_manifests.filter((item): item is string => typeof item === "string")
+    : [];
+  const testFrameworks = Array.isArray(preflight?.test_frameworks)
+    ? preflight.test_frameworks.filter((item): item is string => typeof item === "string")
+    : [];
   const reviewRequest = readRecord(repairStatus?.review_request);
   const reviewBug = readRecord(reviewRequest?.bug);
   const repairResult = readRecord(repairStatus?.result);
@@ -514,10 +529,65 @@ async function handlePatchReview(decision: "approved" | "rejected") {
 
 {analysisResult && (
   <div className="analysis-result">
-    <strong>Repository analysis completed</strong>
-    <pre>
-      {JSON.stringify(analysisResult.analysis, null, 2)}
-    </pre>
+    <div className="analysis-heading">
+      <div>
+        <strong>Repository checks completed</strong>
+        <p>{String(analysis?.repository ?? "Python repository")}</p>
+      </div>
+      <span className={syntaxErrors.length === 0 ? "check-status passed" : "check-status failed"}>
+        {syntaxErrors.length === 0 ? "Syntax checks passed" : `${syntaxErrors.length} syntax issue(s)`}
+      </span>
+    </div>
+    <div className="preflight-grid">
+      <div className="preflight-metric">
+        <span>Python files</span>
+        <strong>{String(preflight?.python_file_count ?? analysis?.total_files ?? 0)}</strong>
+      </div>
+      <div className="preflight-metric">
+        <span>Test files</span>
+        <strong>{String(preflight?.test_file_count ?? 0)}</strong>
+      </div>
+      <div className="preflight-metric">
+        <span>Functions</span>
+        <strong>{String(analysis?.total_functions ?? 0)}</strong>
+      </div>
+      <div className="preflight-metric">
+        <span>Classes</span>
+        <strong>{String(analysis?.total_classes ?? 0)}</strong>
+      </div>
+    </div>
+    <div className="preflight-details">
+      <div>
+        <b>Test framework</b>
+        <p>{testFrameworks.length ? testFrameworks.join(", ") : "Not detected"}</p>
+      </div>
+      <div>
+        <b>Dependency files</b>
+        <p>{dependencyManifests.length ? dependencyManifests.join(", ") : "No manifest found"}</p>
+      </div>
+      <div>
+        <b>Existing tests</b>
+        {testFiles.length
+          ? <ul>{testFiles.slice(0, 8).map((file) => <li key={file}>{file}</li>)}</ul>
+          : <p>No existing Python test files found</p>}
+      </div>
+    </div>
+    {syntaxErrors.length > 0 && (
+      <div className="syntax-error-list" role="alert">
+        <b>Syntax errors to fix before repair</b>
+        {syntaxErrors.map((error, index) => (
+          <p key={`${String(error.file)}-${index}`}>
+            <code>{String(error.file ?? "Unknown file")}</code>
+            {": "}{String(error.message ?? "Syntax error")}
+            {error.line ? ` (line ${String(error.line)})` : ""}
+          </p>
+        ))}
+      </div>
+    )}
+    <details className="raw-analysis">
+      <summary>View complete analysis data</summary>
+      <pre>{JSON.stringify(analysisResult.analysis, null, 2)}</pre>
+    </details>
   </div>
 )}
 {repairJob && (

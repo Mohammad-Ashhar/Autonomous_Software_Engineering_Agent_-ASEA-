@@ -1,9 +1,8 @@
 import sys
-
-import pytest
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
+import pytest
 from git import Repo
 
 import asea.integrations.repair_publisher as publisher

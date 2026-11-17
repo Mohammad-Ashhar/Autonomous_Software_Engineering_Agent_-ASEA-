@@ -157,3 +157,23 @@ def test_apply_patch_preserves_git_and_runtime_directories(tmp_path):
     assert (git_dir / "HEAD").read_text(encoding="utf-8") == "ref: refs/heads/main\n"
     assert (artifacts / "run.json").read_text(encoding="utf-8") == '{"run": 1}'
     assert (workspaces / "state.txt").read_text(encoding="utf-8") == "keep"
+
+def test_apply_patch_targets_exact_nested_repository_path(tmp_path):
+    nested = tmp_path / "nested"
+    nested.mkdir()
+    target = nested / "logic.py"
+    target.write_text("value = 1\\n", encoding="utf-8")
+    duplicate = tmp_path / "logic.py"
+    duplicate.write_text("value = 100\\n", encoding="utf-8")
+
+    patch = """--- a/nested/logic.py
++++ b/nested/logic.py
+@@ -1 +1 @@
+-value = 1
++value = 2
+"""
+
+    PatchValidatorAgent().apply_patch(tmp_path, patch)
+
+    assert target.read_text(encoding="utf-8") == "value = 2\\n"
+    assert duplicate.read_text(encoding="utf-8") == "value = 100\\n"

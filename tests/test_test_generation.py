@@ -73,3 +73,35 @@ def test_generated_module_import_is_deferred_until_test_execution(
     assert not marker.exists()
     namespace["test_application_value"]()
     assert marker.read_text(encoding="utf-8") == "imported"
+
+
+
+def test_generated_placeholder_test_is_rejected():
+    import pytest
+
+    with pytest.raises(ValueError, match="does not exercise"):
+        TestGenerationAgent._validate_test_code(
+            "def test_placeholder():\\n"
+            "    assert True\\n"
+        )
+
+
+def test_generated_test_must_contain_assertion_or_exception_check():
+    import pytest
+
+    with pytest.raises(ValueError, match="no assertion or exception check"):
+        TestGenerationAgent._validate_test_code(
+            "def test_application_value():\\n"
+            "    value = module.get_value()\\n"
+        )
+
+
+def test_generated_test_that_exercises_application_is_accepted():
+    source = (
+        "def test_application_value():\\n"
+        "    assert module.get_value() == 1\\n"
+    )
+
+    tree = TestGenerationAgent._validate_test_code(source)
+
+    assert len(tree.body) == 1

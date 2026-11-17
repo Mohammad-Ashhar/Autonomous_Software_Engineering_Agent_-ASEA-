@@ -97,13 +97,20 @@ def _validate_test_code(source: str) -> ast.Module:
             raise ValueError("Generated tests may not use annotations.")
 
         function_nodes = list(ast.walk(function))
-        if not any(
-            isinstance(node, ast.Name) and node.id == "module"
-            for node in function_nodes
-        ):
+        def calls_application(node: ast.AST) -> bool:
+            if not isinstance(node, ast.Call):
+                return False
+
+            target = node.func
+            while isinstance(target, ast.Attribute):
+                target = target.value
+
+            return isinstance(target, ast.Name) and target.id == "module"
+
+        if not any(calls_application(node) for node in function_nodes):
             raise ValueError(
-                f"Generated test {function.name} does not exercise "
-                "the application module."
+                f"Generated test {function.name} must call an application "
+                "function or method through the module variable."
             )
         if not any(isinstance(node, ast.Assert) for node in function_nodes) and not any(
             isinstance(node, (ast.With, ast.AsyncWith))

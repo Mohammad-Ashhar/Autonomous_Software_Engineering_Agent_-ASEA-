@@ -85,11 +85,9 @@ class DockerTestRunner:
         total = sum(counts.values())
         if exit_code == 5:
             status = "NO_TESTS"
-        elif exit_code == 0 and total > 0 and not (
+        elif exit_code == 0 and counts["passed"] > 0 and not (
             counts["failed"] or counts["errors"]
         ):
-            status = "PASSED"
-        elif exit_code == 0 and counts["passed"] > 0:
             status = "PASSED"
         elif exit_code == 0 and total > 0:
             # A suite containing only skipped or expected-failure tests did

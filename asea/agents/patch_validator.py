@@ -551,6 +551,25 @@ class PatchValidatorAgent:
                     "test_results": test_results
                 }
 
+            # A patch is not a repair merely because it did not make an
+            # already-failing suite worse. In particular, syntax repairs can
+            # expose runtime failures during test collection. Keep the
+            # candidate isolated and feed the failure output into the retry
+            # path until the suite actually passes.
+            if not tests_passed:
+                return {
+                    "status": "PATCH_REJECTED",
+                    "patch_applied": False,
+                    "tests_passed": False,
+                    "regression_free": True,
+                    "reason": (
+                        "The candidate introduced no additional regressions, "
+                        "but the test suite still fails. The patch cannot be "
+                        "accepted until the existing failures are resolved."
+                    ),
+                    "test_results": test_results
+                }
+
             self._promote_candidate(working_repo_path, candidate_repo)
 
             return {

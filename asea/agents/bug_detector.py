@@ -6,8 +6,8 @@ from typing import Any
 
 from asea.core.state import ASEAState
 from asea.tools.dependency_analyzer import PythonDependencyAnalyzer
-from asea.tools.repository import RepositoryManager
 from asea.tools.llm_client import OllamaClient
+from asea.tools.repository import RepositoryManager
 
 
 def parse_json_response(response: str) -> dict:

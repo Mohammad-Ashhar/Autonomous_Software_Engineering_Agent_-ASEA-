@@ -209,7 +209,7 @@ def test_failed_workflow_logs_primary_error_when_checkpoint_is_closed(
 
     update = jobs.updates[-1][1]
     assert update["status"] == "failed"
-    assert update["error"] == "An internal error occurred during repair."
+    assert update["error"] == "ValueError: patch generation failed: invalid Python"
     assert "patch generation failed: invalid Python" in caplog.text
     assert "Cannot operate on a closed database." in caplog.text
 

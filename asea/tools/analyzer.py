@@ -5,6 +5,25 @@ from asea.tools.parser import PythonRepositoryParser
 from asea.tools.repository import RepositoryManager
 
 
+DEPENDENCY_MANIFESTS = {
+    "Pipfile",
+    "poetry.lock",
+    "pyproject.toml",
+    "requirements.txt",
+    "setup.cfg",
+    "setup.py",
+    "uv.lock",
+    "Pipfile.lock",
+    "environment.yml",
+    "conda.yml",
+}
+TEST_CONFIGURATION = {
+    "pytest.ini",
+    "tox.ini",
+    "nose2.cfg",
+}
+
+
 class RepositoryAnalyzer:
 
     def __init__(self, workspace="workspaces"):
@@ -28,6 +47,98 @@ class RepositoryAnalyzer:
         repo_path = self.repository_manager.load_cloned_repository(folder)
 
         return self._analyze_repository(repo_path, output_file)
+
+    @staticmethod
+    def _repository_preflight(repo_path):
+        python_files = RepositoryManager.get_python_files(repo_path)
+        test_files = [
+            path for path in python_files
+            if "tests" in path.relative_to(repo_path).parts
+            or path.name.startswith("test_")
+            or path.name.endswith("_test.py")
+        ]
+
+        manifests = sorted(
+            path.name
+            for path in repo_path.iterdir()
+            if path.is_file()
+            and not path.is_symlink()
+            and (
+                path.name in DEPENDENCY_MANIFESTS
+                or (
+                    path.name.startswith("requirements")
+                    and path.suffix == ".txt"
+                )
+            )
+        )
+        test_configs = sorted(
+            path.name
+            for path in repo_path.iterdir()
+            if path.is_file()
+            and not path.is_symlink()
+            and (
+                path.name in TEST_CONFIGURATION
+                or (
+                    path.name == "pyproject.toml"
+                    and "[tool.pytest" in path.read_text(
+                        encoding="utf-8",
+                        errors="replace",
+                    )
+                )
+                or (
+                    path.name == "setup.cfg"
+                    and "[tool:pytest]" in path.read_text(
+                        encoding="utf-8",
+                        errors="replace",
+                    )
+                )
+            )
+        )
+
+        frameworks = set()
+        if test_files:
+            frameworks.add("unittest")
+            for test_file in test_files:
+                try:
+                    source = test_file.read_text(
+                        encoding="utf-8-sig",
+                        errors="replace",
+                    )
+                except OSError:
+                    continue
+                if "pytest" in source or "assert " in source:
+                    frameworks.add("pytest")
+                if "unittest" not in source and "pytest" not in source:
+                    frameworks.discard("unittest")
+        if test_configs or any(
+            name in {"requirements.txt", "pyproject.toml"}
+            for name in manifests
+        ):
+            for manifest in manifests:
+                if manifest not in {"requirements.txt", "pyproject.toml"}:
+                    continue
+                try:
+                    content = (repo_path / manifest).read_text(
+                        encoding="utf-8",
+                        errors="replace",
+                    )
+                except OSError:
+                    continue
+                if "pytest" in content.lower():
+                    frameworks.add("pytest")
+
+        return {
+            "python_file_count": len(python_files),
+            "test_file_count": len(test_files),
+            "test_files": [
+                str(path.relative_to(repo_path))
+                for path in test_files
+            ],
+            "test_frameworks": sorted(frameworks),
+            "test_configuration": test_configs,
+            "dependency_manifests": manifests,
+            "has_existing_tests": bool(test_files),
+        }
 
     def _analyze_repository(self, repo_path, output_file):
         # Each analysis gets its own artifact path so simultaneous API/CLI
@@ -78,5 +189,6 @@ class RepositoryAnalyzer:
             "total_imports": total_imports,
             "syntax_error_count": len(syntax_errors),
             "syntax_errors": syntax_errors,
+            "preflight": self._repository_preflight(repo_path),
             "output_file": str(Path(output_file).resolve())
         }

@@ -125,8 +125,8 @@ def test_only_latest_approval_for_current_attempt_can_be_published(
     working.mkdir()
     original_file = original / "module.py"
     working_file = working / "module.py"
-    original_file.write_text("value = 1\\n", encoding="utf-8")
-    working_file.write_text("value = 2\\n", encoding="utf-8")
+    original_file.write_text("value = 1\n", encoding="utf-8")
+    working_file.write_text("value = 2\n", encoding="utf-8")
 
     state = {
         "repaired_bugs": [

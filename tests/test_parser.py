@@ -160,3 +160,51 @@ def test_parser_reports_unknown_source_encoding_without_crashing(tmp_path):
         "File encoding could not be detected: SyntaxError."
     ]
 
+
+def test_parser_does_not_classify_nested_local_functions_as_methods(tmp_path):
+    file_path = tmp_path / "nested_functions.py"
+    file_path.write_text(
+        "class Service:\\n"
+        "    def run(self):\\n"
+        "        def helper():\\n"
+        "            return True\\n"
+        "        return helper()\\n"
+        "\\n"
+        "def outer():\\n"
+        "    class LocalService:\\n"
+        "        def execute(self):\\n"
+        "            return 1\\n"
+        "    return LocalService()\\n",
+        encoding="utf-8",
+    )
+
+    result = PythonRepositoryParser().parse_file(file_path)
+
+    assert result["syntax_errors"] == []
+    assert result["analysis_errors"] == []
+    assert result["functions"] == [
+        {
+            "name": "run",
+            "class": "Service",
+            "start_line": 2,
+            "end_line": 5,
+        },
+        {
+            "name": "helper",
+            "class": None,
+            "start_line": 3,
+            "end_line": 4,
+        },
+        {
+            "name": "outer",
+            "class": None,
+            "start_line": 7,
+            "end_line": 10,
+        },
+        {
+            "name": "execute",
+            "class": "LocalService",
+            "start_line": 9,
+            "end_line": 10,
+        },
+    ]

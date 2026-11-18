@@ -164,17 +164,17 @@ def test_parser_reports_unknown_source_encoding_without_crashing(tmp_path):
 def test_parser_does_not_classify_nested_local_functions_as_methods(tmp_path):
     file_path = tmp_path / "nested_functions.py"
     file_path.write_text(
-        "class Service:\\n"
-        "    def run(self):\\n"
-        "        def helper():\\n"
-        "            return True\\n"
-        "        return helper()\\n"
-        "\\n"
-        "def outer():\\n"
-        "    class LocalService:\\n"
-        "        def execute(self):\\n"
-        "            return 1\\n"
-        "    return LocalService()\\n",
+        "class Service:\n"
+        "    def run(self):\n"
+        "        def helper():\n"
+        "            return True\n"
+        "        return helper()\n"
+        "\n"
+        "def outer():\n"
+        "    class LocalService:\n"
+        "        def execute(self):\n"
+        "            return 1\n"
+        "    return LocalService()\n",
         encoding="utf-8",
     )
 

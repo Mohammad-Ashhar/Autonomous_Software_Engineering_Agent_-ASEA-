@@ -25,6 +25,15 @@ EXCLUDED_PARTS = {
     "secrets.json",
     "id_rsa",
     "id_ed25519",
+    ".npmrc",
+    ".pypirc",
+    ".netrc",
+    ".git-credentials",
+    ".ssh",
+    ".aws",
+    ".azure",
+    ".kube",
+    ".gnupg",
     ".venv",
     "venv",
     "__pycache__",
@@ -56,8 +65,15 @@ def is_excluded_repair_path(path: Path) -> bool:
 
     excluded_parts = {part.casefold() for part in EXCLUDED_PARTS}
 
-    for part in path.parts:
-        normalized = part.casefold()
+    normalized_parts = tuple(part.casefold() for part in path.parts)
+
+    if any(
+        normalized_parts[index:index + 2] == (".docker", "config.json")
+        for index in range(len(normalized_parts) - 1)
+    ):
+        return True
+
+    for normalized in normalized_parts:
         if (
             normalized in excluded_parts
             or normalized == ".envrc"

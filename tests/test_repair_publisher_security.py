@@ -180,6 +180,13 @@ def test_reject_unsafe_github_remote_urls(remote_url):
         ".kube/config",
         ".gnupg/private-keys-v1.d/secret.key",
         ".docker/config.json",
+        ".vault-token",
+        ".terraform/terraform.tfstate",
+        "terraform.tfstate",
+        "terraform.tfstate.backup",
+        "application_default_credentials.json",
+        "service-account.json",
+        "service_account.json",
     ],
 )
 def test_sensitive_repair_files_are_never_approved_for_publishing(

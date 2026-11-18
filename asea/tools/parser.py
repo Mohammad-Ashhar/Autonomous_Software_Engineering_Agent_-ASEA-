@@ -3,10 +3,7 @@ import json
 from pathlib import Path
 
 from asea.tools.repository import RepositoryManager
-from asea.tools.source_reader import (
-    MAX_PYTHON_FILE_SIZE_BYTES,
-    read_python_source,
-)
+from asea.tools.source_reader import read_python_source
 
 
 class PythonRepositoryParser:

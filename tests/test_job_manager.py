@@ -555,3 +555,35 @@ def test_acknowledge_review_start_consumes_only_matching_pending_decision(tmp_pa
     job = manager.get_job("ack-review-001")
     assert job["status"] == "running"
     assert job["review_decision"] is None
+
+
+def test_publishing_retry_claim_is_atomic_and_releasable(tmp_path):
+    manager = create_test_manager(tmp_path / "publishing_retry.db")
+    manager.create_job("publish-retry-001", "demo_repo", publish_requested=True)
+    manager.update_job(
+        "publish-retry-001",
+        status="completed",
+        result={
+            "workflow": {"status": "COMPLETED"},
+            "publishing": {"status": "PUBLISH_FAILED"},
+        },
+    )
+
+    assert manager.claim_publishing_retry("publish-retry-001") is True
+    assert manager.claim_publishing_retry("publish-retry-001") is False
+    assert manager.get_job("publish-retry-001")["publishing_retry"] is True
+
+    assert manager.release_publishing_retry("publish-retry-001") is True
+    assert manager.claim_publishing_retry("publish-retry-001") is True
+
+
+def test_publishing_retry_requires_a_failed_publish_result(tmp_path):
+    manager = create_test_manager(tmp_path / "publishing_retry_ineligible.db")
+    manager.create_job("publish-retry-002", "demo_repo", publish_requested=True)
+    manager.update_job(
+        "publish-retry-002",
+        status="completed",
+        result={"workflow": {"status": "COMPLETED"}},
+    )
+
+    assert manager.claim_publishing_retry("publish-retry-002") is False

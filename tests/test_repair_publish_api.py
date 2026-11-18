@@ -372,7 +372,7 @@ def test_publish_repair_result_preserves_existing_pull_request_status(monkeypatc
     monkeypatch.setattr(
         main,
         "publish_validated_repairs",
-        lambda _result: existing,
+        lambda _result, **_kwargs: existing,
     )
 
     assert main._publish_repair_result({"status": "COMPLETED"}) == existing
@@ -399,7 +399,7 @@ def test_resume_repair_reports_existing_pull_request(monkeypatch):
     monkeypatch.setattr(
         main,
         "_publish_repair_result",
-        lambda _result: {"status": "PULL_REQUEST_EXISTS"},
+        lambda _result, **_kwargs: {"status": "PULL_REQUEST_EXISTS"},
     )
     main.resume_repair_job("job-existing-pr", "approved", "")
 

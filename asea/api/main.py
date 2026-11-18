@@ -91,6 +91,12 @@ async def lifespan(app: FastAPI):
         ) as checkpointer:
             checkpointer.setup()
             recovered = repair_jobs.mark_interrupted_jobs()
+            publishing_retries = repair_jobs.reset_interrupted_publishing_retries()
+            if publishing_retries:
+                logging.warning(
+                    "Released %s interrupted publishing retries after restart.",
+                    publishing_retries,
+                )
             if recovered:
                 logging.warning(
                     "Marked %s interrupted repair jobs after restart.",
@@ -313,46 +319,73 @@ def run_repair_job(
         )
 def retry_repair_publishing(job_id: str):
     """Retry GitHub publishing from a preserved, validated repair result."""
-    job = repair_jobs.get_job(job_id)
-    if job is None:
-        return
-    result = (job.get("result") or {}).get("workflow")
-    if not isinstance(result, dict):
-        repair_jobs.release_publishing_retry(job_id)
-        return
+    try:
+        job = repair_jobs.get_job(job_id)
+        if job is None:
+            repair_jobs.release_publishing_retry(job_id)
+            return
+        result = (job.get("result") or {}).get("workflow")
+        if not isinstance(result, dict):
+            repair_jobs.release_publishing_retry(job_id)
+            return
 
-    publishing_result = _publish_repair_result(result, job_id)
-    job_result = dict(job.get("result") or {})
-    job_result["publishing"] = publishing_result
+        publishing_result = _publish_repair_result(result, job_id)
+        job_result = dict(job.get("result") or {})
+        job_result["publishing"] = publishing_result
 
-    if publishing_result.get("status") in {
-        "PULL_REQUEST_CREATED",
-        "PULL_REQUEST_EXISTS",
-    }:
-        cleanup_repair_workspace(result.get("repo_path", ""), result)
-        message = (
-            "ASEA repair completed and pull request created."
-            if publishing_result["status"] == "PULL_REQUEST_CREATED"
-            else "ASEA repair completed; an existing pull request was found."
-        )
+        if publishing_result.get("status") in {
+            "PULL_REQUEST_CREATED",
+            "PULL_REQUEST_EXISTS",
+        }:
+            message = (
+                "ASEA repair completed and pull request created."
+                if publishing_result["status"] == "PULL_REQUEST_CREATED"
+                else "ASEA repair completed; an existing pull request was found."
+            )
+            repair_jobs.update_job(
+                job_id,
+                message=message,
+                result=job_result,
+                error=None,
+                publishing_retry=False,
+            )
+            try:
+                cleanup_repair_workspace(result.get("repo_path", ""), result)
+            except Exception:
+                logging.exception(
+                    "Publishing succeeded but workspace cleanup failed. Job ID: %s",
+                    job_id,
+                )
+            return
+
         repair_jobs.update_job(
             job_id,
-            message=message,
+            message=(
+                "ASEA repair remains validated, but GitHub publishing failed. "
+                "Publishing can be retried."
+            ),
             result=job_result,
-            error=None,
             publishing_retry=False,
         )
-        return
-
-    repair_jobs.update_job(
-        job_id,
-        message=(
-            "ASEA repair remains validated, but GitHub publishing failed. "
-            "Publishing can be retried."
-        ),
-        result=job_result,
-        publishing_retry=False,
-    )
+    except Exception as error:
+        logging.exception(
+            "Unexpected error during publishing retry. Job ID: %s",
+            job_id,
+        )
+        try:
+            repair_jobs.update_job(
+                job_id,
+                message="Publishing retry failed unexpectedly; it can be retried.",
+                error=_safe_error_detail(error),
+                publishing_retry=False,
+            )
+        except Exception:
+            logging.exception(
+                "Could not persist publishing retry failure. Job ID: %s",
+                job_id,
+            )
+        finally:
+            repair_jobs.release_publishing_retry(job_id)
 
 
 def resume_repair_job(

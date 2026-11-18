@@ -37,6 +37,37 @@ EXCLUDED_PARTS = {
     "build",
 }
 
+SENSITIVE_FILE_SUFFIXES = (
+    ".pem",
+    ".key",
+    ".p12",
+    ".pfx",
+    ".jks",
+    ".keystore",
+    ".secret",
+    ".secrets",
+    ".token",
+    ".credentials",
+)
+
+
+def is_excluded_repair_path(path: Path) -> bool:
+    """Reject generated, environment, credential, and private-key paths."""
+
+    excluded_parts = {part.casefold() for part in EXCLUDED_PARTS}
+
+    for part in path.parts:
+        normalized = part.casefold()
+        if (
+            normalized in excluded_parts
+            or normalized == ".envrc"
+            or normalized.startswith(".env.")
+            or normalized.endswith(SENSITIVE_FILE_SUFFIXES)
+        ):
+            return True
+
+    return False
+
 
 def normalize_github_repository(repository_url: str) -> str:
     """Extract owner/repository from an HTTPS or SSH GitHub URL."""
@@ -186,7 +217,7 @@ def get_approved_repair_files(
         except ValueError:
             continue
 
-        if any(part in EXCLUDED_PARTS for part in relative_path.parts):
+        if is_excluded_repair_path(relative_path):
             continue
 
         working_file = working_repo / relative_path
@@ -350,10 +381,7 @@ def publish_validated_repairs(
         "Unsafe destination repair file path detected."
     ) from error
 
-            if any(
-                part in EXCLUDED_PARTS
-                for part in destination_relative.parts
-            ):
+            if is_excluded_repair_path(destination_relative):
                 raise ValueError(
                     "Publishing blocked: sensitive or excluded file detected."
                 )

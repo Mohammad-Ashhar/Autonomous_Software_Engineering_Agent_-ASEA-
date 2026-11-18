@@ -255,3 +255,27 @@ def test_dependency_analyzer_reports_unknown_source_encoding(tmp_path):
     assert result["module_count"] == 1
     assert len(result["parse_errors"]) == 1
     assert result["parse_errors"][0]["file"] == "sample/legacy.py"
+
+
+
+def test_detects_repeated_explicit_keyword_arguments(tmp_path):
+    _write_module(tmp_path, "sample/__init__.py", "")
+    _write_module(
+        tmp_path,
+        "sample/api.py",
+        "def send(user):\\n    return user\\n",
+    )
+    _write_module(
+        tmp_path,
+        "sample/service.py",
+        "from .api import send\\n"
+        "def run():\\n"
+        "    return send(user='alice', user='bob')\\n",
+    )
+
+    result = PythonDependencyAnalyzer().analyze(tmp_path)
+
+    assert len(result["cross_file_findings"]) == 1
+    assert "repeats keyword argument(s): user" in (
+        result["cross_file_findings"][0]["description"]
+    )

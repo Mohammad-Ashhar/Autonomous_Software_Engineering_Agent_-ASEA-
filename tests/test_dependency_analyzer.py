@@ -222,16 +222,16 @@ def test_dependency_analyzer_respects_declared_latin1_encoding(tmp_path):
     _write_module(tmp_path, "sample/__init__.py", "")
     legacy = tmp_path / "sample" / "api.py"
     legacy.write_bytes(
-        b"# coding: latin-1\\n"
-        b"def caf\\xe9(user):\\n"
-        b"    return 'ol\\xe9' + user\\n"
+        b"# coding: latin-1\n"
+        b"def caf\xe9(user):\n"
+        b"    return 'ol\xe9' + user\n"
     )
     _write_module(
         tmp_path,
         "sample/service.py",
-        "from .api import café\\n"
-        "def run():\\n"
-        "    return café()\\n",
+        "from .api import café\n"
+        "def run():\n"
+        "    return café()\n",
     )
 
     result = PythonDependencyAnalyzer().analyze(tmp_path)
@@ -245,9 +245,9 @@ def test_dependency_analyzer_reports_unknown_source_encoding(tmp_path):
     _write_module(tmp_path, "sample/__init__.py", "")
     invalid = tmp_path / "sample" / "legacy.py"
     invalid.write_bytes(
-        b"# coding: made-up-encoding\\n"
-        b"def example():\\n"
-        b"    return 1\\n"
+        b"# coding: made-up-encoding\n"
+        b"def example():\n"
+        b"    return 1\n"
     )
 
     result = PythonDependencyAnalyzer().analyze(tmp_path)

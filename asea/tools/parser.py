@@ -54,7 +54,6 @@ class PythonRepositoryParser:
             source_encoding, _ = tokenize.detect_encoding(
                 io.BytesIO(source_code).readline
             )
-            source_text = source_code.decode(source_encoding)
         except (SyntaxError, UnicodeDecodeError) as error:
             result["analysis_errors"].append(
                 f"File encoding could not be detected: {type(error).__name__}."

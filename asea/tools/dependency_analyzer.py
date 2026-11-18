@@ -144,7 +144,7 @@ class PythonDependencyAnalyzer:
                 continue
             try:
                 tree = ast.parse(read_python_source(source), filename=str(source))
-            except (OSError, UnicodeError, SyntaxError) as error:
+            except (OSError, UnicodeError, SyntaxError, ValueError) as error:
                 parse_errors.append({
                     "file": str(relative),
                     "error": str(error)

@@ -192,6 +192,8 @@ def test_sensitive_repair_files_are_never_approved_for_publishing(
     working.mkdir()
     original_file = original / sensitive_name
     working_file = working / sensitive_name
+    original_file.parent.mkdir(parents=True, exist_ok=True)
+    working_file.parent.mkdir(parents=True, exist_ok=True)
     original_file.write_text("old value\n", encoding="utf-8")
     working_file.write_text("new value\n", encoding="utf-8")
 

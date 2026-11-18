@@ -125,6 +125,8 @@ def test_approved_validated_repair_pushes_branch_and_opens_pull_request(
 
     assert result["status"] == "PULL_REQUEST_CREATED"
     assert result["repository"] == "example/python-demo"
+    assert result["branch"].startswith("asea/repair-")
+    assert len(result["branch"].rsplit("-", 1)[-1]) == 8
     assert result["files"] == ["demo_repo/logic.py"]
     assert result["pull_request"]["number"] == 42
     assert len(pull_request_calls) == 1

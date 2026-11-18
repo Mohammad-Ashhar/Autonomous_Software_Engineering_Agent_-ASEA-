@@ -237,3 +237,26 @@ def test_publishing_failure_redacts_github_token(monkeypatch, caplog):
     assert "GitHub rejected token" in result["error"]
     assert token not in caplog.text
     assert "[REDACTED_GITHUB_TOKEN]" in caplog.text
+
+def test_safe_error_detail_redacts_supported_credential_formats():
+    credentials = [
+        "ghp_" + "G" * 30,
+        "gho_" + "O" * 30,
+        "github_pat_" + "P" * 30,
+        "Bearer " + "B" * 30,
+        "sk-" + "S" * 30,
+        "AIza" + "A" * 30,
+    ]
+    detail = main._safe_error_detail(
+        RuntimeError(" ".join(credentials))
+    )
+
+    assert credentials[0] not in detail
+    assert credentials[1] not in detail
+    assert credentials[2] not in detail
+    assert credentials[3] not in detail
+    assert credentials[4] not in detail
+    assert credentials[5] not in detail
+    assert detail.count("[REDACTED_GITHUB_TOKEN]") == 3
+    assert "[REDACTED]" in detail
+    assert detail.count("[REDACTED_API_KEY]") == 2

@@ -224,6 +224,7 @@ class RepairJobManager:
             "publish_requested",
             "review_decision",
             "review_feedback",
+            "publishing_retry",
         }
 
         if not isinstance(job_id, str) or not job_id.strip() or len(job_id) > 128:
@@ -248,6 +249,10 @@ class RepairJobManager:
             updates["publish_requested"], bool
         ):
             raise ValueError("publish_requested must be a boolean.")
+        if "publishing_retry" in updates and not isinstance(
+            updates["publishing_retry"], bool
+        ):
+            raise ValueError("publishing_retry must be a boolean.")
         if "review_decision" in updates and updates["review_decision"] not in {
             None, "approved", "rejected"
         }:

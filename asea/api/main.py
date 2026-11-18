@@ -173,8 +173,11 @@ def _publish_repair_result(result: dict[str, object]) -> dict[str, object]:
             "status": "PULL_REQUEST_CREATED",
         }
     except Exception as error:
-        logging.exception("ASEA repair passed validation but publishing failed.")
         safe_detail = _safe_error_detail(error)
+        logging.error(
+            "ASEA repair passed validation but publishing failed: %s",
+            safe_detail,
+        )
         _, separator, safe_message = safe_detail.partition(": ")
         return {
             "status": "PUBLISH_FAILED",

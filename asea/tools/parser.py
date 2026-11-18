@@ -1,5 +1,7 @@
 import ast
+import io
 import json
+import tokenize
 from pathlib import Path
 
 import tree_sitter_python as tspython
@@ -48,6 +50,17 @@ class PythonRepositoryParser:
             )
             return result
 
+        try:
+            source_encoding, _ = tokenize.detect_encoding(
+                io.BytesIO(source_code).readline
+            )
+            source_text = source_code.decode(source_encoding)
+        except (SyntaxError, UnicodeDecodeError) as error:
+            result["analysis_errors"].append(
+                f"File encoding could not be detected: {type(error).__name__}."
+            )
+            return result
+
         language = Language(tspython.language())
         local_parser = Parser(language)
         tree = local_parser.parse(source_code)
@@ -60,6 +73,11 @@ class PythonRepositoryParser:
                 "column": error.offset or 1,
                 "message": error.msg,
             })
+        except (RecursionError, MemoryError) as error:
+            result["analysis_errors"].append(
+                f"Python AST analysis exceeded a runtime limit: "
+                f"{type(error).__name__}."
+            )
 
         # Iterative traversal avoids recursive syntax-tree processing.
         stack = [(tree.root_node, None)]
@@ -73,7 +91,7 @@ class PythonRepositoryParser:
                 if name_node is not None:
                     class_name = source_code[
                         name_node.start_byte:name_node.end_byte
-                    ].decode("utf-8")
+                    ].decode(source_encoding)
 
                     result["classes"].append({
                         "name": class_name,
@@ -87,7 +105,7 @@ class PythonRepositoryParser:
                 if name_node is not None:
                     name = source_code[
                         name_node.start_byte:name_node.end_byte
-                    ].decode("utf-8")
+                    ].decode(source_encoding)
 
                     result["functions"].append({
                         "name": name,
@@ -103,7 +121,7 @@ class PythonRepositoryParser:
                 result["imports"].append(
                     source_code[
                         node.start_byte:node.end_byte
-                    ].decode("utf-8")
+                    ].decode(source_encoding)
                 )
 
             # Reverse preserves the original left-to-right traversal order.

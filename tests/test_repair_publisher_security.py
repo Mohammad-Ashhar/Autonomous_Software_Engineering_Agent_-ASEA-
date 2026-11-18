@@ -158,3 +158,49 @@ def test_only_latest_approval_for_current_attempt_can_be_published(
 def test_reject_unsafe_github_remote_urls(remote_url):
     with pytest.raises(ValueError):
         normalize_github_repository(remote_url)
+
+
+@pytest.mark.parametrize(
+    "sensitive_name",
+    [
+        ".ENV.staging",
+        ".envrc",
+        "Credentials.JSON",
+        "service.pem",
+        "deploy.key",
+        "backup.p12",
+        "api.secret",
+    ],
+)
+def test_sensitive_repair_files_are_never_approved_for_publishing(
+    tmp_path,
+    sensitive_name,
+):
+    original = tmp_path / "original"
+    working = tmp_path / "working"
+    original.mkdir()
+    working.mkdir()
+    original_file = original / sensitive_name
+    working_file = working / sensitive_name
+    original_file.write_text("old value\n", encoding="utf-8")
+    working_file.write_text("new value\n", encoding="utf-8")
+
+    state = {
+        "repaired_bugs": [
+            {
+                "status": "REPAIRED",
+                "bug_key": "sensitive-file",
+                "attempts": 1,
+                "file": str(original_file),
+            }
+        ],
+        "review_history": [
+            {
+                "bug_key": "sensitive-file",
+                "decision": "approved",
+                "attempt": 1,
+            }
+        ],
+    }
+
+    assert get_approved_repair_files(state, original, working) == []

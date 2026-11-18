@@ -4,7 +4,7 @@ from asea.agents.test_generation import TestGenerationAgent
 def test_module_name_accepts_nested_namespace_package_paths(tmp_path):
     source_file = tmp_path / "src" / "acme" / "services" / "math_ops.py"
     source_file.parent.mkdir(parents=True)
-    source_file.write_text("def add(left, right):\\n    return left + right\\n")
+    source_file.write_text("def add(left, right):\n    return left + right\n")
 
     assert TestGenerationAgent._module_name(tmp_path, source_file) == (
         "src.acme.services.math_ops"
@@ -19,7 +19,7 @@ def test_generated_tests_import_modules_from_src_namespace_packages(
     source_file = tmp_path / "src" / "acme" / "services" / "math_ops.py"
     source_file.parent.mkdir(parents=True)
     source_file.write_text(
-        "def add(left, right):\\n    return left + right\\n",
+        "def add(left, right):\n    return left + right\n",
         encoding="utf-8",
     )
 
@@ -28,8 +28,8 @@ def test_generated_tests_import_modules_from_src_namespace_packages(
         agent,
         "_generate_for_module",
         lambda _source, _module: (
-            "def test_add():\\n"
-            "    assert module.add(2, 3) == 5\\n"
+            "def test_add():\n"
+            "    assert module.add(2, 3) == 5\n"
         ),
     )
 

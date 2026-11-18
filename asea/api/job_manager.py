@@ -74,7 +74,8 @@ class RepairJobManager:
                     error TEXT,
                     publish_requested INTEGER NOT NULL DEFAULT 0,
                     review_decision TEXT,
-                    review_feedback TEXT
+                    review_feedback TEXT,
+                    publishing_retry INTEGER NOT NULL DEFAULT 0
                 )
                 """
             )
@@ -96,6 +97,11 @@ class RepairJobManager:
             if "review_feedback" not in columns:
                 connection.execute(
                     "ALTER TABLE repair_jobs ADD COLUMN review_feedback TEXT"
+                )
+            if "publishing_retry" not in columns:
+                connection.execute(
+                    "ALTER TABLE repair_jobs ADD COLUMN "
+                    "publishing_retry INTEGER NOT NULL DEFAULT 0"
                 )
             connection.execute(
                 "CREATE INDEX IF NOT EXISTS idx_repair_jobs_created "
@@ -129,6 +135,7 @@ class RepairJobManager:
         for field in ("review_request", "result", "error"):
             job[field] = RepairJobManager._deserialize(job[field])
         job["publish_requested"] = bool(job.get("publish_requested", False))
+        job["publishing_retry"] = bool(job.get("publishing_retry", False))
 
         return job
 
@@ -336,6 +343,41 @@ class RepairJobManager:
 
                 return self._row_to_dict(row) if row else None
 
+
+    def claim_publishing_retry(self, job_id: str) -> bool:
+        """Atomically claim a retry for a completed, failed publication."""
+        with self.lock:
+            with self._connection() as connection:
+                row = connection.execute(
+                    "SELECT result, status, publish_requested, publishing_retry "
+                    "FROM repair_jobs WHERE job_id = ?",
+                    (job_id,),
+                ).fetchone()
+                if row is None or row["status"] != "completed":
+                    return False
+                if not row["publish_requested"] or row["publishing_retry"]:
+                    return False
+                result = self._deserialize(row["result"]) or {}
+                if result.get("publishing", {}).get("status") != "PUBLISH_FAILED":
+                    return False
+                cursor = connection.execute(
+                    "UPDATE repair_jobs SET publishing_retry = 1, "
+                    "updated_at = ? WHERE job_id = ? AND status = 'completed' "
+                    "AND publishing_retry = 0",
+                    (datetime.now(timezone.utc).isoformat(), job_id),
+                )
+                return cursor.rowcount == 1
+
+    def release_publishing_retry(self, job_id: str) -> bool:
+        """Release a retry claim after a scheduling or publishing failure."""
+        with self.lock:
+            with self._connection() as connection:
+                cursor = connection.execute(
+                    "UPDATE repair_jobs SET publishing_retry = 0, updated_at = ? "
+                    "WHERE job_id = ? AND publishing_retry = 1",
+                    (datetime.now(timezone.utc).isoformat(), job_id),
+                )
+                return cursor.rowcount == 1
 
     def claim_review(
         self,

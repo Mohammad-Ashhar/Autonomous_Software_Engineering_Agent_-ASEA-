@@ -221,7 +221,7 @@ def test_unfinished_workflow_is_not_reported_as_completed(monkeypatch):
     assert failed_history.json()["total"] == 1
 
 
-def test_publishing_failure_redacts_github_token(monkeypatch):
+def test_publishing_failure_redacts_github_token(monkeypatch, caplog):
     token = "ghp_" + "A" * 30
 
     def fail_to_publish(_result):
@@ -235,3 +235,5 @@ def test_publishing_failure_redacts_github_token(monkeypatch):
     assert token not in result["error"]
     assert "[REDACTED_GITHUB_TOKEN]" in result["error"]
     assert "GitHub rejected token" in result["error"]
+    assert token not in caplog.text
+    assert "[REDACTED_GITHUB_TOKEN]" in caplog.text

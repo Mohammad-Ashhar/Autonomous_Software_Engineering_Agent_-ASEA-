@@ -136,3 +136,25 @@ def test_default_cloned_analysis_artifacts_are_unique_per_run(tmp_path, monkeypa
     assert first["output_file"] != second["output_file"]
     assert Path(first["output_file"]).is_file()
     assert Path(second["output_file"]).is_file()
+
+
+def test_analyzer_reports_files_skipped_by_parser(tmp_path):
+    project = tmp_path / "sample_project"
+    project.mkdir()
+    (project / "large.py").write_bytes(b"x" * (2 * 1024 * 1024 + 1))
+
+    result = RepositoryAnalyzer(
+        workspace=tmp_path / "workspace"
+    ).analyze_local_repository(
+        project,
+        tmp_path / "artifacts" / "repo_map.json",
+    )
+
+    assert result["total_files"] == 1
+    assert result["analysis_error_count"] == 1
+    assert result["analysis_errors"] == [
+        {
+            "file": "large.py",
+            "message": "File exceeds the 2 MiB analysis limit.",
+        }
+    ]

@@ -150,7 +150,10 @@ def test_publish_failure_does_not_hide_successful_repair(monkeypatch):
         "error": "GitHub unavailable",
     }
     assert "validation passed" in update["message"]
-    assert len(cleanups) == 1
+    assert cleanups == []
+    assert update["result"]["workflow"]["working_repo_path"] == (
+        "/workspaces/asea_run_publish/repository"
+    )
 
 
 def test_review_resume_keeps_completed_repair_when_publish_fails(monkeypatch):
@@ -188,7 +191,11 @@ def test_review_resume_keeps_completed_repair_when_publish_fails(monkeypatch):
         "error": "permission denied",
     }
     assert "validation passed" in update["message"]
-    assert len(cleanups) == 1
+    assert cleanups == []
+    assert update["result"]["workflow"]["working_repo_path"] == (
+        "/workspaces/asea_run_resume_publish/repository"
+    )
+
 
 def test_failed_workflow_logs_primary_error_when_checkpoint_is_closed(
     monkeypatch,

@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from asea.tools.repository import RepositoryManager
+from asea.tools.source_reader import read_python_source
 
 IGNORED_PARTS = {
     ".git", ".venv", "venv", "__pycache__", "node_modules",
@@ -142,7 +143,7 @@ class PythonDependencyAnalyzer:
             if not module:
                 continue
             try:
-                tree = ast.parse(source.read_text(encoding="utf-8-sig"))
+                tree = ast.parse(read_python_source(source), filename=str(source))
             except (OSError, UnicodeError, SyntaxError) as error:
                 parse_errors.append({
                     "file": str(relative),

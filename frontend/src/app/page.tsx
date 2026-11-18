@@ -6,7 +6,9 @@ import {
   analyzeRepository,
   startRepair,
   getRepairStatus,
+  getRepairHistory,
   submitPatchReview,
+  checkBackendHealth,
   type AnalyzeResponse,
   type RepairResponse,
   type RepairJob,
@@ -87,6 +89,10 @@ function formatStatus(status: string): string {
 export default function Home() {
   const [theme, setTheme] = useState<"dark" | "light">("dark");
   const [themeLoaded, setThemeLoaded] = useState(false);
+  const [backendStatus, setBackendStatus] = useState<"checking" | "online" | "offline">("checking");
+  const [repairHistory, setRepairHistory] = useState<RepairJob[]>([]);
+  const [historyTotal, setHistoryTotal] = useState(0);
+  const [publishRequested, setPublishRequested] = useState(false);
   const [repository, setRepository] = useState("");
   const [notice, setNotice] = useState("");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -98,13 +104,17 @@ const [reviewFeedback, setReviewFeedback] = useState("");
 const [isSubmittingReview, setIsSubmittingReview] = useState(false);
 
   useEffect(() => {
-  const savedTheme = localStorage.getItem("asea-theme");
+  const frame = window.requestAnimationFrame(() => {
+    const savedTheme = localStorage.getItem("asea-theme");
 
-  if (savedTheme === "light" || savedTheme === "dark") {
-    setTheme(savedTheme);
-  }
+    if (savedTheme === "light" || savedTheme === "dark") {
+      setTheme(savedTheme);
+    }
 
-  setThemeLoaded(true);
+    setThemeLoaded(true);
+  });
+
+  return () => window.cancelAnimationFrame(frame);
 }, []);
 
 useEffect(() => {
@@ -115,6 +125,50 @@ useEffect(() => {
   document.documentElement.dataset.theme = theme;
   localStorage.setItem("asea-theme", theme);
 }, [theme, themeLoaded]);
+
+useEffect(() => {
+  let cancelled = false;
+
+  async function checkBackend() {
+    try {
+      await checkBackendHealth();
+      if (!cancelled) setBackendStatus("online");
+    } catch {
+      if (!cancelled) setBackendStatus("offline");
+    }
+  }
+
+  void checkBackend();
+  const healthTimer = setInterval(checkBackend, 10000);
+
+  return () => {
+    cancelled = true;
+    clearInterval(healthTimer);
+  };
+}, []);
+
+useEffect(() => {
+  let cancelled = false;
+
+  async function loadRepairHistory() {
+    try {
+      const history = await getRepairHistory(20, 0);
+      if (cancelled) return;
+      setRepairHistory(history.items);
+      setHistoryTotal(history.total);
+    } catch {
+      // Keep the dashboard usable if history is temporarily unavailable.
+    }
+  }
+
+  void loadRepairHistory();
+  const timer = setInterval(loadRepairHistory, 5000);
+
+  return () => {
+    cancelled = true;
+    clearInterval(timer);
+  };
+}, [repairJob?.job_id, repairStatus?.status]);
 
 useEffect(() => {
   const jobId = repairJob?.job_id;
@@ -170,7 +224,7 @@ async function startAnalysis() {
     return;
   }
 
-  if (!/^https:\/\/github\.com\/[^/]+\/[^/]+\/?$/.test(repoUrl)) {
+  if (!/^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\.git)?\/?$/i.test(repoUrl)) {
     setNotice("Please enter a valid GitHub repository URL.");
     return;
   }
@@ -199,7 +253,7 @@ async function handleStartRepair() {
   setNotice("Submitting autonomous repair job...");
 
   try {
-    const result = await startRepair(repository.trim());
+    const result = await startRepair(repository.trim(), publishRequested);
 
     setRepairJob(result);
     setNotice(`Repair job submitted successfully. Job ID: ${result.job_id}`);
@@ -213,6 +267,27 @@ async function handleStartRepair() {
     setIsStartingRepair(false);
   }
 }
+async function openRepairJob(job: RepairJob) {
+  setRepairJob({
+    job_id: job.job_id,
+    status: job.status,
+    message: job.message || "Loaded from repair history.",
+  });
+  setRepairStatus(null);
+  setRepository(job.repository);
+  setAnalysisResult(null);
+  setReviewFeedback("");
+  setNotice(`Loaded repair job ${job.job_id}.`);
+  try {
+    const status = await getRepairStatus(job.job_id);
+    setRepairStatus(status);
+  } catch (error) {
+    setNotice(
+      error instanceof Error ? error.message : "Unable to load this repair job.",
+    );
+  }
+}
+
 async function handlePatchReview(decision: "approved" | "rejected") {
   if (!repairJob?.job_id) {
     setNotice("No active repair job found.");
@@ -253,43 +328,49 @@ async function handlePatchReview(decision: "approved" | "rejected") {
 
 
   const analysis = analysisResult?.analysis;
+  const preflight = readRecord(analysis?.preflight);
+  const syntaxErrors = Array.isArray(analysis?.syntax_errors)
+    ? analysis.syntax_errors.map(readRecord).filter(
+        (entry): entry is Record<string, unknown> => entry !== null,
+      )
+    : [];
+  const testFiles = Array.isArray(preflight?.test_files)
+    ? preflight.test_files.filter((item): item is string => typeof item === "string")
+    : [];
+  const dependencyManifests = Array.isArray(preflight?.dependency_manifests)
+    ? preflight.dependency_manifests.filter((item): item is string => typeof item === "string")
+    : [];
+  const testFrameworks = Array.isArray(preflight?.test_frameworks)
+    ? preflight.test_frameworks.filter((item): item is string => typeof item === "string")
+    : [];
   const reviewRequest = readRecord(repairStatus?.review_request);
   const reviewBug = readRecord(reviewRequest?.bug);
   const repairResult = readRecord(repairStatus?.result);
-  const auditLog = Array.isArray(repairResult?.audit_log)
-    ? repairResult.audit_log.map(readRecord).filter(
+  const workflowResult = readRecord(repairResult?.workflow) ?? repairResult;
+  const publishingResult = readRecord(repairResult?.publishing);
+  const pullRequest = readRecord(publishingResult?.pull_request);
+  const auditLog = Array.isArray(workflowResult?.audit_log)
+    ? workflowResult.audit_log.map(readRecord).filter(
         (entry): entry is Record<string, unknown> => entry !== null,
       )
     : [];
   const bugsDetected = reviewBug ? 1 : 0;
   const bugsRepaired = auditLog.filter((entry) => entry.event === "bug_repaired").length;
   const pendingReviews = repairStatus?.status === "waiting_for_review" ? 1 : 0;
-  const currentJobs = [
-    ...(analysisResult
-      ? [{
-          key: "analysis",
-          name: String(analysis?.repository ?? "Repository analysis"),
-          detail: `${readNumber(analysis?.total_files) ?? "—"} files · ${readNumber(analysis?.total_functions) ?? "—"} functions`,
-          status: "Analysis complete",
-          color: "green",
-        }]
-      : []),
-    ...(repairJob
-      ? [{
-          key: "repair",
-          name: repairStatus?.repository?.split("/").pop() || "Repair job",
-          detail: reviewBug?.title
-            ? String(reviewBug.title)
-            : `${bugsRepaired} issue${bugsRepaired === 1 ? "" : "s"} repaired`,
-          status: formatStatus(repairStatus?.status || repairJob.status),
-          color: repairStatus?.status === "completed"
-            ? "green"
-            : repairStatus?.status === "failed"
-              ? "red"
-              : "yellow",
-        }]
-      : []),
-  ];
+  const currentJobs = repairHistory.map((job) => ({
+    key: job.job_id,
+    name: job.repository.split(/[\\/]/).filter(Boolean).pop() || job.repository,
+    detail: job.message || job.error || "Repair workflow",
+    status: formatStatus(job.status),
+    color: job.status === "completed"
+      ? "green"
+      : job.status === "failed"
+        ? "red"
+        : "yellow",
+    time: job.created_at
+      ? new Date(job.created_at).toLocaleString()
+      : "Recently",
+  }));
 
 
   return (
@@ -328,10 +409,14 @@ async function handlePatchReview(decision: "approved" | "rejected") {
         <div className="sidebar-bottom">
           <div className="engine-card">
             <div className="engine-heading">
-              <span className="engine-dot" /> ENGINE STATUS
+              <span className={`engine-dot ${backendStatus}`} /> ENGINE STATUS
             </div>
-            <div className="engine-status">System ready</div>
-            <div className="engine-description">ASEA engine is ready to analyze repositories.</div>
+            <div className="engine-status">
+              {backendStatus === "online" ? "Backend online" : backendStatus === "offline" ? "Backend offline" : "Checking backend"}
+            </div>
+            <div className="engine-description">
+              {backendStatus === "online" ? "ASEA API health check succeeded." : backendStatus === "offline" ? "Start the FastAPI backend to enable analysis and repair." : "Checking the ASEA API connection."}
+            </div>
           </div>
           <a className="nav-item" href="#settings">
             <Icon name="settings" /> Settings
@@ -351,7 +436,7 @@ async function handlePatchReview(decision: "approved" | "rejected") {
         <header className="topbar">
           <div className="breadcrumb">Workspace <span>/</span> <strong>Dashboard</strong></div>
           <div className="topbar-actions">
-            <span className="system-indicator"><span /> Backend-connected data</span>
+            <span className={`system-indicator ${backendStatus}`}><span /> {backendStatus === "online" ? "Backend connected" : backendStatus === "offline" ? "Backend unavailable" : "Checking backend"}</span>
             <button
   className="analyze-button"
   onClick={startAnalysis}
@@ -425,6 +510,17 @@ async function handlePatchReview(decision: "approved" | "rejected") {
   {!isAnalyzing && <Icon name="arrow" size={17} />}
 </button>
             </div>
+            <label className="publish-option">
+              <input
+                type="checkbox"
+                checked={publishRequested}
+                onChange={(event) => setPublishRequested(event.target.checked)}
+              />
+              <span>
+                <strong>Create a GitHub pull request after validation</strong>
+                <small>Only approved repairs that pass final tests will be published. Backend GitHub credentials are required.</small>
+              </span>
+            </label>
             {notice && (
   <div className="input-notice" role="status">
     {notice}
@@ -433,10 +529,65 @@ async function handlePatchReview(decision: "approved" | "rejected") {
 
 {analysisResult && (
   <div className="analysis-result">
-    <strong>Repository analysis completed</strong>
-    <pre>
-      {JSON.stringify(analysisResult.analysis, null, 2)}
-    </pre>
+    <div className="analysis-heading">
+      <div>
+        <strong>Repository checks completed</strong>
+        <p>{String(analysis?.repository ?? "Python repository")}</p>
+      </div>
+      <span className={syntaxErrors.length === 0 ? "check-status passed" : "check-status failed"}>
+        {syntaxErrors.length === 0 ? "Syntax checks passed" : `${syntaxErrors.length} syntax issue(s)`}
+      </span>
+    </div>
+    <div className="preflight-grid">
+      <div className="preflight-metric">
+        <span>Python files</span>
+        <strong>{String(preflight?.python_file_count ?? analysis?.total_files ?? 0)}</strong>
+      </div>
+      <div className="preflight-metric">
+        <span>Test files</span>
+        <strong>{String(preflight?.test_file_count ?? 0)}</strong>
+      </div>
+      <div className="preflight-metric">
+        <span>Functions</span>
+        <strong>{String(analysis?.total_functions ?? 0)}</strong>
+      </div>
+      <div className="preflight-metric">
+        <span>Classes</span>
+        <strong>{String(analysis?.total_classes ?? 0)}</strong>
+      </div>
+    </div>
+    <div className="preflight-details">
+      <div>
+        <b>Test framework</b>
+        <p>{testFrameworks.length ? testFrameworks.join(", ") : "Not detected"}</p>
+      </div>
+      <div>
+        <b>Dependency files</b>
+        <p>{dependencyManifests.length ? dependencyManifests.join(", ") : "No manifest found"}</p>
+      </div>
+      <div>
+        <b>Existing tests</b>
+        {testFiles.length
+          ? <ul>{testFiles.slice(0, 8).map((file) => <li key={file}>{file}</li>)}</ul>
+          : <p>No existing Python test files found</p>}
+      </div>
+    </div>
+    {syntaxErrors.length > 0 && (
+      <div className="syntax-error-list" role="alert">
+        <b>Syntax errors to fix before repair</b>
+        {syntaxErrors.map((error, index) => (
+          <p key={`${String(error.file)}-${index}`}>
+            <code>{String(error.file ?? "Unknown file")}</code>
+            {": "}{String(error.message ?? "Syntax error")}
+            {error.line ? ` (line ${String(error.line)})` : ""}
+          </p>
+        ))}
+      </div>
+    )}
+    <details className="raw-analysis">
+      <summary>View complete analysis data</summary>
+      <pre>{JSON.stringify(analysisResult.analysis, null, 2)}</pre>
+    </details>
   </div>
 )}
 {repairJob && (
@@ -467,13 +618,33 @@ async function handlePatchReview(decision: "approved" | "rejected") {
   <>
     <strong>Patch Review Required</strong>
 
-    <pre>
-      {JSON.stringify(
-        repairStatus.review_request,
-        null,
-        2
+    <div className="patch-diagnostics">
+      <p><b>Generator:</b> {String(reviewRequest?.generator ?? "unknown")}</p>
+      <p><b>Repair scope:</b> {String(reviewRequest?.repair_scope ?? "complete")}</p>
+      {Array.isArray(reviewRequest?.generation_trace) && reviewRequest.generation_trace.length > 0 && (
+        <details>
+          <summary>Generation diagnostics ({reviewRequest.generation_trace.length} steps)</summary>
+          {reviewRequest.generation_trace.map((item, index) => {
+            const trace = readRecord(item);
+            if (!trace) return null;
+            return (
+              <article key={index}>
+                <strong>{String(trace.stage ?? "generation")} · {String(trace.status ?? "unknown")}</strong>
+                {typeof trace.error === "string" && <p>{trace.error}</p>}
+                {typeof trace.response_excerpt === "string" && (
+                  <pre>{trace.response_excerpt}</pre>
+                )}
+                {typeof trace.reason === "string" && <p>{trace.reason}</p>}
+              </article>
+            );
+          })}
+        </details>
       )}
-    </pre>
+      <details>
+        <summary>Full review payload</summary>
+        <pre>{JSON.stringify(repairStatus.review_request, null, 2)}</pre>
+      </details>
+    </div>
 
     <textarea
       className="review-feedback"
@@ -502,6 +673,36 @@ async function handlePatchReview(decision: "approved" | "rejected") {
     </div>
   </>
 )}
+
+    {publishingResult?.status === "PUBLISH_FAILED" && (
+      <p role="alert">
+        <strong>Repair validated; GitHub publishing failed.</strong>{" "}
+        {typeof publishingResult.error === "string"
+          ? publishingResult.error
+          : "Check the backend GitHub token and repository permissions."}
+        {" "}The validated repair remains completed; publishing can be retried after a safe retry workflow is implemented.
+      </p>
+    )}
+    {publishingResult?.status === "PULL_REQUEST_CREATED" && !pullRequest && (
+      <p><strong>GitHub publishing completed.</strong> Pull request details were not included in the response.</p>
+    )}
+    {repairStatus?.status === "completed" && !publishingResult && (
+      <p>
+        <strong>Repair completed.</strong>{" "}
+        {repairStatus.publish_requested
+          ? "Publishing was requested but no pull-request result was recorded."
+          : "No pull request was requested for this job."}
+      </p>
+    )}
+
+    {pullRequest && typeof pullRequest.url === "string" && (
+      <p className="pull-request-link">
+        <strong>Pull request created:</strong>{" "}
+        <a href={String(pullRequest.url)} target="_blank" rel="noreferrer">
+          {String(pullRequest.url)}
+        </a>
+      </p>
+    )}
 
     {repairStatus?.result && (
       <>
@@ -564,13 +765,13 @@ async function handlePatchReview(decision: "approved" | "rejected") {
                   <h2>Recent repair jobs</h2>
                   <p>Latest repository analysis and repair activity.</p>
                 </div>
-                <a href="#history" className="view-all">View all <Icon name="arrow" size={14} /></a>
+                <span className="view-all">{historyTotal} total jobs</span>
               </div>
 
               <div className="jobs-list">
                 {currentJobs.length === 0 ? (
                   <div className="empty-jobs">
-                    No activity yet. Analyze a GitHub repository to see real jobs here.
+                    No repair jobs yet. Start an autonomous repair to build your history.
                   </div>
                 ) : (
                   currentJobs.map((job) => (
@@ -579,11 +780,21 @@ async function handlePatchReview(decision: "approved" | "rejected") {
                       <div className="job-details">
                         <strong>{job.name}</strong>
                         <span>{job.detail}</span>
+                        <button
+                          className="job-open"
+                          type="button"
+                          onClick={() => {
+                            const selected = repairHistory.find((item) => item.job_id === job.key);
+                            if (selected) void openRepairJob(selected);
+                          }}
+                        >
+                          Open job
+                        </button>
                       </div>
                       <div className="job-result">
                         <span className={`status-badge ${job.color}`}>{job.status}</span>
                       </div>
-                      <span className="job-time">This session</span>
+                      <span className="job-time">{job.time}</span>
                     </article>
                   ))
                 )}

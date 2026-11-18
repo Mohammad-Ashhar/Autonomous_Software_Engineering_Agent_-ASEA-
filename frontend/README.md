@@ -1,36 +1,61 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# ASEA Web Interface
 
-## Getting Started
+The frontend is a Next.js application for interacting with the ASEA FastAPI backend. It provides repository analysis, repair-job submission and status, patch review, and repair history.
 
-First, run the development server:
+## Requirements
+
+- Node.js 22 or newer
+- npm
+- A running ASEA backend (see the root [README](../README.md))
+
+## Local development
+
+From this directory:
 
 ```bash
+npm ci
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open http://localhost:3000. The frontend uses http://127.0.0.1:8000 as its default API base URL.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Start the backend separately from the repository root:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+python -m asea.api.main
+```
 
-## Learn More
+The backend must be ready before submitting analysis or repair jobs. The frontend displays a connection error if the API cannot be reached.
 
-To learn more about Next.js, take a look at the following resources:
+## Configure the backend URL
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Set `NEXT_PUBLIC_API_URL` in a frontend `.env.local` file when the backend is not running at the default address:
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```dotenv
+NEXT_PUBLIC_API_URL=http://127.0.0.1:8000
+```
 
-## Deploy on Vercel
+Restart the Next.js development server after changing environment variables. This variable is public and is embedded in browser-side code; never put API keys, GitHub tokens, or other secrets in a `NEXT_PUBLIC_*` variable.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Quality checks and production build
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Run the checks used by CI:
+
+```bash
+npm run lint
+npm run build
+```
+
+Run the production build locally:
+
+```bash
+npm run start
+```
+
+The production server listens on port 3000 by default. Configure the API URL at build time using `NEXT_PUBLIC_API_URL`.
+
+## Operational notes
+
+- The backend allows browser origins `http://localhost:3000` and `http://127.0.0.1:3000` by default. Update the backend CORS configuration when deploying the frontend elsewhere.
+- The API's production-mode shared Bearer key is intended for trusted server-side clients. Do not expose it in browser code; use an authenticated reverse proxy or identity-aware gateway for a public deployment.
+- Repair is supervised: inspect proposed changes and explicitly approve or reject patches when the workflow pauses for review.

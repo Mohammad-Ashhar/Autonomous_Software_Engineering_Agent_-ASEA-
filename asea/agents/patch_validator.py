@@ -1,8 +1,10 @@
+import ast
 import shutil
 import subprocess
 import tempfile
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from asea.tools.test_runner import DockerTestRunner
 
@@ -10,7 +12,8 @@ from asea.tools.test_runner import DockerTestRunner
 class PatchValidatorAgent:
 
     def __init__(self):
-        self.test_runner = DockerTestRunner()
+        # Workspace copying and patch preparation do not require Docker.
+        self.test_runner = None
 
     def create_temporary_copy(
         self,
@@ -34,106 +37,202 @@ class PatchValidatorAgent:
         shutil.copytree(
             source_path,
             destination_path,
-            ignore=ignored
+            ignore=ignored,
+            symlinks=True,
         )
 
-    def get_patch_target(self, patch: str) -> str:
-        """Extract the target file path from a unified diff."""
+    @staticmethod
+    def _resolve_patch_target(
+        repository_path: Path,
+        patch_path: str,
+    ) -> Path:
+        """Resolve one diff path without allowing repository traversal."""
 
-        for line in patch.splitlines():
+        if patch_path == "/dev/null":
+            raise ValueError(
+                "Creating or deleting files is not supported yet."
+            )
 
-            if line.startswith("+++ "):
+        normalized = patch_path.removeprefix("a/").removeprefix("b/")
+        relative_path = Path(normalized)
 
-                target = line[4:].split("\t")[0].strip()
+        if relative_path.is_absolute() or ".." in relative_path.parts:
+            raise ValueError("Patch target is outside the repository.")
 
-                if target == "/dev/null":
-                    raise ValueError(
-                        "Creating new files is not supported yet."
-                    )
+        target = (repository_path / relative_path).resolve()
 
-                target = target.removeprefix("b/")
+        try:
+            target.relative_to(repository_path)
+        except ValueError as error:
+            raise ValueError(
+                "Patch target is outside the repository."
+            ) from error
 
-                if not target:
-                    raise ValueError("Invalid patch target.")
+        if target.is_file():
+            return target
 
-                return target
+        matches = [
+            match.resolve()
+            for match in repository_path.rglob(relative_path.name)
+            if match.is_file()
+            and repository_path in match.resolve().parents
+        ]
 
-        raise ValueError("Could not identify the patch target.")
+        if len(matches) == 1:
+            return matches[0]
+
+        if len(matches) > 1:
+            raise ValueError(
+                f"Multiple files match patch target: {patch_path}"
+            )
+
+        raise FileNotFoundError(
+            f"Patch target not found: {patch_path}"
+        )
 
     def apply_patch(
         self,
         repository_path: Path,
         patch: str
     ) -> None:
-        """Safely apply a patch to a candidate repository."""
+        """Apply a patch transactionally; failures leave the workspace untouched."""
+
+        repository_path = Path(repository_path).resolve()
+        if not repository_path.is_dir():
+            raise FileNotFoundError(f"Repository not found: {repository_path}")
+
+        with tempfile.TemporaryDirectory(
+            prefix="asea_patch_transaction_",
+            dir=str(repository_path.parent),
+        ) as transaction_dir:
+            transaction_root = Path(transaction_dir)
+            staged_repo = transaction_root / "staged"
+            backup_repo = transaction_root / "backup"
+            self.create_temporary_copy(repository_path, staged_repo)
+
+            # All parsing, normalization and git operations happen on the stage.
+            self._apply_patch_in_place(staged_repo, patch)
+
+            repository_path.rename(backup_repo)
+            try:
+                staged_repo.rename(repository_path)
+
+                # The staged copy intentionally excludes bulky or runtime
+                # directories. Restore top-level exclusions so applying a
+                # patch never deletes the user's Git metadata, virtualenv,
+                # artifacts, or persisted workspaces.
+                preserved_directories = (
+                    ".git",
+                    ".venv",
+                    "venv",
+                    "artifacts",
+                    "workspaces",
+                )
+                for directory_name in preserved_directories:
+                    original_directory = backup_repo / directory_name
+                    if original_directory.exists():
+                        destination = repository_path / directory_name
+                        # Patch application initializes a temporary Git
+                        # repository in the staged copy. Replace that
+                        # temporary metadata with the user's original .git.
+                        if directory_name == ".git" and destination.exists():
+                            shutil.rmtree(destination)
+                        elif destination.exists():
+                            raise FileExistsError(
+                                f"Cannot restore preserved directory: {directory_name}"
+                            )
+                        original_directory.rename(destination)
+            except Exception:
+                # Return any already-restored directories to the backup before
+                # putting the original repository tree back in place.
+                for directory_name in (
+                    ".git",
+                    ".venv",
+                    "venv",
+                    "artifacts",
+                    "workspaces",
+                ):
+                    restored = repository_path / directory_name
+                    original = backup_repo / directory_name
+                    if restored.exists() and not original.exists():
+                        restored.rename(original)
+                if repository_path.exists():
+                    repository_path.rename(staged_repo)
+                backup_repo.rename(repository_path)
+                raise
+
+            shutil.rmtree(backup_repo, ignore_errors=True)
+
+    def _apply_patch_in_place(
+        self,
+        repository_path: Path,
+        patch: str
+    ) -> None:
+        """Apply a validated patch to a disposable staging directory."""
 
         repository_path = repository_path.resolve()
-        target_relative = self.get_patch_target(patch)
+        if not repository_path.is_dir():
+            raise FileNotFoundError(
+                f"Repository not found: {repository_path}"
+            )
 
-        target_file = (
-            repository_path / target_relative
-        ).resolve()
+        lines = patch.splitlines()
+        rewritten_lines = []
+        target_files = []
+        index = 0
 
-        try:
-            target_file.relative_to(repository_path)
-        except ValueError as error:
-            raise ValueError(
-                "Patch target is outside the repository."
-            ) from error
+        while index < len(lines):
+            line = lines[index]
 
-        if not target_file.is_file():
+            if line.startswith("--- "):
+                if index + 1 >= len(lines) or not lines[index + 1].startswith("+++ "):
+                    raise ValueError("Malformed unified diff file headers.")
 
-            matches = [
-                match.resolve()
-                for match in repository_path.rglob(
-                    Path(target_relative).name
+                old_path = line[4:].split("\t")[0].strip()
+                new_path = lines[index + 1][4:].split("\t")[0].strip()
+
+                if old_path == "/dev/null" or new_path == "/dev/null":
+                    raise ValueError(
+                        "Creating or deleting files is not supported yet."
+                    )
+
+                old_target = self._resolve_patch_target(
+                    repository_path,
+                    old_path,
                 )
-                if match.is_file()
-            ]
-
-            matches = [
-                match
-                for match in matches
-                if repository_path in match.parents
-            ]
-
-            if len(matches) == 1:
-                target_file = matches[0]
-
-            elif len(matches) > 1:
-                raise ValueError(
-                    f"Multiple files match patch target: "
-                    f"{target_relative}"
+                new_target = self._resolve_patch_target(
+                    repository_path,
+                    new_path,
                 )
 
-            else:
-                raise FileNotFoundError(
-                    f"Patch target not found: {target_relative}"
-                )
+                if old_target != new_target:
+                    raise ValueError(
+                        "File renames are not supported in repair patches."
+                    )
 
-        actual_relative = target_file.relative_to(
-            repository_path
-        ).as_posix()
+                actual_path = old_target.relative_to(
+                    repository_path
+                ).as_posix()
+                rewritten_lines.extend([
+                    f"--- a/{actual_path}",
+                    f"+++ b/{actual_path}",
+                ])
+                target_files.append(old_target)
+                index += 2
+                continue
 
-        updated_lines = []
+            rewritten_lines.append(line)
+            index += 1
 
-        for line in patch.splitlines():
+        if not target_files:
+            raise ValueError("Patch contains no supported file changes.")
 
-            if line.startswith("--- a/"):
-                line = f"--- a/{actual_relative}"
+        normalized_patch = "\n".join(rewritten_lines) + "\n"
 
-            elif line.startswith("+++ b/"):
-                line = f"+++ b/{actual_relative}"
-
-            updated_lines.append(line)
-
-        patch = "\n".join(updated_lines) + "\n"
-
-        source = target_file.read_bytes()
-
-        target_file.write_bytes(
-            source.replace(b"\r\n", b"\n")
-        )
+        # Normalize line endings only inside the isolated candidate copy.
+        for target_file in set(target_files):
+            source = target_file.read_bytes()
+            target_file.write_bytes(source.replace(b"\\r\\n", b"\\n"))
 
         init_result = subprocess.run(
             ["git", "init"],
@@ -146,7 +245,7 @@ class PatchValidatorAgent:
 
         if init_result.returncode != 0:
             raise RuntimeError(
-                f"Could not initialize temporary Git repository: "
+                "Could not initialize temporary Git repository: "
                 f"{init_result.stderr}"
             )
 
@@ -161,7 +260,7 @@ class PatchValidatorAgent:
             ],
             check=False,
             cwd=repository_path,
-            input=patch,
+            input=normalized_patch,
             capture_output=True,
             text=True,
             timeout=30
@@ -182,7 +281,7 @@ class PatchValidatorAgent:
             ],
             check=False,
             cwd=repository_path,
-            input=patch,
+            input=normalized_patch,
             capture_output=True,
             text=True,
             timeout=30
@@ -192,6 +291,18 @@ class PatchValidatorAgent:
             raise RuntimeError(
                 f"Patch application failed:\n{apply_result.stderr}"
             )
+
+    @staticmethod
+    def has_reliable_test_execution(
+        results: dict[str, Any]
+    ) -> bool:
+        """Reject test runs that did not execute a usable test suite."""
+
+        return (
+            results.get("status") in {"PASSED", "FAILED"}
+            and results.get("total", 0) > 0
+            and not results.get("timed_out", False)
+        )
 
     @staticmethod
     def has_no_new_failures(
@@ -223,6 +334,52 @@ class PatchValidatorAgent:
         return not candidate_failed or candidate_failed.issubset(
             baseline_failed
         )
+
+    def _promote_candidate(
+        self,
+        working_repo_path: Path,
+        candidate_repo: Path,
+    ) -> None:
+        """Atomically promote a validated candidate while preserving runtime state."""
+        backup_repo = (
+            working_repo_path.parent
+            / f".{working_repo_path.name}.asea-backup-{uuid4().hex}"
+        )
+        working_repo_path.rename(backup_repo)
+        try:
+            candidate_repo.rename(working_repo_path)
+            for directory_name in (
+                ".git", ".venv", "venv", "artifacts", "workspaces",
+            ):
+                original_directory = backup_repo / directory_name
+                if original_directory.exists():
+                    destination = working_repo_path / directory_name
+                    destination_exists = (
+                        destination.exists() or destination.is_symlink()
+                    )
+                    if directory_name == ".git" and destination_exists:
+                        if destination.is_dir() and not destination.is_symlink():
+                            shutil.rmtree(destination)
+                        else:
+                            destination.unlink()
+                    elif destination_exists:
+                        raise FileExistsError(
+                            f"Cannot restore preserved directory: {directory_name}"
+                        )
+                    original_directory.rename(destination)
+        except Exception:
+            for directory_name in (
+                ".git", ".venv", "venv", "artifacts", "workspaces",
+            ):
+                restored = working_repo_path / directory_name
+                original = backup_repo / directory_name
+                if restored.exists() and not original.exists():
+                    restored.rename(original)
+            if working_repo_path.exists():
+                working_repo_path.rename(candidate_repo)
+            backup_repo.rename(working_repo_path)
+            raise
+        shutil.rmtree(backup_repo, ignore_errors=True)
 
     def validate_patch(
         self,
@@ -308,6 +465,50 @@ class PatchValidatorAgent:
                     "reason": str(error)
                 }
 
+            if patch_result.get("repair_scope") == "syntax_only":
+                import_path = Path(patch_result.get("file", "")).resolve()
+                try:
+                    relative_path = import_path.relative_to(working_repo_path)
+                except ValueError as error:
+                    raise ValueError(
+                        "Syntax repair target is outside the working repository."
+                    ) from error
+                candidate_file = (candidate_repo / relative_path).resolve()
+                try:
+                    candidate_file.relative_to(candidate_repo.resolve())
+                except ValueError as error:
+                    raise ValueError(
+                        "Syntax repair target escapes the candidate repository."
+                    ) from error
+                if not candidate_file.is_file():
+                    raise FileNotFoundError(
+                        f"Syntax repair target not found: {candidate_file}"
+                    )
+                try:
+                    ast.parse(candidate_file.read_text(encoding="utf-8-sig"))
+                except (SyntaxError, UnicodeError) as error:
+                    return {
+                        "status": "PATCH_REJECTED",
+                        "patch_applied": True,
+                        "tests_passed": False,
+                        "regression_free": False,
+                        "reason": f"Intermediate syntax repair did not parse: {error}",
+                    }
+                self._promote_candidate(working_repo_path, candidate_repo)
+                return {
+                    "status": "PATCH_INTERMEDIATE",
+                    "patch_applied": True,
+                    "tests_passed": False,
+                    "regression_free": False,
+                    "reason": (
+                        "Syntax is repaired and the candidate parses. "
+                        "Semantic reanalysis and full test validation are "
+                        "still required."
+                    ),
+                }
+
+            if self.test_runner is None:
+                self.test_runner = DockerTestRunner()
             test_results = self.test_runner.run_tests(
                 candidate_repo
             )
@@ -316,6 +517,20 @@ class PatchValidatorAgent:
                 "success",
                 False
             )
+
+            if not self.has_reliable_test_execution(test_results):
+                return {
+                    "status": "PATCH_REJECTED",
+                    "patch_applied": True,
+                    "tests_passed": False,
+                    "regression_free": False,
+                    "reason": (
+                        "Candidate validation did not execute a usable "
+                        "test suite. Add or repair tests before accepting "
+                        "this patch."
+                    ),
+                    "test_results": test_results
+                }
 
             regression_free = self.has_no_new_failures(
                 baseline,
@@ -336,27 +551,26 @@ class PatchValidatorAgent:
                     "test_results": test_results
                 }
 
-            backup_repo = (
-                working_repo_path.parent
-                / f"{working_repo_path.name}_backup"
-            )
+            # A patch is not a repair merely because it did not make an
+            # already-failing suite worse. In particular, syntax repairs can
+            # expose runtime failures during test collection. Keep the
+            # candidate isolated and feed the failure output into the retry
+            # path until the suite actually passes.
+            if not tests_passed:
+                return {
+                    "status": "PATCH_REJECTED",
+                    "patch_applied": False,
+                    "tests_passed": False,
+                    "regression_free": True,
+                    "reason": (
+                        "The candidate introduced no additional regressions, "
+                        "but the test suite still fails. The patch cannot be "
+                        "accepted until the existing failures are resolved."
+                    ),
+                    "test_results": test_results
+                }
 
-            if backup_repo.exists():
-                shutil.rmtree(backup_repo)
-
-            working_repo_path.rename(backup_repo)
-
-            try:
-                candidate_repo.rename(working_repo_path)
-
-            except Exception:
-                backup_repo.rename(working_repo_path)
-                raise
-
-            shutil.rmtree(
-                backup_repo,
-                ignore_errors=True
-            )
+            self._promote_candidate(working_repo_path, candidate_repo)
 
             return {
                 "status": "PATCH_VALIDATED",

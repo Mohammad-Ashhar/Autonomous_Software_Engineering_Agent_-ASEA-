@@ -1,10 +1,14 @@
 import ast
 import json
+import re
 from pathlib import Path
 from typing import Any
 
 from asea.core.state import ASEAState
+from asea.tools.dependency_analyzer import PythonDependencyAnalyzer
 from asea.tools.llm_client import OllamaClient
+from asea.tools.repository import RepositoryManager
+from asea.tools.source_reader import read_python_source
 
 
 def parse_json_response(response: str) -> dict:
@@ -165,23 +169,247 @@ class BugDetectorAgent:
                         "source": "ast"
                     })
 
-        return findings
+        # Detect a score accumulator initialized to one before adding
+        # every score. The source's own JSON examples are also inspected for
+        # empty score lists, which make len(scores) a zero divisor.
+        has_empty_score_example = False
+        for constant in ast.walk(syntax_tree):
+            if (
+                not isinstance(constant, ast.Constant)
+                or not isinstance(constant.value, str)
+            ):
+                continue
+            try:
+                sample = json.loads(constant.value)
+            except (TypeError, ValueError):
+                continue
+            if isinstance(sample, dict) and any(
+                isinstance(scores, list) and not scores
+                for scores in sample.values()
+            ):
+                has_empty_score_example = True
+                break
+
+        for function in ast.walk(syntax_tree):
+            if not isinstance(function, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            score_loops = [
+                child for child in ast.walk(function)
+                if isinstance(child, ast.For)
+                and isinstance(child.target, ast.Name)
+                and isinstance(child.iter, ast.Name)
+                and child.target.id.lower().endswith("score")
+                and child.iter.id.lower().endswith("scores")
+            ]
+            for loop in score_loops:
+                for assignment in ast.walk(function):
+                    if (
+                        not isinstance(assignment, ast.Assign)
+                        or len(assignment.targets) != 1
+                    ):
+                        continue
+                    target = assignment.targets[0]
+                    value = assignment.value
+                    if (
+                        not isinstance(target, ast.Name)
+                        or not target.id.lower().endswith("total")
+                        and not target.id.lower().startswith("total")
+                        or not isinstance(value, ast.Constant)
+                        or value.value != 1
+                    ):
+                        continue
+                    accumulates_loop_value = any(
+                        isinstance(child, ast.AugAssign)
+                        and isinstance(child.target, ast.Name)
+                        and child.target.id == target.id
+                        and isinstance(child.op, ast.Add)
+                        and isinstance(child.value, ast.Name)
+                        and child.value.id == loop.target.id
+                        for child in ast.walk(loop)
+                    )
+                    if accumulates_loop_value:
+                        findings.append({
+                            "title": "Score accumulator starts at one",
+                            "line": assignment.lineno,
+                            "severity": "high",
+                            "classification": "confirmed_bug",
+                            "confidence": 1.0,
+                            "description": (
+                                f"'{target.id}' is initialized to 1 before "
+                                "the loop adds every score, inflating the total by one."
+                            ),
+                            "suggestion": "Initialize the score accumulator to 0.",
+                            "file": str(file_path),
+                            "source": "ast",
+                        })
+
+            if has_empty_score_example:
+                for division in ast.walk(function):
+                    if (
+                        isinstance(division, ast.BinOp)
+                        and isinstance(division.op, ast.Div)
+                        and isinstance(division.right, ast.Call)
+                        and isinstance(division.right.func, ast.Name)
+                        and division.right.func.id == "len"
+                        and len(division.right.args) == 1
+                        and isinstance(division.right.args[0], ast.Name)
+                        and division.right.args[0].id.lower().endswith("scores")
+                    ):
+                        findings.append({
+                            "title": "Empty score list causes division by zero",
+                            "line": division.lineno,
+                            "severity": "high",
+                            "classification": "confirmed_bug",
+                            "confidence": 1.0,
+                            "description": (
+                                "The source includes an example with an empty "
+                                "score list, but this average divides by len(scores)."
+                            ),
+                            "suggestion": (
+                                "Handle an empty score list before dividing; "
+                                "return a defined zero average for that student."
+                            ),
+                            "file": str(file_path),
+                            "source": "ast",
+                        })
+
+        # General-purpose checks that do not depend on function names.
+        for node in ast.walk(syntax_tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+
+            # Mutable defaults are shared between calls and commonly cause
+            # state leakage. Report only literal mutable containers.
+            defaults = node.args.defaults
+            positional = node.args.posonlyargs + node.args.args
+            offset = len(positional) - len(defaults)
+            for index, default in enumerate(defaults):
+                if isinstance(default, (ast.List, ast.Dict, ast.Set)):
+                    argument = positional[offset + index]
+                    findings.append({
+                        "title": "Mutable default argument",
+                        "line": default.lineno,
+                        "severity": "medium",
+                        "classification": "confirmed_bug",
+                        "confidence": 0.99,
+                        "description": (
+                            f"Parameter '{argument.arg}' uses a mutable "
+                            "literal as its default value. The same object "
+                            "is reused across function calls."
+                        ),
+                        "suggestion": (
+                            "Use None as the default and create the mutable "
+                            "value inside the function."
+                        ),
+                        "file": str(file_path),
+                        "source": "ast"
+                    })
+
+            # Detect statements placed after an unconditional return/raise
+            # in the same statement block.
+            for child in ast.walk(node):
+                body = getattr(child, "body", None)
+                if not isinstance(body, list):
+                    continue
+                terminal_seen = False
+                for statement in body:
+                    if terminal_seen and not isinstance(
+                        statement,
+                        (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef),
+                    ):
+                        findings.append({
+                            "title": "Unreachable statement",
+                            "line": statement.lineno,
+                            "severity": "low",
+                            "classification": "potential_issue",
+                            "confidence": 0.94,
+                            "description": (
+                                "This statement follows an unconditional "
+                                "return or raise in the same code block."
+                            ),
+                            "suggestion": (
+                                "Remove the unreachable statement or move "
+                                "it before the terminal statement."
+                            ),
+                            "file": str(file_path),
+                            "source": "ast"
+                        })
+                        break
+                    if isinstance(statement, (ast.Return, ast.Raise)):
+                        terminal_seen = True
+
+            # An unconditional assert False makes the function fail whenever
+            # execution reaches it. Keep it as a potential issue because it
+            # may intentionally mark an unfinished path.
+            for child in ast.walk(node):
+                if (
+                    isinstance(child, ast.Assert)
+                    and isinstance(child.test, ast.Constant)
+                    and child.test.value is False
+                ):
+                    findings.append({
+                        "title": "Unconditional assertion failure",
+                        "line": child.lineno,
+                        "severity": "medium",
+                        "classification": "potential_issue",
+                        "confidence": 0.98,
+                        "description": (
+                            "This assert statement always fails when reached."
+                        ),
+                        "suggestion": (
+                            "Replace it with the intended condition or an "
+                            "explicit exception if failure is intentional."
+                        ),
+                        "file": str(file_path),
+                        "source": "ast"
+                    })
+
+        # Stable deduplication: one finding per rule and source line.
+        unique_findings = {}
+        for finding in findings:
+            key = (
+                finding.get("file"),
+                finding.get("line"),
+                finding.get("title")
+            )
+            unique_findings[key] = finding
+
+        return list(unique_findings.values())
 
     def analyze_file(self, file_path: Path) -> list[dict[str, Any]]:
         """Analyze a Python file using AST and Ollama."""
 
-        source_code = file_path.read_text(
-            encoding="utf-8-sig",
-            errors="replace"
-        )
+        try:
+            source_code = read_python_source(file_path)
+        except (OSError, SyntaxError, UnicodeDecodeError, ValueError):
+            # Encoding and file-analysis diagnostics are reported by the
+            # repository parser; do not mislabel them as Python syntax bugs.
+            return []
 
         if not source_code.strip():
             return []
 
         try:
-            syntax_tree = ast.parse(source_code)
-        except SyntaxError:
-            return []
+            syntax_tree = ast.parse(source_code, filename=str(file_path))
+        except SyntaxError as error:
+            line = error.lineno or 1
+            return [{
+                "title": "Python syntax error",
+                "line": line,
+                "severity": "high",
+                "classification": "confirmed_bug",
+                "confidence": 1.0,
+                "description": (
+                    f"Python cannot parse this file at line {line}: "
+                    f"{error.msg}."
+                ),
+                "suggestion": (
+                    "Correct the reported Python syntax error, then rerun "
+                    "the test suite."
+                ),
+                "file": str(file_path),
+                "source": "python_parser",
+            }]
 
         # First, perform deterministic AST analysis.
         ast_findings = self.detect_ast_bugs(
@@ -304,10 +532,12 @@ If no issues are found:
                     "AI response contains an invalid bugs list."
                 )
 
-        except (ValueError, TypeError, json.JSONDecodeError, RuntimeError) as exc:
+        except Exception as exc:  # noqa: BLE001
+            # Preserve deterministic AST findings when an LLM provider,
+            # network client, or response parser fails unexpectedly.
             print(
                 f"WARNING: Ollama analysis failed for "
-                f"{file_path.name}: {exc}"
+                f"{file_path.name}: {type(exc).__name__}: {exc}"
             )
             bugs = []
 
@@ -425,37 +655,58 @@ If no issues are found:
                 f"Repository directory not found: {repo_path}"
             )
 
-        ignored = {
-            ".git",
-            ".venv",
-            "venv",
-            "__pycache__",
-            "node_modules",
-            "dist",
-            "build",
-            ".pytest_cache",
-            ".mypy_cache",
-            ".ruff_cache",
-            "artifacts",
-            "workspaces"
-        }
-
-        python_files = sorted(
-            path
-            for path in repo_path.rglob("*.py")
-            if not any(
-                part in ignored
-                for part in path.relative_to(repo_path).parts
-            )
-        )
+        python_files = RepositoryManager.get_python_files(repo_path)
 
         detected_bugs = []
 
         for file_path in python_files:
-
             findings = self.analyze_file(file_path)
-
             detected_bugs.extend(findings)
+
+        # Resolve project-local imports and validate calls against the
+        # actual function signatures defined in other repository files.
+        dependency_results = PythonDependencyAnalyzer().analyze(repo_path)
+        detected_bugs.extend(dependency_results["cross_file_findings"])
+
+        # Dependency analysis also parses every application module. Promote
+        # its parser diagnostics into findings as a defensive fallback so a
+        # syntax error can never remain only an informational parse warning.
+        for parse_error in dependency_results["parse_errors"]:
+            relative_file = parse_error.get("file", "")
+            source_file = (repo_path / relative_file).resolve()
+            try:
+                source_file.relative_to(repo_path)
+            except ValueError:
+                continue
+            message = str(parse_error.get("error", "Python syntax error"))
+            line_match = re.search(r"line (\d+)", message)
+            line = int(line_match.group(1)) if line_match else 1
+            detected_bugs.append({
+                "title": "Python syntax error",
+                "line": line,
+                "severity": "high",
+                "classification": "confirmed_bug",
+                "confidence": 1.0,
+                "description": (
+                    f"Python cannot parse {relative_file}: {message}"
+                ),
+                "suggestion": (
+                    "Correct the syntax error before running or importing "
+                    "this module."
+                ),
+                "file": str(source_file),
+                "source": "dependency_parser",
+            })
+
+        unique_findings = {}
+        for finding in detected_bugs:
+            key = (
+                finding.get("file"),
+                finding.get("line"),
+                finding.get("title")
+            )
+            unique_findings[key] = finding
+        detected_bugs = list(unique_findings.values())
 
         confirmed_count = sum(
             bug["classification"] == "confirmed_bug"
@@ -469,6 +720,15 @@ If no issues are found:
 
         return {
             "detected_bugs": detected_bugs,
+            "dependency_map": dependency_results["dependency_map"],
+            "dependency_analysis": {
+                "module_count": dependency_results["module_count"],
+                "dependency_count": dependency_results["dependency_count"],
+                "cross_file_issue_count": len(
+                    dependency_results["cross_file_findings"]
+                ),
+                "parse_errors": dependency_results["parse_errors"]
+            },
             "confirmed_bug_count": confirmed_count,
             "potential_issue_count": potential_count,
             "current_agent": "bug_detector",

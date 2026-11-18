@@ -1,0 +1,210 @@
+import asyncio
+
+from asea.api import main
+
+
+class FakeExecutor:
+    def __init__(self, **kwargs):
+        self.options = kwargs
+        self.shutdown_options = None
+        self.submitted = []
+
+    def submit(self, function, *args):
+        self.submitted.append((function, args))
+
+    def shutdown(self, **kwargs):
+        self.shutdown_options = kwargs
+
+
+class FakeCheckpointer:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, traceback):
+        return False
+
+    def setup(self):
+        pass
+
+
+class FakeSqliteSaver:
+    @staticmethod
+    def from_conn_string(_path):
+        return FakeCheckpointer()
+
+
+def test_lifespan_creates_fresh_executor_and_drains_it_on_shutdown(
+    monkeypatch, tmp_path
+):
+    executor_instances = []
+
+    def make_executor(**kwargs):
+        executor = FakeExecutor(**kwargs)
+        executor_instances.append(executor)
+        return executor
+
+    monkeypatch.setattr(main, "ThreadPoolExecutor", make_executor)
+    monkeypatch.setattr(main, "SqliteSaver", FakeSqliteSaver)
+    monkeypatch.setattr(main, "CHECKPOINT_DB_PATH", tmp_path / "checkpoints.db")
+    monkeypatch.setattr(main.repair_jobs, "mark_interrupted_jobs", lambda: 0)
+    monkeypatch.setattr(main, "build_asea_graph", lambda checkpointer: object())
+
+    async def exercise_lifespan():
+        async with main.lifespan(main.app):
+            assert main.executor is executor_instances[0]
+            assert executor_instances[0].options == {"max_workers": 1}
+            assert executor_instances[0].shutdown_options is None
+
+        assert executor_instances[0].shutdown_options == {
+            "wait": True,
+            "cancel_futures": True,
+        }
+
+    asyncio.run(exercise_lifespan())
+
+
+def test_lifespan_replaces_executor_on_each_startup(monkeypatch, tmp_path):
+    executor_instances = []
+
+    def make_executor(**kwargs):
+        executor = FakeExecutor(**kwargs)
+        executor_instances.append(executor)
+        return executor
+
+    monkeypatch.setattr(main, "ThreadPoolExecutor", make_executor)
+    monkeypatch.setattr(main, "SqliteSaver", FakeSqliteSaver)
+    monkeypatch.setattr(main, "CHECKPOINT_DB_PATH", tmp_path / "checkpoints.db")
+    monkeypatch.setattr(main.repair_jobs, "mark_interrupted_jobs", lambda: 0)
+    monkeypatch.setattr(main, "build_asea_graph", lambda checkpointer: object())
+
+    async def exercise_two_lifespans():
+        async with main.lifespan(main.app):
+            first_executor = main.executor
+        async with main.lifespan(main.app):
+            second_executor = main.executor
+
+        assert first_executor is not second_executor
+        assert len(executor_instances) == 2
+        assert all(
+            executor.shutdown_options == {
+                "wait": True,
+                "cancel_futures": True,
+            }
+            for executor in executor_instances
+        )
+
+    asyncio.run(exercise_two_lifespans())
+
+def test_lifespan_shuts_down_executor_when_graph_startup_fails(
+    monkeypatch, tmp_path
+):
+    executor_instances = []
+
+    def make_executor(**kwargs):
+        executor = FakeExecutor(**kwargs)
+        executor_instances.append(executor)
+        return executor
+
+    def fail_graph_build(checkpointer):
+        raise RuntimeError("graph compilation failed")
+
+    monkeypatch.setattr(main, "ThreadPoolExecutor", make_executor)
+    monkeypatch.setattr(main, "SqliteSaver", FakeSqliteSaver)
+    monkeypatch.setattr(main, "CHECKPOINT_DB_PATH", tmp_path / "checkpoints.db")
+    monkeypatch.setattr(main.repair_jobs, "mark_interrupted_jobs", lambda: 0)
+    monkeypatch.setattr(main, "build_asea_graph", fail_graph_build)
+
+    async def exercise_failed_startup():
+        try:
+            async with main.lifespan(main.app):
+                raise AssertionError("lifespan should not reach yield")
+        except RuntimeError as error:
+            assert str(error) == "graph compilation failed"
+        else:
+            raise AssertionError("startup failure was not propagated")
+
+        assert len(executor_instances) == 1
+        assert executor_instances[0].shutdown_options == {
+            "wait": True,
+            "cancel_futures": True,
+        }
+
+    asyncio.run(exercise_failed_startup())
+
+def test_lifespan_shuts_down_executor_when_checkpointer_setup_fails(
+    monkeypatch, tmp_path
+):
+    executor_instances = []
+
+    def make_executor(**kwargs):
+        executor = FakeExecutor(**kwargs)
+        executor_instances.append(executor)
+        return executor
+
+    class FailingCheckpointer(FakeCheckpointer):
+        def setup(self):
+            raise RuntimeError("checkpoint setup failed")
+
+    class FailingSqliteSaver:
+        @staticmethod
+        def from_conn_string(_path):
+            return FailingCheckpointer()
+
+    monkeypatch.setattr(main, "ThreadPoolExecutor", make_executor)
+    monkeypatch.setattr(main, "SqliteSaver", FailingSqliteSaver)
+    monkeypatch.setattr(main, "CHECKPOINT_DB_PATH", tmp_path / "checkpoints.db")
+
+    async def exercise_failed_setup():
+        try:
+            async with main.lifespan(main.app):
+                raise AssertionError("lifespan should not reach yield")
+        except RuntimeError as error:
+            assert str(error) == "checkpoint setup failed"
+        else:
+            raise AssertionError("checkpoint setup failure was not propagated")
+
+        assert len(executor_instances) == 1
+        assert executor_instances[0].shutdown_options == {
+            "wait": True,
+            "cancel_futures": True,
+        }
+
+    asyncio.run(exercise_failed_setup())
+
+
+
+def test_lifespan_reschedules_durably_claimed_reviews_after_restart(
+    monkeypatch, tmp_path
+):
+    executor_instances = []
+
+    def make_executor(**kwargs):
+        executor = FakeExecutor(**kwargs)
+        executor_instances.append(executor)
+        return executor
+
+    pending = [{
+        "job_id": "recovered-review-001",
+        "review_decision": "approved",
+        "review_feedback": "Looks correct",
+    }]
+    monkeypatch.setattr(main, "ThreadPoolExecutor", make_executor)
+    monkeypatch.setattr(main, "SqliteSaver", FakeSqliteSaver)
+    monkeypatch.setattr(main, "CHECKPOINT_DB_PATH", tmp_path / "checkpoints.db")
+    monkeypatch.setattr(main.repair_jobs, "mark_interrupted_jobs", lambda: 0)
+    monkeypatch.setattr(main.repair_jobs, "list_pending_reviews", lambda: pending)
+    monkeypatch.setattr(main, "build_asea_graph", lambda checkpointer: object())
+
+    async def exercise_lifespan():
+        async with main.lifespan(main.app):
+            submitted = executor_instances[0].submitted
+            assert len(submitted) == 1
+            function, args = submitted[0]
+            assert function is main.resume_repair_job
+            assert args == (
+                "recovered-review-001",
+                "approved",
+                "Looks correct",
+            )
+
+    asyncio.run(exercise_lifespan())

@@ -70,3 +70,37 @@ def test_interrupt_and_resume():
         )
 
         assert resumed_result["decision"] == "approved"
+
+
+def test_interrupt_checkpoint_survives_checkpointer_restart(tmp_path):
+    database_path = tmp_path / "restart-checkpoint.db"
+    config = {
+        "configurable": {
+            "thread_id": "asea-restart-review-001",
+        }
+    }
+    initial_state = {
+        "message": "Approve this patch after restart?",
+        "decision": "",
+    }
+
+    with SqliteSaver.from_conn_string(str(database_path)) as checkpointer:
+        checkpointer.setup()
+        graph = build_test_graph(checkpointer)
+        graph.invoke(initial_state, config=config)
+        paused = graph.get_state(config)
+        assert paused.interrupts
+
+    with SqliteSaver.from_conn_string(str(database_path)) as checkpointer:
+        checkpointer.setup()
+        graph = build_test_graph(checkpointer)
+        restored = graph.get_state(config)
+        assert restored.interrupts
+        assert restored.values["message"] == initial_state["message"]
+
+        result = graph.invoke(
+            Command(resume={"decision": "approved"}),
+            config=config,
+        )
+
+    assert result["decision"] == "approved"

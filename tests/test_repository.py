@@ -1,4 +1,6 @@
 
+from pathlib import Path
+
 import pytest
 
 from asea.tools.repository import RepositoryManager
@@ -41,3 +43,153 @@ def test_python_file_discovery(tmp_path):
 
     assert len(files) == 1
     assert files[0].name == "main.py"
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://github.com/user/repo?redirect=example",
+        "https://github.com/user/repo#fragment",
+        "https://user@github.com/user/repo",
+        "https://github.com:8443/user/repo",
+        "https://github.com/user/%2e%2e",
+        "https://github.com/user/repo/extra",
+        "https://github.com/user\\repo",
+        "https://github.com/user/repo\\",
+        "https://github.com/user name/repo",
+        "https://github.com/user/repo name",
+        "https://github.com/user/.git",
+    ],
+)
+def test_github_url_rejects_ambiguous_or_unsafe_urls(tmp_path, url):
+    manager = RepositoryManager(tmp_path / "workspace")
+
+    with pytest.raises(ValueError):
+        manager.validate_github_url(url)
+
+
+def test_github_url_accepts_https_repository_with_git_suffix(tmp_path):
+    manager = RepositoryManager(tmp_path / "workspace")
+
+    assert manager.validate_github_url(
+        "https://github.com/example/project.git"
+    )
+
+
+def test_github_clones_with_same_repository_name_use_distinct_paths(
+    tmp_path,
+    monkeypatch,
+):
+    manager = RepositoryManager(tmp_path / "workspace")
+    destinations = []
+
+    def fake_clone_from(url, destination, **kwargs):
+        clone_path = Path(destination)
+        destinations.append(clone_path)
+        owner, repository = url.rstrip("/").split("/")[-2:]
+        assert not (manager.workspace / f"{owner}__{repository}").exists()
+        (clone_path / ".git").mkdir()
+
+    import asea.tools.repository as repository_module
+
+    monkeypatch.setattr(repository_module.Repo, "clone_from", fake_clone_from)
+
+    first = manager.clone_repository("https://github.com/owner-one/project")
+    second = manager.clone_repository("https://github.com/owner-two/project")
+
+    assert first != second
+    assert first.name == "owner-one__project"
+    assert second.name == "owner-two__project"
+    assert len(destinations) == 2
+    assert all(path.parent == manager.workspace for path in destinations)
+    assert all(not path.exists() for path in destinations)
+    assert (first / ".git").is_dir()
+    assert (second / ".git").is_dir()
+
+
+def test_private_clone_uses_temporary_authorization_header(tmp_path, monkeypatch):
+    import base64
+    from types import SimpleNamespace
+
+    import asea.tools.repository as repository_module
+
+    manager = RepositoryManager(tmp_path / "workspace")
+    captured = {}
+
+    def fake_clone_from(url, destination, env=None):
+        captured["url"] = url
+        captured["env"] = env
+        (Path(destination) / ".git").mkdir()
+
+    monkeypatch.setattr(
+        repository_module,
+        "get_settings",
+        lambda: SimpleNamespace(github_token="test-token"),
+    )
+    monkeypatch.setenv("GIT_CONFIG_COUNT", "0")
+    monkeypatch.setattr(repository_module.Repo, "clone_from", fake_clone_from)
+
+    manager.clone_repository("https://github.com/private-owner/private-project")
+
+    environment = captured["env"]
+    assert captured["url"] == "https://github.com/private-owner/private-project"
+    assert environment["GIT_CONFIG_KEY_0"] == "http.extraheader"
+    expected = base64.b64encode(b"x-access-token:test-token").decode("ascii")
+    assert environment["GIT_CONFIG_VALUE_0"] == f"AUTHORIZATION: basic {expected}"
+    assert "test-token" not in captured["url"]
+
+
+def test_failed_clone_cleans_temporary_workspace(tmp_path, monkeypatch):
+    manager = RepositoryManager(tmp_path / "workspace")
+
+    def fail_clone(url, destination, **kwargs):
+        raise repository_module.GitCommandError(
+            "clone",
+            1,
+            stderr="remote diagnostic containing a-secret-token",
+        )
+
+    import asea.tools.repository as repository_module
+
+    monkeypatch.setattr(repository_module.Repo, "clone_from", fail_clone)
+
+    with pytest.raises(RuntimeError, match="Repository cloning failed") as error:
+        manager.clone_repository("https://github.com/example/project")
+
+    assert "a-secret-token" not in str(error.value)
+    assert list(manager.workspace.iterdir()) == []
+
+def test_clone_rejects_symlinked_destination(tmp_path):
+    from git import Repo
+
+    manager = RepositoryManager(tmp_path / "workspace")
+    external_repository = tmp_path / "external"
+    external_repository.mkdir()
+    external_repo = Repo.init(external_repository)
+    external_repo.create_remote(
+        "origin",
+        "https://github.com/example/project",
+    )
+
+    destination = manager.workspace / "example__project"
+    destination.symlink_to(external_repository, target_is_directory=True)
+
+    with pytest.raises(ValueError, match="symbolic link"):
+        manager.clone_repository("https://github.com/example/project")
+
+    assert (external_repository / ".git").is_dir()
+
+def test_python_file_discovery_skips_symlinks_outside_repository(tmp_path):
+    manager = RepositoryManager(tmp_path / "workspace")
+    project = tmp_path / "demo"
+    project.mkdir()
+
+    inside_file = project / "main.py"
+    inside_file.write_text("print('inside')")
+    outside_file = tmp_path / "secret.py"
+    outside_file.write_text("print('outside')")
+    (project / "linked.py").symlink_to(outside_file)
+
+    files = manager.get_python_files(project)
+
+    assert files == [inside_file.resolve()]

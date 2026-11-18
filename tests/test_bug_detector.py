@@ -111,3 +111,178 @@ def test_zero_is_even():
         findings = agent.analyze_file(test_file)
 
     assert findings == []
+
+
+def test_mutable_default_argument_is_detected():
+    agent = BugDetectorAgent()
+    tree = ast.parse(
+        "def collect(items=[]):\n    items.append(1)\n    return items\n"
+    )
+
+    findings = agent.detect_ast_bugs(tree, Path("logic.py"))
+
+    assert any(item["title"] == "Mutable default argument" for item in findings)
+    assert next(
+        item for item in findings
+        if item["title"] == "Mutable default argument"
+    )["classification"] == "confirmed_bug"
+
+
+def test_unreachable_statement_is_reported():
+    agent = BugDetectorAgent()
+    tree = ast.parse(
+        "def calculate(value):\n"
+        "    return value\n"
+        "    print('unreachable')\n"
+    )
+
+    findings = agent.detect_ast_bugs(tree, Path("logic.py"))
+
+    assert any(item["title"] == "Unreachable statement" for item in findings)
+
+
+def test_assert_false_is_reported_as_potential_issue():
+    agent = BugDetectorAgent()
+    tree = ast.parse(
+        "def process():\n"
+        "    assert False, 'not implemented'\n"
+    )
+
+    findings = agent.detect_ast_bugs(tree, Path("logic.py"))
+
+    finding = next(
+        item for item in findings
+        if item["title"] == "Unconditional assertion failure"
+    )
+    assert finding["classification"] == "potential_issue"
+
+
+def test_bug_detector_integrates_cross_file_findings(tmp_path):
+    package = tmp_path / "sample"
+    package.mkdir()
+    (package / "__init__.py").write_text("", encoding="utf-8")
+    (package / "api.py").write_text(
+        "def send(user):\n    return user\n",
+        encoding="utf-8",
+    )
+    (package / "service.py").write_text(
+        "from .api import send\n"
+        "def run():\n"
+        "    return send('alice', 'email')\n",
+        encoding="utf-8",
+    )
+
+    agent = BugDetectorAgent()
+    with patch.object(agent, "analyze_file", return_value=[]):
+        result = agent.run({"repo_path": str(tmp_path)})
+
+    assert result["dependency_analysis"]["module_count"] == 3
+    assert result["dependency_analysis"]["dependency_count"] == 1
+    assert result["dependency_analysis"]["cross_file_issue_count"] == 1
+    assert result["confirmed_bug_count"] == 1
+    assert result["detected_bugs"][0]["source"] == "dependency_ast"
+
+
+
+def test_llm_provider_failure_preserves_deterministic_ast_findings(tmp_path):
+    agent = BugDetectorAgent()
+    source = tmp_path / "logic.py"
+    source.write_text(
+        "def is_even(number):\n    return number % 2 == 1\n",
+        encoding="utf-8",
+    )
+
+    def fail_request(**_kwargs):
+        raise ConnectionError("LLM provider is unavailable")
+
+    with patch.object(agent.llm, "chat", side_effect=fail_request):
+        findings = agent.analyze_file(source)
+
+    assert len(findings) == 1
+    assert findings[0]["title"] == "Incorrect even-number check"
+    assert findings[0]["source"] == "ast"
+
+
+
+def test_syntax_error_is_reported_without_calling_llm(tmp_path):
+    agent = BugDetectorAgent()
+    source = tmp_path / "broken.py"
+    source.write_text(
+        "def calculate(value):\n"
+        "    try\n"
+        "        return value\n",
+        encoding="utf-8",
+    )
+
+    with patch.object(agent.llm, "chat") as chat:
+        findings = agent.analyze_file(source)
+
+    chat.assert_not_called()
+    assert len(findings) == 1
+    assert findings[0]["title"] == "Python syntax error"
+    assert findings[0]["line"] == 2
+    assert findings[0]["classification"] == "confirmed_bug"
+    assert findings[0]["source"] == "python_parser"
+
+def test_score_calculation_defects_are_detected_from_source_evidence():
+    agent = BugDetectorAgent()
+    source = '''
+import json
+
+def calculate_average_scores(student_data_json):
+    data = json.loads(student_data_json)
+    results = {}
+    for student, scores in data.items():
+        total_score = 1
+        for score in scores:
+            total_score += score
+        avg = total_score / len(scores)
+        results[student] = avg
+    return results
+
+test_payload = '{"Alice": [85, 90, 78], "Bob": []}'
+'''
+    findings = agent.detect_ast_bugs(
+        ast.parse(source),
+        Path("bug.py"),
+    )
+
+    titles = {finding["title"] for finding in findings}
+    assert "Score accumulator starts at one" in titles
+    assert "Empty score list causes division by zero" in titles
+    assert all(
+        finding["classification"] == "confirmed_bug"
+        for finding in findings
+        if finding["title"] in titles
+    )
+
+def test_bug_detector_respects_declared_latin1_encoding(tmp_path):
+    agent = BugDetectorAgent()
+    source = tmp_path / "legacy.py"
+    source.write_bytes(
+        b"# coding: latin-1\n"
+        b"def caf\xe9():\n"
+        b"    return 'ol\xe9'\n"
+    )
+
+    with patch.object(agent.llm, "chat", return_value='{"bugs": []}') as chat:
+        findings = agent.analyze_file(source)
+
+    chat.assert_called_once()
+    assert findings == []
+
+
+def test_bug_detector_skips_unknown_source_encoding_without_false_syntax_bug(tmp_path):
+    agent = BugDetectorAgent()
+    source = tmp_path / "unknown.py"
+    source.write_bytes(
+        b"# coding: made-up-encoding\n"
+        b"def example():\n"
+        b"    return 1\n"
+    )
+
+    with patch.object(agent.llm, "chat") as chat:
+        findings = agent.analyze_file(source)
+
+    chat.assert_not_called()
+    assert findings == []

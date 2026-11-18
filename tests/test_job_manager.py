@@ -1,6 +1,9 @@
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from asea.api.job_manager import RepairJobManager
+import pytest
+
+from asea.api.job_manager import JobQueueFullError, RepairJobManager
 
 
 def create_test_manager(db_path: Path) -> RepairJobManager:
@@ -72,3 +75,549 @@ def test_get_nonexistent_job(tmp_path):
     manager = create_test_manager(tmp_path / "test_jobs.db")
 
     assert manager.get_job("unknown-job") is None
+
+def test_list_jobs_returns_newest_first_with_pagination(tmp_path):
+    manager = create_test_manager(tmp_path / "history.db")
+    manager.create_job("history-001", "repo-one")
+    manager.create_job("history-002", "repo-two")
+    manager.create_job("history-003", "repo-three")
+
+    page = manager.list_jobs(limit=2, offset=0)
+
+    assert page["total"] == 3
+    assert page["limit"] == 2
+    assert page["offset"] == 0
+    assert len(page["items"]) == 2
+    assert [job["job_id"] for job in page["items"]] == [
+        "history-003",
+        "history-002",
+    ]
+
+    second_page = manager.list_jobs(limit=2, offset=2)
+    assert [job["job_id"] for job in second_page["items"]] == ["history-001"]
+
+
+def test_list_jobs_filters_by_status(tmp_path):
+    manager = create_test_manager(tmp_path / "history_status.db")
+    manager.create_job("queued-001", "repo-one")
+    manager.create_job("done-001", "repo-two")
+    manager.update_job("done-001", status="completed", result={"ok": True})
+
+    page = manager.list_jobs(status="completed")
+
+    assert page["total"] == 1
+    assert page["items"][0]["job_id"] == "done-001"
+    assert page["items"][0]["result"] == {"ok": True}
+
+
+def test_list_jobs_validates_pagination(tmp_path):
+    manager = create_test_manager(tmp_path / "history_validation.db")
+
+    import pytest
+
+    with pytest.raises(ValueError, match="limit"):
+        manager.list_jobs(limit=0)
+    with pytest.raises(ValueError, match="offset"):
+        manager.list_jobs(offset=-1)
+
+
+
+def test_publish_preference_persists_across_manager_restart(tmp_path):
+    db_path = tmp_path / "publish_preference.db"
+    manager1 = create_test_manager(db_path)
+
+    manager1.create_job(
+        "publish-001",
+        "demo_repo",
+        publish_requested=True,
+    )
+
+    manager2 = create_test_manager(db_path)
+    recovered = manager2.get_job("publish-001")
+
+    assert recovered["publish_requested"] is True
+
+
+def test_existing_database_is_migrated_with_publish_preference(tmp_path):
+    import sqlite3
+
+    db_path = tmp_path / "legacy_jobs.db"
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            """
+            CREATE TABLE repair_jobs (
+                job_id TEXT PRIMARY KEY,
+                repository TEXT NOT NULL,
+                status TEXT NOT NULL,
+                message TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                review_request TEXT,
+                result TEXT,
+                error TEXT
+            )
+            """
+        )
+
+    manager = create_test_manager(db_path)
+    job = manager.create_job("legacy-001", "demo_repo")
+
+    assert job["publish_requested"] is False
+    assert manager.get_job("legacy-001")["publish_requested"] is False
+
+
+def test_restart_recovery_fails_only_queued_and_running_jobs(tmp_path):
+    manager = create_test_manager(tmp_path / "recovery.db")
+    manager.create_job("queued-001", "repo-one")
+    manager.create_job("running-001", "repo-two")
+    manager.create_job("review-001", "repo-three")
+    manager.create_job("done-001", "repo-four")
+    manager.update_job("running-001", status="running")
+    manager.update_job("review-001", status="waiting_for_review")
+    manager.update_job("done-001", status="completed")
+
+    recovered_count = manager.mark_interrupted_jobs()
+
+    assert recovered_count == 2
+    assert manager.get_job("queued-001")["status"] == "failed"
+    assert manager.get_job("running-001")["status"] == "failed"
+    assert manager.get_job("review-001")["status"] == "waiting_for_review"
+    assert manager.get_job("done-001")["status"] == "completed"
+
+
+def test_claim_review_allows_only_one_submission(tmp_path):
+    manager = create_test_manager(tmp_path / "review_claim.db")
+    manager.create_job("review-claim-001", "demo_repo")
+    manager.update_job(
+        "review-claim-001",
+        status="waiting_for_review",
+        review_request={"patch": "diff"},
+    )
+
+    assert manager.claim_review("review-claim-001") is True
+    assert manager.claim_review("review-claim-001") is False
+
+    job = manager.get_job("review-claim-001")
+    assert job["status"] == "running"
+    assert job["review_request"] == {"patch": "diff"}
+
+
+def test_release_review_claim_restores_waiting_state_and_checkpoint(tmp_path):
+    manager = create_test_manager(tmp_path / "review_release.db")
+    manager.create_job("review-release-001", "demo_repo")
+    request = {"patch": "diff", "summary": "candidate"}
+    manager.update_job(
+        "review-release-001",
+        status="waiting_for_review",
+        review_request=request,
+    )
+
+    assert manager.claim_review("review-release-001") is True
+    claimed = manager.get_job("review-release-001")
+    assert claimed["status"] == "running"
+    assert claimed["review_request"] == request
+
+    assert manager.release_review_claim("review-release-001") is True
+    assert manager.release_review_claim("review-release-001") is False
+    restored = manager.get_job("review-release-001")
+    assert restored["status"] == "waiting_for_review"
+    assert restored["review_request"] == request
+
+
+
+def test_sqlite_uses_wal_and_query_indexes(tmp_path):
+    manager = create_test_manager(tmp_path / "wal.db")
+    with manager._connection() as connection:
+        assert connection.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
+        indexes = {
+            row["name"]
+            for row in connection.execute(
+                "PRAGMA index_list(repair_jobs)"
+            ).fetchall()
+        }
+    assert "idx_repair_jobs_created" in indexes
+    assert "idx_repair_jobs_status_created" in indexes
+
+
+def test_database_busy_timeout_is_configurable_and_bounded(monkeypatch):
+    monkeypatch.setenv("ASEA_SQLITE_BUSY_TIMEOUT_SECONDS", "7.5")
+    assert RepairJobManager._database_timeout() == 7.5
+    monkeypatch.setenv("ASEA_SQLITE_BUSY_TIMEOUT_SECONDS", "999")
+    assert RepairJobManager._database_timeout() == 120.0
+    monkeypatch.setenv("ASEA_SQLITE_BUSY_TIMEOUT_SECONDS", "invalid")
+    assert RepairJobManager._database_timeout() == 30.0
+
+
+def test_create_job_validates_identifier_and_repository(tmp_path):
+    import pytest
+
+    manager = create_test_manager(tmp_path / "input_validation.db")
+    with pytest.raises(ValueError, match="job_id"):
+        manager.create_job("", "repo")
+    with pytest.raises(ValueError, match="repository"):
+        manager.create_job("valid-id", "")
+
+
+def test_update_job_rejects_unknown_status_and_oversized_message(tmp_path):
+    import pytest
+
+    manager = create_test_manager(tmp_path / "update_validation.db")
+    manager.create_job("validation-001", "repo")
+    with pytest.raises(ValueError, match="status"):
+        manager.update_job("validation-001", status="mystery")
+    with pytest.raises(ValueError, match="message"):
+        manager.update_job("validation-001", message="x" * 2001)
+
+
+def test_connection_context_closes_sqlite_handle(tmp_path):
+    manager = create_test_manager(tmp_path / "close_connection.db")
+    with manager._connection() as connection:
+        connection.execute("SELECT 1")
+    import pytest
+    with pytest.raises(Exception, match="closed"):
+        connection.execute("SELECT 1")
+
+
+def test_connection_context_rolls_back_failed_transaction(tmp_path):
+    import pytest
+
+    manager = create_test_manager(tmp_path / "rollback.db")
+    with pytest.raises(RuntimeError):
+        with manager._connection() as connection:
+            connection.execute(
+                "INSERT INTO repair_jobs "
+                "(job_id, repository, status, message, created_at, updated_at) "
+                "VALUES ('rollback-001', 'repo', 'queued', 'test', 'now', 'now')"
+            )
+            raise RuntimeError("force rollback")
+    assert manager.get_job("rollback-001") is None
+
+
+def test_active_job_admission_limit_is_enforced(tmp_path, monkeypatch):
+    manager = create_test_manager(tmp_path / "queue_limit.db")
+    monkeypatch.setenv("ASEA_MAX_ACTIVE_REPAIR_JOBS", "1")
+    manager.create_job("active-001", "repo-one")
+    with pytest.raises(JobQueueFullError):
+        manager.create_job("active-002", "repo-two")
+    manager.update_job("active-001", status="completed")
+    assert manager.create_job("active-003", "repo-three")["status"] == "queued"
+
+
+def test_active_job_limit_is_bounded(monkeypatch):
+    monkeypatch.setenv("ASEA_MAX_ACTIVE_REPAIR_JOBS", "999999")
+    assert RepairJobManager._maximum_active_jobs() == 500
+    monkeypatch.setenv("ASEA_MAX_ACTIVE_REPAIR_JOBS", "invalid")
+    assert RepairJobManager._maximum_active_jobs() == 20
+    monkeypatch.setenv("ASEA_MAX_ACTIVE_REPAIR_JOBS", "0")
+    assert RepairJobManager._maximum_active_jobs() == 1
+
+
+def test_prune_terminal_jobs_preserves_active_and_review_jobs(tmp_path):
+    manager = create_test_manager(tmp_path / "retention.db")
+    for job_id in ("queued-retain", "review-retain", "done-prune", "failed-prune"):
+        manager.create_job(job_id, "repo")
+    manager.update_job("review-retain", status="waiting_for_review")
+    manager.update_job("done-prune", status="completed")
+    manager.update_job("failed-prune", status="failed")
+    with manager._connection() as connection:
+        connection.execute(
+            "UPDATE repair_jobs SET updated_at = '2000-01-01T00:00:00+00:00' "
+            "WHERE job_id IN ('done-prune', 'failed-prune')"
+        )
+    assert manager.prune_terminal_jobs(retention_days=30) == 2
+    assert manager.get_job("done-prune") is None
+    assert manager.get_job("failed-prune") is None
+    assert manager.get_job("queued-retain") is not None
+    assert manager.get_job("review-retain") is not None
+
+
+def test_prune_terminal_jobs_validates_retention_window(tmp_path):
+    manager = create_test_manager(tmp_path / "retention_validation.db")
+    with pytest.raises(ValueError, match="retention_days"):
+        manager.prune_terminal_jobs(retention_days=0)
+
+
+
+def test_concurrent_managers_respect_global_active_job_limit(tmp_path, monkeypatch):
+    db_path = tmp_path / "concurrent_admission.db"
+    managers = [
+        create_test_manager(db_path),
+        create_test_manager(db_path),
+    ]
+    monkeypatch.setenv("ASEA_MAX_ACTIVE_REPAIR_JOBS", "1")
+
+    def submit(index):
+        try:
+            managers[index].create_job(f"concurrent-{index}", "repo")
+            return "accepted"
+        except JobQueueFullError:
+            return "full"
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        outcomes = list(pool.map(submit, range(2)))
+
+    assert sorted(outcomes) == ["accepted", "full"]
+    assert managers[0].list_jobs()["total"] == 1
+
+
+def test_publish_requested_requires_boolean(tmp_path):
+    manager = create_test_manager(tmp_path / "publish_validation.db")
+    manager.create_job("publish-validation", "repo")
+
+    with pytest.raises(ValueError, match="publish_requested"):
+        manager.update_job("publish-validation", publish_requested="yes")
+
+
+def test_terminal_retention_index_is_created(tmp_path):
+    manager = create_test_manager(tmp_path / "retention_index.db")
+    with manager._connection() as connection:
+        indexes = {
+            row["name"]
+            for row in connection.execute(
+                "PRAGMA index_list(repair_jobs)"
+            ).fetchall()
+        }
+
+    assert "idx_repair_jobs_terminal_updated" in indexes
+
+
+
+def test_create_job_rejects_non_string_inputs_and_non_boolean_publish(tmp_path):
+    manager = create_test_manager(tmp_path / "strict_create_validation.db")
+
+    with pytest.raises(ValueError, match="job_id"):
+        manager.create_job(123, "repo")
+    with pytest.raises(ValueError, match="repository"):
+        manager.create_job("valid-id", None)
+    with pytest.raises(ValueError, match="publish_requested"):
+        manager.create_job("valid-id", "repo", publish_requested=1)
+
+
+def test_update_job_rejects_invalid_identifier(tmp_path):
+    manager = create_test_manager(tmp_path / "strict_update_validation.db")
+
+    with pytest.raises(ValueError, match="job_id"):
+        manager.update_job("", status="completed")
+
+
+def test_list_jobs_rejects_unknown_status_filter(tmp_path):
+    manager = create_test_manager(tmp_path / "status_filter_validation.db")
+
+    with pytest.raises(ValueError, match="status filter"):
+        manager.list_jobs(status="mystery")
+
+
+
+def test_database_uses_wal_mode(tmp_path):
+    manager = create_test_manager(tmp_path / "wal_mode.db")
+    with manager._connection() as connection:
+        mode = connection.execute("PRAGMA journal_mode").fetchone()[0]
+
+    assert mode.lower() == "wal"
+
+
+@pytest.mark.parametrize(
+    ("configured", "expected"),
+    [
+        ("invalid", 30.0),
+        ("0", 0.1),
+        ("0.01", 0.1),
+        ("500", 120.0),
+        ("12.5", 12.5),
+    ],
+)
+def test_database_busy_timeout_is_bounded(monkeypatch, configured, expected):
+    monkeypatch.setenv("ASEA_SQLITE_BUSY_TIMEOUT_SECONDS", configured)
+
+    assert RepairJobManager._database_timeout() == expected
+
+
+
+def test_active_job_admission_limit_counts_jobs_waiting_for_review(
+    tmp_path, monkeypatch
+):
+    manager = create_test_manager(tmp_path / "review_admission.db")
+    monkeypatch.setenv("ASEA_MAX_ACTIVE_REPAIR_JOBS", "1")
+
+    manager.create_job("review-capacity-001", "repo-one")
+    manager.update_job(
+        "review-capacity-001",
+        status="waiting_for_review",
+        review_request={"patch": "diff"},
+    )
+
+    with pytest.raises(JobQueueFullError):
+        manager.create_job("review-capacity-002", "repo-two")
+
+    manager.update_job("review-capacity-001", status="completed")
+    assert manager.create_job("review-capacity-003", "repo-three")["status"] == "queued"
+
+
+
+def test_review_decision_is_durable_and_recovered_after_restart(tmp_path):
+    manager = create_test_manager(tmp_path / "durable_review.db")
+    manager.create_job("durable-review-001", "demo_repo")
+    manager.update_job(
+        "durable-review-001",
+        status="waiting_for_review",
+        review_request={"patch": "diff"},
+    )
+
+    assert manager.claim_review(
+        "durable-review-001",
+        decision="approved",
+        feedback="Looks correct",
+    ) is True
+
+    pending = manager.list_pending_reviews()
+    assert len(pending) == 1
+    assert pending[0]["job_id"] == "durable-review-001"
+    assert pending[0]["review_decision"] == "approved"
+    assert pending[0]["review_feedback"] == "Looks correct"
+
+    # Startup recovery must preserve a claimed decision rather than fail it.
+    assert manager.mark_interrupted_jobs() == 0
+    recovered = manager.get_job("durable-review-001")
+    assert recovered["status"] == "running"
+    assert recovered["review_decision"] == "approved"
+
+
+def test_releasing_review_claim_clears_unprocessed_decision(tmp_path):
+    manager = create_test_manager(tmp_path / "release_durable_review.db")
+    manager.create_job("release-durable-001", "demo_repo")
+    manager.update_job(
+        "release-durable-001",
+        status="waiting_for_review",
+        review_request={"patch": "diff"},
+    )
+
+    assert manager.claim_review(
+        "release-durable-001",
+        decision="rejected",
+        feedback="Please correct the edge case",
+    ) is True
+    assert manager.release_review_claim("release-durable-001") is True
+
+    restored = manager.get_job("release-durable-001")
+    assert restored["status"] == "waiting_for_review"
+    assert restored["review_decision"] is None
+    assert restored["review_feedback"] is None
+    assert manager.list_pending_reviews() == []
+
+
+def test_rejected_review_requires_feedback_at_storage_boundary(tmp_path):
+    import pytest
+
+    manager = create_test_manager(tmp_path / "reject_feedback.db")
+    manager.create_job("reject-feedback-001", "demo_repo")
+    manager.update_job(
+        "reject-feedback-001",
+        status="waiting_for_review",
+        review_request={"patch": "diff"},
+    )
+
+    with pytest.raises(ValueError, match="feedback is required"):
+        manager.claim_review(
+            "reject-feedback-001",
+            decision="rejected",
+            feedback=" ",
+        )
+    assert manager.get_job("reject-feedback-001")["status"] == "waiting_for_review"
+
+
+
+def test_acknowledge_review_start_consumes_only_matching_pending_decision(tmp_path):
+    manager = create_test_manager(tmp_path / "ack_review.db")
+    manager.create_job("ack-review-001", "demo_repo")
+    manager.update_job(
+        "ack-review-001",
+        status="waiting_for_review",
+        review_request={"patch": "diff"},
+    )
+    assert manager.claim_review(
+        "ack-review-001",
+        decision="approved",
+        feedback="",
+    ) is True
+
+    assert manager.acknowledge_review_start(
+        "ack-review-001",
+        "rejected",
+    ) is False
+    assert manager.acknowledge_review_start(
+        "ack-review-001",
+        "approved",
+    ) is True
+    assert manager.acknowledge_review_start(
+        "ack-review-001",
+        "approved",
+    ) is False
+    job = manager.get_job("ack-review-001")
+    assert job["status"] == "running"
+    assert job["review_decision"] is None
+
+
+def test_publishing_retry_claim_is_atomic_and_releasable(tmp_path):
+    manager = create_test_manager(tmp_path / "publishing_retry.db")
+    manager.create_job("publish-retry-001", "demo_repo", publish_requested=True)
+    manager.update_job(
+        "publish-retry-001",
+        status="completed",
+        result={
+            "workflow": {"status": "COMPLETED"},
+            "publishing": {"status": "PUBLISH_FAILED"},
+        },
+    )
+
+    assert manager.claim_publishing_retry("publish-retry-001") is True
+    assert manager.claim_publishing_retry("publish-retry-001") is False
+    assert manager.get_job("publish-retry-001")["publishing_retry"] is True
+
+    assert manager.release_publishing_retry("publish-retry-001") is True
+    assert manager.claim_publishing_retry("publish-retry-001") is True
+
+
+def test_publishing_retry_requires_a_failed_publish_result(tmp_path):
+    manager = create_test_manager(tmp_path / "publishing_retry_ineligible.db")
+    manager.create_job("publish-retry-002", "demo_repo", publish_requested=True)
+    manager.update_job(
+        "publish-retry-002",
+        status="completed",
+        result={"workflow": {"status": "COMPLETED"}},
+    )
+
+    assert manager.claim_publishing_retry("publish-retry-002") is False
+
+
+
+def test_restart_recovery_releases_interrupted_publishing_retry_claims(tmp_path):
+    manager = create_test_manager(tmp_path / "publishing_retry_recovery.db")
+    manager.create_job("publish-retry-recovery", "demo_repo", publish_requested=True)
+    manager.update_job(
+        "publish-retry-recovery",
+        status="completed",
+        result={
+            "workflow": {"status": "COMPLETED"},
+            "publishing": {"status": "PUBLISH_FAILED"},
+        },
+    )
+    assert manager.claim_publishing_retry("publish-retry-recovery") is True
+
+    recovered = manager.reset_interrupted_publishing_retries()
+
+    assert recovered == 1
+    assert manager.get_job("publish-retry-recovery")["publishing_retry"] is False
+    assert manager.claim_publishing_retry("publish-retry-recovery") is True
+
+
+def test_restart_recovery_does_not_change_non_completed_job_claims(tmp_path):
+    manager = create_test_manager(tmp_path / "publishing_retry_recovery_status.db")
+    manager.create_job("publish-retry-running", "demo_repo", publish_requested=True)
+    manager.update_job(
+        "publish-retry-running",
+        status="running",
+        publishing_retry=True,
+    )
+
+    assert manager.reset_interrupted_publishing_retries() == 0
+    assert manager.get_job("publish-retry-running")["publishing_retry"] is True

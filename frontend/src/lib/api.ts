@@ -1,6 +1,10 @@
 
+const configuredApiUrl = process.env.NEXT_PUBLIC_API_URL?.trim();
 const API_URL =
-  process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+  configuredApiUrl ||
+  (process.env.NODE_ENV === "production"
+    ? ""
+    : "http://127.0.0.1:8000");
 
 export interface AnalyzeResponse {
   status: string;
@@ -17,11 +21,13 @@ export interface RepairResponse {
 export interface RepairJob {
   job_id: string;
   repository: string;
+  created_at?: string;
   status: string;
   message?: string;
   error?: string | null;
   review_request?: Record<string, unknown> | null;
   result?: Record<string, unknown> | null;
+  publish_requested?: boolean;
 }
 
 export interface ReviewRequest {
@@ -33,6 +39,12 @@ async function request<T>(
   endpoint: string,
   options: RequestInit = {},
 ): Promise<T> {
+  if (!API_URL) {
+    throw new Error(
+      "NEXT_PUBLIC_API_URL must be configured for production builds.",
+    );
+  }
+
   let response: Response;
 
   try {
@@ -72,10 +84,11 @@ export function analyzeRepository(
 
 export function startRepair(
   repository: string,
+  publish = false,
 ): Promise<RepairResponse> {
   return request<RepairResponse>("/repair", {
     method: "POST",
-    body: JSON.stringify({ repository }),
+    body: JSON.stringify({ repository, publish }),
   });
 }
 
@@ -105,4 +118,22 @@ export function checkBackendHealth(): Promise<{
   service: string;
 }> {
   return request("/health");
+}
+
+export interface RepairHistoryResponse {
+  items: RepairJob[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export function getRepairHistory(
+  limit = 20,
+  offset = 0,
+): Promise<RepairHistoryResponse> {
+  const query = new URLSearchParams({
+    limit: String(limit),
+    offset: String(offset),
+  });
+  return request<RepairHistoryResponse>(`/repairs?${query.toString()}`);
 }

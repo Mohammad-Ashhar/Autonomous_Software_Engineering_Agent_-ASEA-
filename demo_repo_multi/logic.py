@@ -3,4 +3,4 @@ def is_even(number: int) -> bool:
 
 
 def is_positive(number: int) -> bool:
-    return number > 0
+    return number >= 0

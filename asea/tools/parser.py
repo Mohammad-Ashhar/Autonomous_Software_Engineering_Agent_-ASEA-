@@ -1,101 +1,104 @@
+import ast
 import json
 from pathlib import Path
 
-import tree_sitter_python as tspython
-from tree_sitter import Language, Parser
+from asea.tools.repository import RepositoryManager
+from asea.tools.source_reader import read_python_source
 
 
 class PythonRepositoryParser:
 
-    def __init__(self):
-        self.language = Language(tspython.language())
-        self.parser = Parser(self.language)
-
     def parse_file(self, file_path):
         file_path = Path(file_path)
-
-        source_code = file_path.read_bytes()
-        language = Language(tspython.language())
-        local_parser = Parser(language)
-        tree = local_parser.parse(source_code)
-
         result = {
             "file": str(file_path),
             "functions": [],
             "classes": [],
-            "imports": []
+            "imports": [],
+            "syntax_errors": [],
+            "analysis_errors": [],
         }
 
-        # Iterative traversal avoids recursive syntax-tree processing.
-        stack = [(tree.root_node, None)]
+        try:
+            source_text = read_python_source(file_path)
+        except OSError as error:
+            result["analysis_errors"].append(
+                f"File could not be read: {type(error).__name__}."
+            )
+            return result
+        except ValueError as error:
+            result["analysis_errors"].append(str(error))
+            return result
+        except (SyntaxError, UnicodeDecodeError) as error:
+            result["analysis_errors"].append(
+                f"File encoding could not be detected: {type(error).__name__}."
+            )
+            return result
 
+        try:
+            syntax_tree = ast.parse(source_text, filename=str(file_path))
+        except SyntaxError as error:
+            result["syntax_errors"].append({
+                "line": error.lineno or 1,
+                "column": error.offset or 1,
+                "message": error.msg,
+            })
+            return result
+        except (RecursionError, MemoryError) as error:
+            result["analysis_errors"].append(
+                f"Python AST analysis could not process the file: "
+                f"{type(error).__name__}."
+            )
+            return result
+
+        # AST identifiers are decoded according to Python's source-encoding
+        # rules; Tree-sitter's byte-based identifier nodes can truncate
+        # non-UTF-8 identifiers in legacy-encoded files.
+        stack = [(syntax_tree, None)]
         while stack:
             node, class_name = stack.pop()
 
-            if node.type == "class_definition":
-                name_node = node.child_by_field_name("name")
+            if isinstance(node, ast.ClassDef):
+                class_name = node.name
+                result["classes"].append({
+                    "name": node.name,
+                    "start_line": node.lineno,
+                    "end_line": node.end_lineno or node.lineno,
+                })
+            elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                result["functions"].append({
+                    "name": node.name,
+                    "class": class_name,
+                    "start_line": node.lineno,
+                    "end_line": node.end_lineno or node.lineno,
+                })
+            elif isinstance(node, (ast.Import, ast.ImportFrom)):
+                segment = ast.get_source_segment(source_text, node)
+                if segment is not None:
+                    result["imports"].append(segment)
 
-                if name_node is not None:
-                    class_name = source_code[
-                        name_node.start_byte:name_node.end_byte
-                    ].decode("utf-8")
-
-                    result["classes"].append({
-                        "name": class_name,
-                        "start_line": node.start_point.row + 1,
-                        "end_line": node.end_point.row + 1
-                    })
-
-            elif node.type == "function_definition":
-                name_node = node.child_by_field_name("name")
-
-                if name_node is not None:
-                    name = source_code[
-                        name_node.start_byte:name_node.end_byte
-                    ].decode("utf-8")
-
-                    result["functions"].append({
-                        "name": name,
-                        "class": class_name,
-                        "start_line": node.start_point.row + 1,
-                        "end_line": node.end_point.row + 1
-                    })
-
-            elif node.type in (
-                "import_statement",
-                "import_from_statement"
-            ):
-                result["imports"].append(
-                    source_code[
-                        node.start_byte:node.end_byte
-                    ].decode("utf-8")
-                )
-
-            # Reverse preserves the original left-to-right traversal order.
-            for child in reversed(node.children):
-                stack.append((child, class_name))
+            # A function nested inside another function is a local function,
+            # not a method of the surrounding class. A class nested inside a
+            # function establishes its own method context when visited.
+            child_class_name = (
+                None
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                else class_name
+            )
+            for child in reversed(list(ast.iter_child_nodes(node))):
+                stack.append((child, child_class_name))
 
         return result
 
     def build_repository_map(self, repo_path, output_file):
-        repo_path = Path(repo_path)
-
-        manager_ignored = {
-            ".git", ".venv", "venv", "__pycache__",
-            "node_modules", "dist", "build",
-            ".pytest_cache", ".mypy_cache"
-        }
+        repo_path = Path(repo_path).resolve()
 
         repo_map = {
             "repository": repo_path.name,
             "files": []
         }
 
-        for file_path in sorted(repo_path.rglob("*.py")):
-            if manager_ignored.intersection(
-                file_path.relative_to(repo_path).parts
-            ):
-                continue
+        for file_path in RepositoryManager.get_python_files(repo_path):
 
             parsed = self.parse_file(file_path)
 

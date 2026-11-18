@@ -199,7 +199,7 @@ def test_parser_does_not_classify_nested_local_functions_as_methods(tmp_path):
             "name": "outer",
             "class": None,
             "start_line": 7,
-            "end_line": 10,
+            "end_line": 11,
         },
         {
             "name": "execute",

@@ -1,12 +1,12 @@
 import ast
-import io
 import json
-import tokenize
 from pathlib import Path
 
 from asea.tools.repository import RepositoryManager
-
-MAX_PYTHON_FILE_SIZE_BYTES = 2 * 1024 * 1024
+from asea.tools.source_reader import (
+    MAX_PYTHON_FILE_SIZE_BYTES,
+    read_python_source,
+)
 
 
 class PythonRepositoryParser:
@@ -23,30 +23,15 @@ class PythonRepositoryParser:
         }
 
         try:
-            if file_path.stat().st_size > MAX_PYTHON_FILE_SIZE_BYTES:
-                result["analysis_errors"].append(
-                    "File exceeds the 2 MiB analysis limit."
-                )
-                return result
-
-            source_code = file_path.read_bytes()
+            source_text = read_python_source(file_path)
         except OSError as error:
             result["analysis_errors"].append(
                 f"File could not be read: {type(error).__name__}."
             )
             return result
-
-        # Check again after reading in case the file changed after stat().
-        if len(source_code) > MAX_PYTHON_FILE_SIZE_BYTES:
-            result["analysis_errors"].append(
-                "File exceeds the 2 MiB analysis limit."
-            )
+        except ValueError as error:
+            result["analysis_errors"].append(str(error))
             return result
-
-        try:
-            source_encoding, _ = tokenize.detect_encoding(
-                io.BytesIO(source_code).readline
-            )
         except (SyntaxError, UnicodeDecodeError) as error:
             result["analysis_errors"].append(
                 f"File encoding could not be detected: {type(error).__name__}."
@@ -54,7 +39,6 @@ class PythonRepositoryParser:
             return result
 
         try:
-            source_text = source_code.decode(source_encoding)
             syntax_tree = ast.parse(source_text, filename=str(file_path))
         except SyntaxError as error:
             result["syntax_errors"].append({
@@ -63,7 +47,7 @@ class PythonRepositoryParser:
                 "message": error.msg,
             })
             return result
-        except (UnicodeDecodeError, RecursionError, MemoryError) as error:
+        except (RecursionError, MemoryError) as error:
             result["analysis_errors"].append(
                 f"Python AST analysis could not process the file: "
                 f"{type(error).__name__}."

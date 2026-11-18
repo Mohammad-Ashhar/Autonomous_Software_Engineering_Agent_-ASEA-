@@ -9,6 +9,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal
 from uuid import uuid4
+from urllib.parse import urlsplit
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -389,12 +390,38 @@ def configured_cors_origins() -> list[str]:
     """Read explicit browser origins; retain local defaults for development."""
     raw_origins = os.getenv("ASEA_CORS_ORIGINS", "")
     if raw_origins.strip():
-        origins = [origin.strip().rstrip("/") for origin in raw_origins.split(",")]
-        if any(not origin.startswith(("http://", "https://")) for origin in origins):
+        origins = [origin.strip() for origin in raw_origins.split(",")]
+        if not origins or any(not origin for origin in origins):
             raise RuntimeError(
                 "ASEA_CORS_ORIGINS must contain comma-separated http(s) origins."
             )
-        return origins
+
+        for origin in origins:
+            parsed = urlsplit(origin)
+            try:
+                port = parsed.port
+            except ValueError as error:
+                raise RuntimeError(
+                    "ASEA_CORS_ORIGINS contains an invalid origin."
+                ) from error
+
+            if (
+                parsed.scheme not in {"http", "https"}
+                or not parsed.hostname
+                or parsed.username
+                or parsed.password
+                or parsed.path not in {"", "/"}
+                or parsed.query
+                or parsed.fragment
+                or port == 0
+                or origin == "*"
+            ):
+                raise RuntimeError(
+                    "ASEA_CORS_ORIGINS must contain exact http(s) origins "
+                    "without paths, credentials, queries, or wildcards."
+                )
+
+        return [origin.rstrip("/") for origin in origins]
     if os.getenv("ASEA_ENV", "development").strip().lower() == "production":
         return []
     return ["http://localhost:3000", "http://127.0.0.1:3000"]

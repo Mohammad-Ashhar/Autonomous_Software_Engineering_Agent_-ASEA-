@@ -224,7 +224,7 @@ async function startAnalysis() {
     return;
   }
 
-  if (!/^https:\/\/github\.com\/[^/]+\/[^/]+\/?$/.test(repoUrl)) {
+  if (!/^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\.git)?\/?$/i.test(repoUrl)) {
     setNotice("Please enter a valid GitHub repository URL.");
     return;
   }

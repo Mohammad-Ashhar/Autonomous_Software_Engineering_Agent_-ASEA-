@@ -55,6 +55,20 @@ def _call_argument_issue(
     definition: ast.FunctionDef | ast.AsyncFunctionDef
 ) -> str | None:
     """Return a deterministic signature mismatch, if one is provable."""
+    explicit_keyword_names = [
+        keyword.arg for keyword in call.keywords if keyword.arg is not None
+    ]
+    duplicate_keywords = sorted({
+        name for name in explicit_keyword_names
+        if explicit_keyword_names.count(name) > 1
+    })
+    if duplicate_keywords:
+        return (
+            "Call repeats keyword argument(s): "
+            + ", ".join(duplicate_keywords)
+            + "."
+        )
+
     if any(isinstance(argument, ast.Starred) for argument in call.args):
         return None
     if any(keyword.arg is None for keyword in call.keywords):

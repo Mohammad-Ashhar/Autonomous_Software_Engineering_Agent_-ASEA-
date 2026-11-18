@@ -1,12 +1,11 @@
 import base64
+import hashlib
 import os
 import shutil
 import tempfile
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
-from uuid import uuid4
 
 from git import Repo
 from git.exc import GitCommandError
@@ -288,6 +287,7 @@ def get_approved_repair_files(
 
 def publish_validated_repairs(
     state: dict[str, Any],
+    job_id: str | None = None,
 ) -> dict[str, Any]:
     """Publish approved repairs through a GitHub Pull Request."""
 
@@ -382,19 +382,34 @@ def publish_validated_repairs(
             env=git_environment,
         )
 
-        # Timestamp keeps branches readable; a random suffix prevents
-        # concurrent repairs in the same second from colliding.
-        branch_name = (
-            "asea/repair-"
-            + datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
-            + "-"
-            + uuid4().hex[:8]
+        # A stable job-derived branch makes retries safe after a push or
+        # PR-creation interruption. Direct callers get a content fingerprint.
+        branch_identity = job_id or repository_name + "|" + "|".join(
+            f"{path.as_posix()}:{hashlib.sha256((working_repo / path).read_bytes()).hexdigest()}"
+            for path in repair_files
         )
+        branch_suffix = hashlib.sha256(
+            branch_identity.encode("utf-8")
+        ).hexdigest()[:16]
+        branch_name = f"asea/repair-{branch_suffix}"
 
-        publishing_repo.git.checkout(
-            "-b",
-            branch_name,
+        remote_branch = publishing_repo.git.ls_remote(
+            "--heads",
+            "origin",
+            f"refs/heads/{branch_name}",
         )
+        if remote_branch:
+            publishing_repo.git.fetch(
+                "origin",
+                f"refs/heads/{branch_name}:refs/remotes/origin/{branch_name}",
+            )
+            publishing_repo.git.checkout(
+                "-B",
+                branch_name,
+                f"origin/{branch_name}",
+            )
+        else:
+            publishing_repo.git.checkout("-b", branch_name)
 
         repository_prefix = original_repo.relative_to(git_root)
 
@@ -462,27 +477,27 @@ def publish_validated_repairs(
 
         publishing_repo.index.add(copied_files)
 
-        if not publishing_repo.is_dirty(
+        has_staged_changes = publishing_repo.is_dirty(
             index=True,
             working_tree=False,
-        ):
-            raise RuntimeError(
-                "No Git changes were detected after copying repair files."
+        )
+        if has_staged_changes:
+            publishing_repo.index.commit(
+                f"ASEA: repair {len(copied_files)} validated file(s)"
             )
-
-        publishing_repo.index.commit(
-            f"ASEA: repair {len(copied_files)} validated file(s)"
-        )
-
-        publishing_repo.git.execute(
-            [
-                "git",
-                "push",
-                "origin",
-                f"{branch_name}:{branch_name}",
-            ],
-            env=git_environment,
-        )
+            publishing_repo.git.execute(
+                [
+                    "git",
+                    "push",
+                    "origin",
+                    f"{branch_name}:{branch_name}",
+                ],
+                env=git_environment,
+            )
+        elif not remote_branch:
+            raise RuntimeError(
+                "No Git changes were detected for a new repair branch."
+            )
 
         pull_request = create_pull_request(
             repository=github_repository,

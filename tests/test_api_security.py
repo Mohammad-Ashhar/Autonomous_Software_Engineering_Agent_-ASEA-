@@ -191,3 +191,38 @@ def test_server_error_request_is_logged_as_warning(monkeypatch, caplog):
         for record in caplog.records
     )
 
+@pytest.mark.parametrize(
+    "origins",
+    [
+        "*",
+        "https://trusted.example/path",
+        "https://trusted.example?debug=true",
+        "https://user:password@trusted.example",
+        "https://trusted.example,",
+        "ftp://trusted.example",
+        "https://trusted.example:invalid",
+    ],
+)
+def test_cors_configuration_rejects_non_origin_values(monkeypatch, origins):
+    monkeypatch.setenv("ASEA_CORS_ORIGINS", origins)
+
+    with pytest.raises(RuntimeError, match="ASEA_CORS_ORIGINS"):
+        main.configured_cors_origins()
+
+
+@pytest.mark.parametrize(
+    ("origins", "expected"),
+    [
+        ("https://app.example", ["https://app.example"]),
+        (
+            "https://app.example/, http://localhost:3000",
+            ["https://app.example", "http://localhost:3000"],
+        ),
+    ],
+)
+def test_cors_configuration_accepts_exact_origins(
+    monkeypatch, origins, expected
+):
+    monkeypatch.setenv("ASEA_CORS_ORIGINS", origins)
+
+    assert main.configured_cors_origins() == expected

@@ -259,7 +259,9 @@ def run_repair_job(
                 if publishing_result["status"] == "PULL_REQUEST_CREATED":
                     message = "ASEA repair completed and pull request created."
                 elif publishing_result["status"] == "PULL_REQUEST_EXISTS":
-                    message = "ASEA repair completed; an existing pull request was found."
+                    message = (
+                        "ASEA repair completed; an existing pull request was found."
+                    )
                 else:
                     message = (
                         "ASEA repair completed and validation passed, "

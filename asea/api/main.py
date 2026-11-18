@@ -311,6 +311,50 @@ def run_repair_job(
             message="ASEA repair workflow failed.",
             error=_safe_error_detail(error),
         )
+def retry_repair_publishing(job_id: str):
+    """Retry GitHub publishing from a preserved, validated repair result."""
+    job = repair_jobs.get_job(job_id)
+    if job is None:
+        return
+    result = (job.get("result") or {}).get("workflow")
+    if not isinstance(result, dict):
+        repair_jobs.release_publishing_retry(job_id)
+        return
+
+    publishing_result = _publish_repair_result(result, job_id)
+    job_result = dict(job.get("result") or {})
+    job_result["publishing"] = publishing_result
+
+    if publishing_result.get("status") in {
+        "PULL_REQUEST_CREATED",
+        "PULL_REQUEST_EXISTS",
+    }:
+        cleanup_repair_workspace(result.get("repo_path", ""), result)
+        message = (
+            "ASEA repair completed and pull request created."
+            if publishing_result["status"] == "PULL_REQUEST_CREATED"
+            else "ASEA repair completed; an existing pull request was found."
+        )
+        repair_jobs.update_job(
+            job_id,
+            message=message,
+            result=job_result,
+            error=None,
+            publishing_retry=False,
+        )
+        return
+
+    repair_jobs.update_job(
+        job_id,
+        message=(
+            "ASEA repair remains validated, but GitHub publishing failed. "
+            "Publishing can be retried."
+        ),
+        result=job_result,
+        publishing_retry=False,
+    )
+
+
 def resume_repair_job(
     job_id: str,
     decision: str,
@@ -694,6 +738,35 @@ def list_repair_jobs(
         offset=offset,
         status=status,
     )
+
+
+@app.post("/repair/{job_id}/publish", status_code=202)
+def retry_repair_publish(job_id: str):
+    """Retry publishing a validated repair without rerunning its workflow."""
+    job = repair_jobs.get_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Repair job not found.")
+    if not repair_jobs.claim_publishing_retry(job_id):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "This job is not eligible for a publishing retry, "
+                "or a retry is already in progress."
+            ),
+        )
+    try:
+        executor.submit(retry_repair_publishing, job_id)
+    except RuntimeError as error:
+        repair_jobs.release_publishing_retry(job_id)
+        raise HTTPException(
+            status_code=503,
+            detail="ASEA is temporarily unable to schedule publishing. Please retry.",
+        ) from error
+    return {
+        "message": "Publishing retry submitted.",
+        "job_id": job_id,
+        "status": "publishing_retry_queued",
+    }
 
 
 @app.get("/repair/{job_id}")

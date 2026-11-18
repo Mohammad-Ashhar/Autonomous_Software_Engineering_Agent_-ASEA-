@@ -256,3 +256,36 @@ def test_reject_working_file_symlink_that_escapes_workspace(tmp_path):
     }
 
     assert get_approved_repair_files(state, original, working) == []
+
+
+
+def test_reject_working_file_symlink_even_when_target_is_inside_workspace(tmp_path):
+    original = tmp_path / "original"
+    working = tmp_path / "working"
+    original.mkdir()
+    working.mkdir()
+    original_file = original / "module.py"
+    target_file = working / "other.py"
+    original_file.write_text("value = 1\\n", encoding="utf-8")
+    target_file.write_text("value = 2\\n", encoding="utf-8")
+    (working / "module.py").symlink_to(target_file)
+
+    state = {
+        "repaired_bugs": [
+            {
+                "status": "REPAIRED",
+                "bug_key": "internal-symlink",
+                "attempts": 1,
+                "file": str(original_file),
+            }
+        ],
+        "review_history": [
+            {
+                "bug_key": "internal-symlink",
+                "decision": "approved",
+                "attempt": 1,
+            }
+        ],
+    }
+
+    assert get_approved_repair_files(state, original, working) == []

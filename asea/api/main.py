@@ -174,9 +174,11 @@ def _publish_repair_result(result: dict[str, object]) -> dict[str, object]:
         }
     except Exception as error:
         logging.exception("ASEA repair passed validation but publishing failed.")
+        safe_detail = _safe_error_detail(error)
+        _, separator, safe_message = safe_detail.partition(": ")
         return {
             "status": "PUBLISH_FAILED",
-            "error": _safe_error_detail(error),
+            "error": safe_message if separator else safe_detail,
         }
 
 

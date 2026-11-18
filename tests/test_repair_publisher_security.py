@@ -170,6 +170,16 @@ def test_reject_unsafe_github_remote_urls(remote_url):
         "deploy.key",
         "backup.p12",
         "api.secret",
+        ".npmrc",
+        ".pypirc",
+        ".netrc",
+        ".git-credentials",
+        ".ssh/id_ed25519",
+        ".aws/credentials",
+        ".azure/accessTokens.json",
+        ".kube/config",
+        ".gnupg/private-keys-v1.d/secret.key",
+        ".docker/config.json",
     ],
 )
 def test_sensitive_repair_files_are_never_approved_for_publishing(

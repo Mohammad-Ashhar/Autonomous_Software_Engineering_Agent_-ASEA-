@@ -491,6 +491,18 @@ class RepairJobManager:
                 )
                 return cursor.rowcount
 
+    def reset_interrupted_publishing_retries(self) -> int:
+        """Release publishing claims left behind by a previous API process."""
+        now = datetime.now(timezone.utc).isoformat()
+        with self.lock:
+            with self._connection() as connection:
+                cursor = connection.execute(
+                    "UPDATE repair_jobs SET publishing_retry = 0, updated_at = ? "
+                    "WHERE publishing_retry = 1 AND status = 'completed'",
+                    (now,),
+                )
+                return cursor.rowcount
+
     def list_pending_reviews(self) -> list[dict[str, Any]]:
         """Return durably claimed review decisions that need worker recovery."""
         with self.lock:

@@ -27,10 +27,12 @@ class InMemoryRepairJobs:
     def get_job(self, job_id):
         return self.jobs.get(job_id)
 
-    def claim_review(self, job_id):
+    def claim_review(self, job_id, decision=None, feedback=""):
         if job_id in self.review_claims:
             return False
         self.review_claims.add(job_id)
+        self.jobs[job_id]["review_decision"] = decision
+        self.jobs[job_id]["review_feedback"] = feedback
         return True
 
     def release_review_claim(self, job_id):
@@ -159,6 +161,7 @@ def test_patch_review_http_route_claims_and_schedules_once(monkeypatch):
     function, args = executor.submitted[0]
     assert function is main.resume_repair_job
     assert args == ("review-job", "approved", "")
+    assert jobs.jobs["review-job"]["review_decision"] == "approved"
 
     duplicate = client.post(
         "/repair/review-job/review",

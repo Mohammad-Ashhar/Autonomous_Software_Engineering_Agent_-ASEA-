@@ -7,6 +7,8 @@ from tree_sitter import Language, Parser
 
 from asea.tools.repository import RepositoryManager
 
+MAX_PYTHON_FILE_SIZE_BYTES = 2 * 1024 * 1024
+
 
 class PythonRepositoryParser:
 
@@ -16,19 +18,39 @@ class PythonRepositoryParser:
 
     def parse_file(self, file_path):
         file_path = Path(file_path)
-
-        source_code = file_path.read_bytes()
-        language = Language(tspython.language())
-        local_parser = Parser(language)
-        tree = local_parser.parse(source_code)
-
         result = {
             "file": str(file_path),
             "functions": [],
             "classes": [],
             "imports": [],
             "syntax_errors": [],
+            "analysis_errors": [],
         }
+
+        try:
+            if file_path.stat().st_size > MAX_PYTHON_FILE_SIZE_BYTES:
+                result["analysis_errors"].append(
+                    "File exceeds the 2 MiB analysis limit."
+                )
+                return result
+
+            source_code = file_path.read_bytes()
+        except OSError as error:
+            result["analysis_errors"].append(
+                f"File could not be read: {type(error).__name__}."
+            )
+            return result
+
+        # Check again after reading in case the file changed after stat().
+        if len(source_code) > MAX_PYTHON_FILE_SIZE_BYTES:
+            result["analysis_errors"].append(
+                "File exceeds the 2 MiB analysis limit."
+            )
+            return result
+
+        language = Language(tspython.language())
+        local_parser = Parser(language)
+        tree = local_parser.parse(source_code)
 
         try:
             ast.parse(source_code, filename=str(file_path))

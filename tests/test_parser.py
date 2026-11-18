@@ -85,9 +85,9 @@ def test_parser_skips_oversized_python_files_with_clear_diagnostic(tmp_path):
 def test_parser_respects_declared_latin1_source_encoding(tmp_path):
     file_path = tmp_path / "legacy.py"
     file_path.write_bytes(
-        b"# -*- coding: latin-1 -*-\\n"
-        b"def caf\\xe9():\\n"
-        b"    return 'ol\\xe9'\\n"
+        b"# -*- coding: latin-1 -*-\n"
+        b"def caf\xe9():\n"
+        b"    return 'ol\xe9'\n"
     )
 
     result = PythonRepositoryParser().parse_file(file_path)

@@ -219,3 +219,19 @@ def test_unfinished_workflow_is_not_reported_as_completed(monkeypatch):
     assert history.json()["total"] == 0
     failed_history = client.get("/repairs?status=failed")
     assert failed_history.json()["total"] == 1
+
+
+def test_publishing_failure_redacts_github_token(monkeypatch):
+    token = "ghp_" + "A" * 30
+
+    def fail_to_publish(_result):
+        raise RuntimeError(f"GitHub rejected token {token}")
+
+    monkeypatch.setattr(main, "publish_validated_repairs", fail_to_publish)
+
+    result = main._publish_repair_result({"status": "COMPLETED"})
+
+    assert result["status"] == "PUBLISH_FAILED"
+    assert token not in result["error"]
+    assert "[REDACTED_GITHUB_TOKEN]" in result["error"]
+    assert "GitHub rejected token" in result["error"]

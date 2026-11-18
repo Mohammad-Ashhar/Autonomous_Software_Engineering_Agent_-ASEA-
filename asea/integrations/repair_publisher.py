@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
+from uuid import uuid4
 
 from git import Repo
 from git.exc import GitCommandError
@@ -300,9 +301,13 @@ def publish_validated_repairs(
             env=git_environment,
         )
 
+        # Timestamp keeps branches readable; a random suffix prevents
+        # concurrent repairs in the same second from colliding.
         branch_name = (
             "asea/repair-"
             + datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+            + "-"
+            + uuid4().hex[:8]
         )
 
         publishing_repo.git.checkout(

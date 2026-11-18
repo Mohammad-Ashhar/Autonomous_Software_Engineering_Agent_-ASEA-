@@ -17,8 +17,15 @@ def _git_repo(path: Path) -> Repo:
     return repo
 
 
+@pytest.mark.parametrize(
+    ("pull_request_status", "expected_status"),
+    [
+        ("CREATED", "PULL_REQUEST_CREATED"),
+        ("EXISTING", "PULL_REQUEST_EXISTS"),
+    ],
+)
 def test_approved_validated_repair_pushes_branch_and_opens_pull_request(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, pull_request_status, expected_status
 ):
     remote_path = tmp_path / "remote.git"
     seed_path = tmp_path / "seed"
@@ -84,7 +91,11 @@ def test_approved_validated_repair_pushes_branch_and_opens_pull_request(
 
     def fake_create_pull_request(**kwargs):
         pull_request_calls.append(kwargs)
-        return {"number": 42, "url": "https://github.com/example/python-demo/pull/42"}
+        return {
+            "status": pull_request_status,
+            "number": 42,
+            "url": "https://github.com/example/python-demo/pull/42",
+        }
 
     monkeypatch.setattr(
         publisher,
@@ -123,7 +134,7 @@ def test_approved_validated_repair_pushes_branch_and_opens_pull_request(
 
     result = publisher.publish_validated_repairs(state)
 
-    assert result["status"] == "PULL_REQUEST_CREATED"
+    assert result["status"] == expected_status
     assert result["repository"] == "example/python-demo"
     assert result["branch"].startswith("asea/repair-")
     assert len(result["branch"].rsplit("-", 1)[-1]) == 8

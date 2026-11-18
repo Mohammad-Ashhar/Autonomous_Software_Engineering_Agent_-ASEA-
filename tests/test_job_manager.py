@@ -451,3 +451,75 @@ def test_active_job_admission_limit_counts_jobs_waiting_for_review(
 
     manager.update_job("review-capacity-001", status="completed")
     assert manager.create_job("review-capacity-003", "repo-three")["status"] == "queued"
+
+
+
+def test_review_decision_is_durable_and_recovered_after_restart(tmp_path):
+    manager = create_test_manager(tmp_path / "durable_review.db")
+    manager.create_job("durable-review-001", "demo_repo")
+    manager.update_job(
+        "durable-review-001",
+        status="waiting_for_review",
+        review_request={"patch": "diff"},
+    )
+
+    assert manager.claim_review(
+        "durable-review-001",
+        decision="approved",
+        feedback="Looks correct",
+    ) is True
+
+    pending = manager.list_pending_reviews()
+    assert len(pending) == 1
+    assert pending[0]["job_id"] == "durable-review-001"
+    assert pending[0]["review_decision"] == "approved"
+    assert pending[0]["review_feedback"] == "Looks correct"
+
+    # Startup recovery must preserve a claimed decision rather than fail it.
+    assert manager.mark_interrupted_jobs() == 0
+    recovered = manager.get_job("durable-review-001")
+    assert recovered["status"] == "running"
+    assert recovered["review_decision"] == "approved"
+
+
+def test_releasing_review_claim_clears_unprocessed_decision(tmp_path):
+    manager = create_test_manager(tmp_path / "release_durable_review.db")
+    manager.create_job("release-durable-001", "demo_repo")
+    manager.update_job(
+        "release-durable-001",
+        status="waiting_for_review",
+        review_request={"patch": "diff"},
+    )
+
+    assert manager.claim_review(
+        "release-durable-001",
+        decision="rejected",
+        feedback="Please correct the edge case",
+    ) is True
+    assert manager.release_review_claim("release-durable-001") is True
+
+    restored = manager.get_job("release-durable-001")
+    assert restored["status"] == "waiting_for_review"
+    assert restored["review_decision"] is None
+    assert restored["review_feedback"] is None
+    assert manager.list_pending_reviews() == []
+
+
+def test_rejected_review_requires_feedback_at_storage_boundary(tmp_path):
+    import pytest
+
+    manager = create_test_manager(tmp_path / "reject_feedback.db")
+    manager.create_job("reject-feedback-001", "demo_repo")
+    manager.update_job(
+        "reject-feedback-001",
+        status="waiting_for_review",
+        review_request={"patch": "diff"},
+    )
+
+    with pytest.raises(ValueError, match="feedback is required"):
+        manager.claim_review(
+            "reject-feedback-001",
+            decision="rejected",
+            feedback=" ",
+        )
+    assert manager.get_job("reject-feedback-001")["status"] == "waiting_for_review"

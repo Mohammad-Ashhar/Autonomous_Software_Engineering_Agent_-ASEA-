@@ -469,6 +469,12 @@ def publish_validated_repairs(
                 source_file,
                 destination_file,
             )
+            # Publish text repairs with canonical LF endings on every OS.
+            copied_content = destination_file.read_bytes()
+            if b"\0" not in copied_content:
+                destination_file.write_bytes(
+                    copied_content.replace(b"\r\n", b"\n")
+                )
 
             copied_files.append(
                 destination_relative.as_posix()

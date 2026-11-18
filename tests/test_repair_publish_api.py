@@ -376,3 +376,37 @@ def test_publish_repair_result_preserves_existing_pull_request_status(monkeypatc
     )
 
     assert main._publish_repair_result({"status": "COMPLETED"}) == existing
+
+
+
+def test_resume_repair_reports_existing_pull_request(monkeypatch):
+    jobs = FakeRepairJobs()
+    monkeypatch.setattr(main, "repair_jobs", jobs)
+
+    workflow_result = {
+        "status": "COMPLETED",
+        "working_test_results": {"success": True},
+    }
+
+    class FakeGraph:
+        def invoke(self, command, config):
+            return workflow_result
+
+        def get_state(self, config):
+            return SimpleNamespace(interrupts=[])
+
+    monkeypatch.setattr(main.app.state, "graph", FakeGraph(), raising=False)
+    monkeypatch.setattr(
+        main,
+        "_publish_repair_result",
+        lambda _result: {"status": "PULL_REQUEST_EXISTS"},
+    )
+    jobs.jobs["job-existing-pr"] = {
+        "publish_requested": True,
+    }
+
+    main.resume_repair_job("job-existing-pr", "approved", "")
+
+    final_update = jobs.updates[-1][1]
+    assert final_update["status"] == "completed"
+    assert "existing pull request was found" in final_update["message"]

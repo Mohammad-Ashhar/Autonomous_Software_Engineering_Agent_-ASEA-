@@ -400,3 +400,19 @@ ASEA is under active development. The current analyzer, test-generation, and rep
 The API applies a per-process, per-client sliding-window rate limit and rejects request bodies larger than 2 MiB by default. Configure these limits with `ASEA_RATE_LIMIT_REQUESTS`, `ASEA_RATE_LIMIT_WINDOW_SECONDS`, and `ASEA_MAX_REQUEST_BODY_BYTES`. Rate-limit responses use HTTP 429 and include `Retry-After`. The `/health` endpoint and CORS preflight requests are exempt.
 
 Responses include baseline browser security headers. CORS permits only the configured local frontend origins, GET/POST/OPTIONS methods, and Authorization/Content-Type headers. The in-memory limiter is per process; multi-worker or multi-instance deployments must also enforce shared limits at a trusted reverse proxy or API gateway.
+
+### Retry a failed GitHub publication
+
+A repair job can finish validation successfully even when GitHub publishing fails (for example, because the token is temporarily unavailable or lacks repository permissions). ASEA preserves the validated repair workspace and workflow result in that case; it does not rerun analysis, patch generation, or tests when publication is retried.
+
+Use the authenticated API endpoint:
+
+```http
+POST /repair/{job_id}/publish
+Authorization: Bearer <ASEA_API_KEY>
+```
+
+The endpoint returns `202 Accepted` when a retry is queued. It returns `404` for an unknown job, `409` when the job is not a completed, opted-in publication failure or another retry is already claimed, and `503` if the background worker cannot be scheduled. Check `GET /repair/{job_id}` for the updated publication result and pull-request URL.
+
+Retries reuse the repair job's deterministic publishing branch, so repeating a failed attempt does not create a new branch for the same job. A successful publication cleans up the preserved workspace; a failed attempt keeps it available for another retry. ASEA still requires human approval for every repair patch and never merges the pull request automatically.
+

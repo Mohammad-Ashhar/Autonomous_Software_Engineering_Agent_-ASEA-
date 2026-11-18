@@ -34,6 +34,11 @@ EXCLUDED_PARTS = {
     ".azure",
     ".kube",
     ".gnupg",
+    ".terraform",
+    ".vault-token",
+    "application_default_credentials.json",
+    "service-account.json",
+    "service_account.json",
     ".venv",
     "venv",
     "__pycache__",
@@ -57,6 +62,8 @@ SENSITIVE_FILE_SUFFIXES = (
     ".secrets",
     ".token",
     ".credentials",
+    ".tfstate",
+    ".tfstate.backup",
 )
 
 

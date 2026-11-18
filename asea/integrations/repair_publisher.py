@@ -384,10 +384,14 @@ def publish_validated_repairs(
 
         # A stable job-derived branch makes retries safe after a push or
         # PR-creation interruption. Direct callers get a content fingerprint.
-        branch_identity = job_id or repository_name + "|" + "|".join(
-            f"{path.as_posix()}:{hashlib.sha256((working_repo / path).read_bytes()).hexdigest()}"
+        repair_fingerprint = "|".join(
+            (
+                f"{path.as_posix()}:"
+                f"{hashlib.sha256((working_repo / path).read_bytes()).hexdigest()}"
+            )
             for path in repair_files
         )
+        branch_identity = job_id or f"{repository_name}|{repair_fingerprint}"
         branch_suffix = hashlib.sha256(
             branch_identity.encode("utf-8")
         ).hexdigest()[:16]

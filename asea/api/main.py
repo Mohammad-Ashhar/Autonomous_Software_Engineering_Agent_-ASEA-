@@ -185,10 +185,7 @@ def _safe_error_detail(error: Exception) -> str:
 def _publish_repair_result(result: dict[str, object]) -> dict[str, object]:
     """Keep GitHub publishing failures separate from validated repair outcomes."""
     try:
-        return {
-            **publish_validated_repairs(result),
-            "status": "PULL_REQUEST_CREATED",
-        }
+        return publish_validated_repairs(result)
     except Exception as error:
         safe_detail = _safe_error_detail(error)
         logging.error(
@@ -261,6 +258,8 @@ def run_repair_job(
                 job_result["publishing"] = publishing_result
                 if publishing_result["status"] == "PULL_REQUEST_CREATED":
                     message = "ASEA repair completed and pull request created."
+                elif publishing_result["status"] == "PULL_REQUEST_EXISTS":
+                    message = "ASEA repair completed; an existing pull request was found."
                 else:
                     message = (
                         "ASEA repair completed and validation passed, "

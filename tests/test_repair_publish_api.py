@@ -401,10 +401,6 @@ def test_resume_repair_reports_existing_pull_request(monkeypatch):
         "_publish_repair_result",
         lambda _result: {"status": "PULL_REQUEST_EXISTS"},
     )
-    jobs.jobs["job-existing-pr"] = {
-        "publish_requested": True,
-    }
-
     main.resume_repair_job("job-existing-pr", "approved", "")
 
     final_update = jobs.updates[-1][1]

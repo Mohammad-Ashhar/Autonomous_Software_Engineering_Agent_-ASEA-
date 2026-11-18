@@ -232,7 +232,7 @@ class PatchValidatorAgent:
         # Normalize line endings only inside the isolated candidate copy.
         for target_file in set(target_files):
             source = target_file.read_bytes()
-            target_file.write_bytes(source.replace(b"\\r\\n", b"\\n"))
+            target_file.write_bytes(source.replace(b"\r\n", b"\n"))
 
         init_result = subprocess.run(
             ["git", "init"],
@@ -248,6 +248,15 @@ class PatchValidatorAgent:
                 "Could not initialize temporary Git repository: "
                 f"{init_result.stderr}"
             )
+
+        subprocess.run(
+            ["git", "config", "core.autocrlf", "false"],
+            check=True,
+            cwd=repository_path,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
 
         check_result = subprocess.run(
             [

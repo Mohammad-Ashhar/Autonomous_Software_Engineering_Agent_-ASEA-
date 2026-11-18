@@ -273,7 +273,11 @@ def run_repair_job(
                         "but GitHub publishing failed."
                     )
 
-            cleanup_repair_workspace(result.get("repo_path", ""), result)
+            if not (
+                publish
+                and job_result.get("publishing", {}).get("status") == "PUBLISH_FAILED"
+            ):
+                cleanup_repair_workspace(result.get("repo_path", ""), result)
             repair_jobs.update_job(
                 job_id,
                 status=terminal_status,
@@ -377,7 +381,11 @@ def resume_repair_job(
                         "ASEA repair completed and validation passed, "
                         "but GitHub publishing failed."
                     )
-            cleanup_repair_workspace(result.get("repo_path", ""), result)
+            if not (
+                publish
+                and job_result.get("publishing", {}).get("status") == "PUBLISH_FAILED"
+            ):
+                cleanup_repair_workspace(result.get("repo_path", ""), result)
             repair_jobs.update_job(
                 job_id,
                 status=terminal_status,

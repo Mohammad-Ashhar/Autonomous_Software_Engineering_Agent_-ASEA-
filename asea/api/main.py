@@ -176,7 +176,7 @@ def _publish_repair_result(result: dict[str, object]) -> dict[str, object]:
         logging.exception("ASEA repair passed validation but publishing failed.")
         return {
             "status": "PUBLISH_FAILED",
-            "error": str(error),
+            "error": _safe_error_detail(error),
         }
 
 

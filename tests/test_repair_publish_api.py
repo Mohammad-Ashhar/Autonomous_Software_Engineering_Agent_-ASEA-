@@ -195,7 +195,7 @@ def test_resume_repair_publishes_after_final_human_approval(monkeypatch):
     monkeypatch.setattr(
         main,
         "publish_validated_repairs",
-        lambda result: publish_calls.append(result) or published,
+        lambda result, **_kwargs: publish_calls.append(result) or published,
     )
 
     main.resume_repair_job("job-resume-publish", "approved", "")

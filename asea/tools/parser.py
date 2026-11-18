@@ -96,9 +96,16 @@ class PythonRepositoryParser:
                 if segment is not None:
                     result["imports"].append(segment)
 
+            # A function nested inside another function is a local function,
+            # not a method of the surrounding class. A class nested inside a
+            # function establishes its own method context when visited.
+            child_class_name = (
+                None
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                else class_name
+            )
             for child in reversed(list(ast.iter_child_nodes(node))):
-                stack.append((child, class_name))
-
+                stack.append((child, child_class_name))
 
         return result
 

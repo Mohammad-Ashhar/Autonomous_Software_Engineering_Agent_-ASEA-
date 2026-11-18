@@ -249,7 +249,9 @@ class RepairJobManager:
             not isinstance(updates["review_feedback"], str)
             or len(updates["review_feedback"]) > 2000
         ):
-            raise ValueError("review_feedback must be a string of at most 2000 characters.")
+            raise ValueError(
+                "review_feedback must be a string of at most 2000 characters."
+            )
 
         with self.lock:
             with self._connection() as connection:

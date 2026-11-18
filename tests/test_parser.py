@@ -95,3 +95,68 @@ def test_parser_respects_declared_latin1_source_encoding(tmp_path):
     assert result["analysis_errors"] == []
     assert result["syntax_errors"] == []
     assert result["functions"][0]["name"] == "café"
+
+
+def test_parser_extracts_async_functions_and_nested_class_methods(tmp_path):
+    file_path = tmp_path / "async_module.py"
+    file_path.write_text(
+        "class Outer:\n"
+        "    class Inner:\n"
+        "        async def load(self):\n"
+        "            return True\n"
+        "\n"
+        "async def fetch():\n"
+        "    return None\n",
+        encoding="utf-8",
+    )
+
+    result = PythonRepositoryParser().parse_file(file_path)
+
+    assert result["syntax_errors"] == []
+    assert result["analysis_errors"] == []
+    assert result["classes"] == [
+        {
+            "name": "Outer",
+            "start_line": 1,
+            "end_line": 4,
+        },
+        {
+            "name": "Inner",
+            "start_line": 2,
+            "end_line": 4,
+        },
+    ]
+    assert result["functions"] == [
+        {
+            "name": "load",
+            "class": "Inner",
+            "start_line": 3,
+            "end_line": 4,
+        },
+        {
+            "name": "fetch",
+            "class": None,
+            "start_line": 6,
+            "end_line": 7,
+        },
+    ]
+
+
+def test_parser_reports_unknown_source_encoding_without_crashing(tmp_path):
+    file_path = tmp_path / "unknown_encoding.py"
+    file_path.write_bytes(
+        b"# coding: made-up-encoding\n"
+        b"def example():\n"
+        b"    return 1\n"
+    )
+
+    result = PythonRepositoryParser().parse_file(file_path)
+
+    assert result["functions"] == []
+    assert result["classes"] == []
+    assert result["imports"] == []
+    assert result["syntax_errors"] == []
+    assert result["analysis_errors"] == [
+        "File encoding could not be detected: SyntaxError."
+    ]
+

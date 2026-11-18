@@ -132,7 +132,7 @@ class RepositoryAnalyzer:
             "python_file_count": len(python_files),
             "test_file_count": len(test_files),
             "test_files": [
-                str(path.relative_to(repo_path))
+                path.relative_to(repo_path).as_posix()
                 for path in test_files
             ],
             "test_frameworks": sorted(frameworks),

@@ -260,9 +260,9 @@ def test_bug_detector_respects_declared_latin1_encoding(tmp_path):
     agent = BugDetectorAgent()
     source = tmp_path / "legacy.py"
     source.write_bytes(
-        b"# coding: latin-1\\n"
-        b"def caf\\xe9():\\n"
-        b"    return 'ol\\xe9'\\n"
+        b"# coding: latin-1\n"
+        b"def caf\xe9():\n"
+        b"    return 'ol\xe9'\n"
     )
 
     with patch.object(agent.llm, "chat", return_value='{"bugs": []}') as chat:
@@ -276,9 +276,9 @@ def test_bug_detector_skips_unknown_source_encoding_without_false_syntax_bug(tmp
     agent = BugDetectorAgent()
     source = tmp_path / "unknown.py"
     source.write_bytes(
-        b"# coding: made-up-encoding\\n"
-        b"def example():\\n"
-        b"    return 1\\n"
+        b"# coding: made-up-encoding\n"
+        b"def example():\n"
+        b"    return 1\n"
     )
 
     with patch.object(agent.llm, "chat") as chat:

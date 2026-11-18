@@ -177,12 +177,10 @@ class TestGenerationAgent:
         if not parts or any(not part.isidentifier() for part in parts):
             return None
 
-        parent = repository
-        for directory in parts[:-1]:
-            parent = parent / directory
-            if not (parent / "__init__.py").is_file():
-                return None
-
+        # Python 3 supports implicit namespace packages, so intermediate
+        # directories do not need __init__.py files to be importable.
+        # This also supports common src/ layouts where src itself is not a
+        # Python package.
         return ".".join(parts)
 
     def _source_modules(self, repository: Path) -> list[tuple[Path, str]]:

@@ -523,3 +523,35 @@ def test_rejected_review_requires_feedback_at_storage_boundary(tmp_path):
             feedback=" ",
         )
     assert manager.get_job("reject-feedback-001")["status"] == "waiting_for_review"
+
+
+
+def test_acknowledge_review_start_consumes_only_matching_pending_decision(tmp_path):
+    manager = create_test_manager(tmp_path / "ack_review.db")
+    manager.create_job("ack-review-001", "demo_repo")
+    manager.update_job(
+        "ack-review-001",
+        status="waiting_for_review",
+        review_request={"patch": "diff"},
+    )
+    assert manager.claim_review(
+        "ack-review-001",
+        decision="approved",
+        feedback="",
+    ) is True
+
+    assert manager.acknowledge_review_start(
+        "ack-review-001",
+        "rejected",
+    ) is False
+    assert manager.acknowledge_review_start(
+        "ack-review-001",
+        "approved",
+    ) is True
+    assert manager.acknowledge_review_start(
+        "ack-review-001",
+        "approved",
+    ) is False
+    job = manager.get_job("ack-review-001")
+    assert job["status"] == "running"
+    assert job["review_decision"] is None

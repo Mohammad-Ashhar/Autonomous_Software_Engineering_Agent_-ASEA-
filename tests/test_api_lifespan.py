@@ -7,6 +7,10 @@ class FakeExecutor:
     def __init__(self, **kwargs):
         self.options = kwargs
         self.shutdown_options = None
+        self.submitted = []
+
+    def submit(self, function, *args):
+        self.submitted.append((function, args))
 
     def shutdown(self, **kwargs):
         self.shutdown_options = kwargs
@@ -166,3 +170,41 @@ def test_lifespan_shuts_down_executor_when_checkpointer_setup_fails(
         }
 
     asyncio.run(exercise_failed_setup())
+
+
+
+def test_lifespan_reschedules_durably_claimed_reviews_after_restart(
+    monkeypatch, tmp_path
+):
+    executor_instances = []
+
+    def make_executor(**kwargs):
+        executor = FakeExecutor(**kwargs)
+        executor_instances.append(executor)
+        return executor
+
+    pending = [{
+        "job_id": "recovered-review-001",
+        "review_decision": "approved",
+        "review_feedback": "Looks correct",
+    }]
+    monkeypatch.setattr(main, "ThreadPoolExecutor", make_executor)
+    monkeypatch.setattr(main, "SqliteSaver", FakeSqliteSaver)
+    monkeypatch.setattr(main, "CHECKPOINT_DB_PATH", tmp_path / "checkpoints.db")
+    monkeypatch.setattr(main.repair_jobs, "mark_interrupted_jobs", lambda: 0)
+    monkeypatch.setattr(main.repair_jobs, "list_pending_reviews", lambda: pending)
+    monkeypatch.setattr(main, "build_asea_graph", lambda checkpointer: object())
+
+    async def exercise_lifespan():
+        async with main.lifespan(main.app):
+            submitted = executor_instances[0].submitted
+            assert len(submitted) == 1
+            function, args = submitted[0]
+            assert function is main.resume_repair_job
+            assert args == (
+                "recovered-review-001",
+                "approved",
+                "Looks correct",
+            )
+
+    asyncio.run(exercise_lifespan())

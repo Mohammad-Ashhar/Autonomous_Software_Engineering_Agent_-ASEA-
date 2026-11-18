@@ -502,8 +502,15 @@ def publish_validated_repairs(
             ),
         )
 
+        pull_request_status = pull_request.get("status", "CREATED")
+        publishing_status = (
+            "PULL_REQUEST_EXISTS"
+            if pull_request_status == "EXISTING"
+            else "PULL_REQUEST_CREATED"
+        )
+
         return {
-            "status": "PULL_REQUEST_CREATED",
+            "status": publishing_status,
             "branch": branch_name,
             "base_branch": base_branch,
             "repository": repository_name,

@@ -67,6 +67,23 @@ SENSITIVE_FILE_SUFFIXES = (
 )
 
 
+def has_symlink_component(path: Path, root: Path) -> bool:
+    """Return whether path or any parent below root is a symlink."""
+
+    try:
+        relative_path = path.relative_to(root)
+    except ValueError:
+        return True
+
+    current = root
+    for part in relative_path.parts:
+        current = current / part
+        if current.is_symlink():
+            return True
+
+    return False
+
+
 def is_excluded_repair_path(path: Path) -> bool:
     """Reject generated, environment, credential, and private-key paths."""
 
@@ -243,7 +260,12 @@ def get_approved_repair_files(
         if is_excluded_repair_path(relative_path):
             continue
 
-        working_file = (working_repo / relative_path).resolve()
+        working_file_path = working_repo / relative_path
+
+        if has_symlink_component(working_file_path, working_repo):
+            continue
+
+        working_file = working_file_path.resolve()
 
         try:
             working_file.relative_to(working_repo.resolve())
@@ -398,9 +420,14 @@ def publish_validated_repairs(
                 repository_prefix / relative_path
             )
 
-            destination_file = (
-                checkout_path / destination_relative
-            ).resolve()
+            destination_file_path = checkout_path / destination_relative
+
+            if has_symlink_component(destination_file_path, checkout_path):
+                raise ValueError(
+                    "Publishing blocked: destination path contains a symlink."
+                )
+
+            destination_file = destination_file_path.resolve()
 
             try:
                 destination_file.relative_to(checkout_path.resolve())

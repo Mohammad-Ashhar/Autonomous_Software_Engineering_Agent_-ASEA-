@@ -1,3 +1,4 @@
+import hashlib
 import sys
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
@@ -132,12 +133,13 @@ def test_approved_validated_repair_pushes_branch_and_opens_pull_request(
         ],
     }
 
-    result = publisher.publish_validated_repairs(state)
+    result = publisher.publish_validated_repairs(state, job_id="stable-job-123")
 
     assert result["status"] == expected_status
     assert result["repository"] == "example/python-demo"
     assert result["branch"].startswith("asea/repair-")
-    assert len(result["branch"].rsplit("-", 1)[-1]) == 8
+    expected_suffix = hashlib.sha256(b"stable-job-123").hexdigest()[:16]
+    assert result["branch"] == f"asea/repair-{expected_suffix}"
     assert result["files"] == ["demo_repo/logic.py"]
     assert result["pull_request"]["number"] == 42
     assert len(pull_request_calls) == 1
@@ -150,6 +152,15 @@ def test_approved_validated_repair_pushes_branch_and_opens_pull_request(
         .decode("utf-8")
         == "def is_positive(value):\n    return value > 0\n"
     )
+
+    # Re-running the same job must reuse its branch and avoid another commit.
+    retry_result = publisher.publish_validated_repairs(
+        state,
+        job_id="stable-job-123",
+    )
+    assert retry_result["branch"] == result["branch"]
+    assert retry_result["commit"] == result["commit"]
+    assert len(pull_request_calls) == 2
 
 
 def test_publishing_is_blocked_when_final_validation_fails():

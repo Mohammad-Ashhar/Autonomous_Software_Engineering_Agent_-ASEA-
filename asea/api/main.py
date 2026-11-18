@@ -317,6 +317,11 @@ def resume_repair_job(
         publish = bool(
             job.get("publish_requested", False)
         )
+        if hasattr(repair_jobs, "acknowledge_review_start"):
+            if not repair_jobs.acknowledge_review_start(job_id, decision):
+                raise RuntimeError(
+                    "Review decision is no longer pending for this repair job."
+                )
         graph = app.state.graph
 
         config = {

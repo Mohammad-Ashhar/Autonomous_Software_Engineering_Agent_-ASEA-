@@ -365,6 +365,28 @@ class RepairJobManager:
                 )
                 return cursor.rowcount == 1
 
+    def acknowledge_review_start(self, job_id: str, decision: str) -> bool:
+        """Consume a persisted decision once its resume worker has started."""
+        if decision not in {"approved", "rejected"}:
+            raise ValueError("decision must be approved or rejected.")
+        now = datetime.now(timezone.utc).isoformat()
+        with self.lock:
+            with self._connection() as connection:
+                cursor = connection.execute(
+                    """
+                    UPDATE repair_jobs
+                    SET review_decision = NULL,
+                        review_feedback = NULL,
+                        message = 'Patch review accepted; resuming workflow.',
+                        updated_at = ?
+                    WHERE job_id = ?
+                      AND status = 'running'
+                      AND review_decision = ?
+                    """,
+                    (now, job_id, decision),
+                )
+                return cursor.rowcount == 1
+
     def release_review_claim(self, job_id: str) -> bool:
         """Return an unstarted review claim to the review queue."""
         now = datetime.now(timezone.utc).isoformat()

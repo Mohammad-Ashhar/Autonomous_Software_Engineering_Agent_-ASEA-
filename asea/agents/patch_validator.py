@@ -306,9 +306,9 @@ class PatchValidatorAgent:
         # the successfully patched text files once more before promotion.
         for target_file in set(target_files):
             patched_content = target_file.read_bytes()
-            if b"\\0" not in patched_content:
+            if b"\0" not in patched_content:
                 target_file.write_bytes(
-                    patched_content.replace(b"\\r\\n", b"\\n")
+                    patched_content.replace(b"\r\n", b"\n")
                 )
 
     @staticmethod

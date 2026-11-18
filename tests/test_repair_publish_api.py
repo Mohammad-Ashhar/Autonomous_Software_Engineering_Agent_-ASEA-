@@ -439,3 +439,83 @@ def test_publish_retry_endpoint_rejects_duplicate_claim(monkeypatch):
         assert error.status_code == 409
     else:
         raise AssertionError("Duplicate publishing retry must be rejected")
+
+
+
+def test_publishing_retry_reuses_saved_workflow_and_cleans_up_on_success(monkeypatch):
+    jobs = FakeRepairJobs()
+    workflow = {
+        "status": "COMPLETED",
+        "repo_path": "/tmp/validated-repair",
+        "working_test_results": {"success": True},
+    }
+    jobs.get_job = lambda job_id: {
+        "job_id": job_id,
+        "status": "completed",
+        "result": {
+            "workflow": workflow,
+            "publishing": {"status": "PUBLISH_FAILED"},
+        },
+    }
+    publish_calls = []
+    cleanup_calls = []
+    monkeypatch.setattr(main, "repair_jobs", jobs)
+    monkeypatch.setattr(
+        main,
+        "_publish_repair_result",
+        lambda result, job_id: (
+            publish_calls.append((result, job_id))
+            or {"status": "PULL_REQUEST_CREATED", "pull_request": {"url": "https://github.com/example/repo/pull/1"}}
+        ),
+    )
+    monkeypatch.setattr(
+        main,
+        "cleanup_repair_workspace",
+        lambda repo_path, result: cleanup_calls.append((repo_path, result)),
+    )
+
+    main.retry_repair_publishing("retry-success-001")
+
+    assert publish_calls == [(workflow, "retry-success-001")]
+    assert cleanup_calls == [("/tmp/validated-repair", workflow)]
+    final_update = jobs.updates[-1][1]
+    assert final_update["result"]["publishing"]["status"] == "PULL_REQUEST_CREATED"
+    assert final_update["error"] is None
+    assert final_update["publishing_retry"] is False
+
+
+def test_publishing_retry_preserves_workspace_and_releases_claim_on_failure(monkeypatch):
+    jobs = FakeRepairJobs()
+    workflow = {
+        "status": "COMPLETED",
+        "repo_path": "/tmp/validated-repair",
+        "working_test_results": {"success": True},
+    }
+    jobs.get_job = lambda job_id: {
+        "job_id": job_id,
+        "status": "completed",
+        "result": {
+            "workflow": workflow,
+            "publishing": {"status": "PUBLISH_FAILED"},
+        },
+    }
+    cleanup_calls = []
+    monkeypatch.setattr(main, "repair_jobs", jobs)
+    monkeypatch.setattr(
+        main,
+        "_publish_repair_result",
+        lambda _result, _job_id: {"status": "PUBLISH_FAILED", "error": "network"},
+    )
+    monkeypatch.setattr(
+        main,
+        "cleanup_repair_workspace",
+        lambda *args: cleanup_calls.append(args),
+    )
+
+    main.retry_repair_publishing("retry-failure-001")
+
+    assert cleanup_calls == []
+    final_update = jobs.updates[-1][1]
+    assert final_update["result"]["publishing"]["status"] == "PUBLISH_FAILED"
+    assert final_update["publishing_retry"] is False
+    assert "can be retried" in final_update["message"]

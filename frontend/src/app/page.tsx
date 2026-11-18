@@ -92,7 +92,7 @@ export default function Home() {
   const [backendStatus, setBackendStatus] = useState<"checking" | "online" | "offline">("checking");
   const [repairHistory, setRepairHistory] = useState<RepairJob[]>([]);
   const [historyTotal, setHistoryTotal] = useState(0);
-  const [publishRequested, setPublishRequested] = useState(true);
+  const [publishRequested, setPublishRequested] = useState(false);
   const [repository, setRepository] = useState("");
   const [notice, setNotice] = useState("");
   const [isAnalyzing, setIsAnalyzing] = useState(false);

@@ -180,6 +180,14 @@ class RepositoryAnalyzer:
             for file in repo_map["files"]
             for error in file.get("syntax_errors", [])
         ]
+        analysis_errors = [
+            {
+                "file": file["file"],
+                "message": error,
+            }
+            for file in repo_map["files"]
+            for error in file.get("analysis_errors", [])
+        ]
 
         return {
             "repository": repo_map["repository"],
@@ -190,6 +198,8 @@ class RepositoryAnalyzer:
             "total_imports": total_imports,
             "syntax_error_count": len(syntax_errors),
             "syntax_errors": syntax_errors,
+            "analysis_error_count": len(analysis_errors),
+            "analysis_errors": analysis_errors,
             "preflight": self._repository_preflight(repo_path),
             "output_file": str(Path(output_file).resolve())
         }

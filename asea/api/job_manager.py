@@ -72,7 +72,9 @@ class RepairJobManager:
                     review_request TEXT,
                     result TEXT,
                     error TEXT,
-                    publish_requested INTEGER NOT NULL DEFAULT 0
+                    publish_requested INTEGER NOT NULL DEFAULT 0,
+                    review_decision TEXT,
+                    review_feedback TEXT
                 )
                 """
             )
@@ -86,6 +88,14 @@ class RepairJobManager:
                 connection.execute(
                     "ALTER TABLE repair_jobs ADD COLUMN "
                     "publish_requested INTEGER NOT NULL DEFAULT 0"
+                )
+            if "review_decision" not in columns:
+                connection.execute(
+                    "ALTER TABLE repair_jobs ADD COLUMN review_decision TEXT"
+                )
+            if "review_feedback" not in columns:
+                connection.execute(
+                    "ALTER TABLE repair_jobs ADD COLUMN review_feedback TEXT"
                 )
             connection.execute(
                 "CREATE INDEX IF NOT EXISTS idx_repair_jobs_created "
@@ -205,6 +215,8 @@ class RepairJobManager:
             "result",
             "error",
             "publish_requested",
+            "review_decision",
+            "review_feedback",
         }
 
         if not isinstance(job_id, str) or not job_id.strip() or len(job_id) > 128:
@@ -229,6 +241,15 @@ class RepairJobManager:
             updates["publish_requested"], bool
         ):
             raise ValueError("publish_requested must be a boolean.")
+        if "review_decision" in updates and updates["review_decision"] not in {
+            None, "approved", "rejected"
+        }:
+            raise ValueError("review_decision must be approved or rejected.")
+        if "review_feedback" in updates and (
+            not isinstance(updates["review_feedback"], str)
+            or len(updates["review_feedback"]) > 2000
+        ):
+            raise ValueError("review_feedback must be a string of at most 2000 characters.")
 
         with self.lock:
             with self._connection() as connection:
@@ -314,8 +335,19 @@ class RepairJobManager:
                 return self._row_to_dict(row) if row else None
 
 
-    def claim_review(self, job_id: str) -> bool:
-        """Atomically claim a review-paused job without losing its checkpoint."""
+    def claim_review(
+        self,
+        job_id: str,
+        decision: str | None = None,
+        feedback: str = "",
+    ) -> bool:
+        """Atomically persist and claim a review decision before scheduling it."""
+        if decision not in {None, "approved", "rejected"}:
+            raise ValueError("decision must be approved or rejected.")
+        if not isinstance(feedback, str) or len(feedback) > 2000:
+            raise ValueError("feedback must be a string of at most 2000 characters.")
+        if decision == "rejected" and not feedback.strip():
+            raise ValueError("feedback is required when rejecting a patch.")
         now = datetime.now(timezone.utc).isoformat()
         with self.lock:
             with self._connection() as connection:
@@ -324,10 +356,12 @@ class RepairJobManager:
                     UPDATE repair_jobs
                     SET status = 'running',
                         message = 'Processing patch review decision.',
+                        review_decision = ?,
+                        review_feedback = ?,
                         updated_at = ?
                     WHERE job_id = ? AND status = 'waiting_for_review'
                     """,
-                    (now, job_id),
+                    (decision, feedback.strip(), now, job_id),
                 )
                 return cursor.rowcount == 1
 
@@ -341,6 +375,8 @@ class RepairJobManager:
                     UPDATE repair_jobs
                     SET status = 'waiting_for_review',
                         message = ?,
+                        review_decision = NULL,
+                        review_feedback = NULL,
                         updated_at = ?
                     WHERE job_id = ?
                       AND status = 'running'
@@ -371,7 +407,8 @@ class RepairJobManager:
                         message = 'Repair interrupted by API process restart.',
                         error = ?,
                         updated_at = ?
-                    WHERE status IN ('queued', 'running')
+                    WHERE status = 'queued'
+                       OR (status = 'running' AND review_decision IS NULL)
                     """,
                     (
                         json.dumps(
@@ -382,6 +419,18 @@ class RepairJobManager:
                     ),
                 )
                 return cursor.rowcount
+
+    def list_pending_reviews(self) -> list[dict[str, Any]]:
+        """Return durably claimed review decisions that need worker recovery."""
+        with self.lock:
+            with self._connection() as connection:
+                rows = connection.execute(
+                    "SELECT * FROM repair_jobs "
+                    "WHERE status = 'running' "
+                    "AND review_decision IN ('approved', 'rejected') "
+                    "ORDER BY updated_at, job_id"
+                ).fetchall()
+        return [self._row_to_dict(row) for row in rows]
 
     def list_jobs(
         self,

@@ -101,6 +101,22 @@ async def lifespan(app: FastAPI):
             app.state.graph = build_asea_graph(
                 checkpointer=checkpointer
             )
+            # Review decisions are committed to SQLite before scheduling. If
+            # the process stopped between those steps, resume them on startup.
+            for pending_review in repair_jobs.list_pending_reviews():
+                try:
+                    executor.submit(
+                        resume_repair_job,
+                        pending_review["job_id"],
+                        pending_review["review_decision"],
+                        pending_review.get("review_feedback") or "",
+                    )
+                except RuntimeError:
+                    repair_jobs.release_review_claim(pending_review["job_id"])
+                    logging.exception(
+                        "Could not recover pending patch review %s.",
+                        pending_review["job_id"],
+                    )
 
             print("ASEA SQLite checkpoint database initialized.")
             print("ASEA LangGraph workflow compiled successfully.")
@@ -701,7 +717,11 @@ def review_repair_patch(
     # Claim the review transition atomically before scheduling work.
     # This closes the race where duplicate requests both observe the
     # waiting_for_review state and enqueue concurrent graph resumes.
-    if not repair_jobs.claim_review(job_id):
+    if not repair_jobs.claim_review(
+        job_id,
+        decision=request.decision,
+        feedback=request.feedback.strip(),
+    ):
         raise HTTPException(
             status_code=409,
             detail="This repair job review has already been submitted.",

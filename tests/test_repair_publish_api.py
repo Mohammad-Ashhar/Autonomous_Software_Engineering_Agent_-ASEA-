@@ -357,3 +357,22 @@ def test_resume_repair_job_records_failure_and_keeps_error_generic(
         "message": "Failed to resume ASEA repair workflow.",
         "error": "RuntimeError: private model-provider response",
     }
+
+
+
+def test_publish_repair_result_preserves_existing_pull_request_status(monkeypatch):
+    existing = {
+        "status": "PULL_REQUEST_EXISTS",
+        "pull_request": {
+            "status": "EXISTING",
+            "number": 42,
+            "url": "https://github.com/example/repo/pull/42",
+        },
+    }
+    monkeypatch.setattr(
+        main,
+        "publish_validated_repairs",
+        lambda _result: existing,
+    )
+
+    assert main._publish_repair_result({"status": "COMPLETED"}) == existing

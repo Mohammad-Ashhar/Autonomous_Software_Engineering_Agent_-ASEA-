@@ -8,6 +8,7 @@ from asea.core.state import ASEAState
 from asea.tools.dependency_analyzer import PythonDependencyAnalyzer
 from asea.tools.llm_client import OllamaClient
 from asea.tools.repository import RepositoryManager
+from asea.tools.source_reader import read_python_source
 
 
 def parse_json_response(response: str) -> dict:
@@ -378,16 +379,18 @@ class BugDetectorAgent:
     def analyze_file(self, file_path: Path) -> list[dict[str, Any]]:
         """Analyze a Python file using AST and Ollama."""
 
-        source_code = file_path.read_text(
-            encoding="utf-8-sig",
-            errors="replace"
-        )
+        try:
+            source_code = read_python_source(file_path)
+        except (OSError, SyntaxError, UnicodeDecodeError, ValueError):
+            # Encoding and file-analysis diagnostics are reported by the
+            # repository parser; do not mislabel them as Python syntax bugs.
+            return []
 
         if not source_code.strip():
             return []
 
         try:
-            syntax_tree = ast.parse(source_code)
+            syntax_tree = ast.parse(source_code, filename=str(file_path))
         except SyntaxError as error:
             line = error.lineno or 1
             return [{

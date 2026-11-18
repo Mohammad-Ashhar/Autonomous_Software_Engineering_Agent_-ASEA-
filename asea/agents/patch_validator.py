@@ -301,6 +301,16 @@ class PatchValidatorAgent:
                 f"Patch application failed:\n{apply_result.stderr}"
             )
 
+        # Git for Windows can preserve the original CRLF working-tree
+        # endings even when the staged input was normalized. Canonicalize
+        # the successfully patched text files once more before promotion.
+        for target_file in set(target_files):
+            patched_content = target_file.read_bytes()
+            if b"\\0" not in patched_content:
+                target_file.write_bytes(
+                    patched_content.replace(b"\\r\\n", b"\\n")
+                )
+
     @staticmethod
     def has_reliable_test_execution(
         results: dict[str, Any]

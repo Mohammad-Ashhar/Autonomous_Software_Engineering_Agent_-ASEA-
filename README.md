@@ -323,10 +323,10 @@ The API stores runtime data under the repository's `data/` directory. Active rep
 
 Runtime data files:
 
-- `data/asea_jobs.db` — repair job history, status, review request, result, and publishing preference.
+- `data/asea_jobs.db` — repair job history, status, review request, submitted review decision/feedback, result, and publishing preference.
 - `data/asea_checkpoints.db` — LangGraph workflow checkpoints used to resume jobs awaiting human review.
 
-Keep this directory on persistent storage if repair history and review checkpoints must survive process restarts. On API startup, queued or running jobs left by a previous process are marked failed; jobs waiting for human review are preserved so their checkpoint can be resumed.
+Keep this directory on persistent storage if repair history and review checkpoints must survive process restarts. On API startup, jobs waiting for human review are preserved. A submitted approval/rejection is committed before it is queued; if the process stops before its resume worker starts, ASEA re-queues that decision on startup. Once a resume worker acknowledges the decision and begins executing, an unexpected restart marks that in-flight job failed rather than replaying a potentially stale approval. Ordinary queued/running jobs are also marked failed and should be resubmitted.
 
 Do not delete or modify these databases while the API is running.
 
@@ -386,8 +386,9 @@ The GitHub Actions workflow runs Python linting, compilation, Docker sandbox ima
 - If scheduling a review fails temporarily, the job is returned to the review queue and can be submitted again.
 
 **A job is marked interrupted after restart**
-- Queued/running work is not automatically replayed after an API process restart. Start a new repair job.
-- Jobs already waiting for human review retain their checkpoint and can be reviewed after restart.
+- Ordinary queued/running work and work already executing after a review decision are marked failed rather than replayed.
+- Jobs waiting for human review retain their checkpoint and can be reviewed after restart.
+- A review decision accepted just before a restart is automatically re-queued if its resume worker had not started yet.
 
 ## Current scope
 

@@ -130,7 +130,9 @@ def test_publish_failure_does_not_hide_successful_repair(monkeypatch):
     monkeypatch.setattr(
         main,
         "publish_validated_repairs",
-        lambda _state, **_kwargs: (_ for _ in ()).throw(RuntimeError("GitHub unavailable")),
+        lambda _state, **_kwargs: (_ for _ in ()).throw(
+            RuntimeError("GitHub unavailable")
+        ),
     )
     monkeypatch.setattr(
         main,
@@ -166,7 +168,9 @@ def test_review_resume_keeps_completed_repair_when_publish_fails(monkeypatch):
     monkeypatch.setattr(
         main,
         "publish_validated_repairs",
-        lambda _state, **_kwargs: (_ for _ in ()).throw(RuntimeError("permission denied")),
+        lambda _state, **_kwargs: (_ for _ in ()).throw(
+            RuntimeError("permission denied")
+        ),
     )
     monkeypatch.setattr(
         main,

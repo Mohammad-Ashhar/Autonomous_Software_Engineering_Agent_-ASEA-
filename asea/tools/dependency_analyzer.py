@@ -160,7 +160,7 @@ class PythonDependencyAnalyzer:
                 tree = ast.parse(read_python_source(source), filename=str(source))
             except (OSError, UnicodeError, SyntaxError, ValueError) as error:
                 parse_errors.append({
-                    "file": str(relative),
+                    "file": relative.as_posix(),
                     "error": str(error)
                 })
                 continue
@@ -265,15 +265,15 @@ class PythonDependencyAnalyzer:
                     "description": (
                         f"{issue} The imported target is "
                         f"{target_module}.{target_name}, defined in "
-                        f"{target_file.relative_to(root)}:{definition.lineno}."
+                        f"{target_file.relative_to(root).as_posix()}:{definition.lineno}."
                     ),
                     "suggestion": (
                         f"Update this call to match the signature of "
                         f"{target_module}.{target_name}."
                     ),
-                    "file": str(source),
+                    "file": source.relative_to(root).as_posix(),
                     "source": "dependency_ast",
-                    "related_file": str(target_file),
+                    "related_file": target_file.relative_to(root).as_posix(),
                     "related_line": definition.lineno,
                     "dependency": target_module
                 })

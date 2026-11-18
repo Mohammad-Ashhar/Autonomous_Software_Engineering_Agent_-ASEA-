@@ -4,19 +4,12 @@ import json
 import tokenize
 from pathlib import Path
 
-import tree_sitter_python as tspython
-from tree_sitter import Language, Parser
-
 from asea.tools.repository import RepositoryManager
 
 MAX_PYTHON_FILE_SIZE_BYTES = 2 * 1024 * 1024
 
 
 class PythonRepositoryParser:
-
-    def __init__(self):
-        self.language = Language(tspython.language())
-        self.parser = Parser(self.language)
 
     def parse_file(self, file_path):
         file_path = Path(file_path)

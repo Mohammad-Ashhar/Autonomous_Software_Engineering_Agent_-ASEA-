@@ -10,10 +10,11 @@ class FakeRepairJobs:
         self.claimed = set()
         self.released = []
 
-    def claim_review(self, job_id):
+    def claim_review(self, job_id, decision=None, feedback=""):
         if job_id in self.claimed:
             return False
         self.claimed.add(job_id)
+        self.review_submission = (job_id, decision, feedback)
         return True
 
     def release_review_claim(self, job_id):
@@ -223,6 +224,7 @@ def test_review_submission_claims_job_before_scheduling(monkeypatch):
     assert response["decision"] == "approved"
     assert len(executor.submitted) == 1
     assert jobs.claimed == {"job-review"}
+    assert jobs.review_submission == ("job-review", "approved", "")
 
 
 class RejectingExecutor:

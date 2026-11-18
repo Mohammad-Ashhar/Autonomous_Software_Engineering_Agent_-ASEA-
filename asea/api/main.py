@@ -182,10 +182,13 @@ def _safe_error_detail(error: Exception) -> str:
     return detail[:1800]
 
 
-def _publish_repair_result(result: dict[str, object]) -> dict[str, object]:
+def _publish_repair_result(
+    result: dict[str, object],
+    job_id: str,
+) -> dict[str, object]:
     """Keep GitHub publishing failures separate from validated repair outcomes."""
     try:
-        return publish_validated_repairs(result)
+        return publish_validated_repairs(result, job_id=job_id)
     except Exception as error:
         safe_detail = _safe_error_detail(error)
         logging.error(
@@ -254,7 +257,7 @@ def run_repair_job(
             terminal_status, message, workflow_error = _workflow_job_outcome(result)
 
             if publish and terminal_status == "completed":
-                publishing_result = _publish_repair_result(result)
+                publishing_result = _publish_repair_result(result, job_id)
                 job_result["publishing"] = publishing_result
                 if publishing_result["status"] == "PULL_REQUEST_CREATED":
                     message = "ASEA repair completed and pull request created."

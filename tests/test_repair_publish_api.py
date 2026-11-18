@@ -21,6 +21,10 @@ class FakeRepairJobs:
         self.released.append(job_id)
         return True
 
+    def release_publishing_retry(self, job_id):
+        self.released.append(job_id)
+        return True
+
     def create_job(self, job_id, repository, publish_requested=False):
         job = {
             "job_id": job_id,

@@ -519,3 +519,29 @@ def test_publishing_retry_preserves_workspace_on_failure(monkeypatch):
     assert final_update["result"]["publishing"]["status"] == "PUBLISH_FAILED"
     assert final_update["publishing_retry"] is False
     assert "can be retried" in final_update["message"]
+
+def test_publishing_retry_releases_claim_after_unexpected_exception(monkeypatch):
+    jobs = FakeRepairJobs()
+    workflow = {"status": "COMPLETED", "repo_path": "/tmp/validated-repair"}
+    jobs.get_job = lambda _job_id: {
+        "job_id": "retry-exception-001",
+        "status": "completed",
+        "result": {"workflow": workflow},
+    }
+    monkeypatch.setattr(main, "repair_jobs", jobs)
+
+    def fail_publishing(_result, _job_id):
+        raise RuntimeError("temporary publisher failure")
+
+    monkeypatch.setattr(main, "_publish_repair_result", fail_publishing)
+
+    main.retry_repair_publishing("retry-exception-001")
+
+    assert jobs.released == ["retry-exception-001"]
+    final_update = jobs.updates[-1][1]
+    assert final_update["publishing_retry"] is False
+    assert final_update["message"] == (
+        "Publishing retry failed unexpectedly; it can be retried."
+    )
+    assert "temporary publisher failure" in final_update["error"]
+

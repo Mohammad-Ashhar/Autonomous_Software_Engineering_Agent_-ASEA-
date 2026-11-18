@@ -484,7 +484,7 @@ def test_publishing_retry_reuses_saved_workflow_and_cleans_up_on_success(monkeyp
     assert final_update["publishing_retry"] is False
 
 
-def test_publishing_retry_preserves_workspace_and_releases_claim_on_failure(monkeypatch):
+def test_publishing_retry_preserves_workspace_on_failure(monkeypatch):
     jobs = FakeRepairJobs()
     workflow = {
         "status": "COMPLETED",

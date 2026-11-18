@@ -263,14 +263,14 @@ def test_detects_repeated_explicit_keyword_arguments(tmp_path):
     _write_module(
         tmp_path,
         "sample/api.py",
-        "def send(user):\\n    return user\\n",
+        "def send(user):\n    return user\n",
     )
     _write_module(
         tmp_path,
         "sample/service.py",
-        "from .api import send\\n"
-        "def run():\\n"
-        "    return send(user='alice', user='bob')\\n",
+        "from .api import send\n"
+        "def run():\n"
+        "    return send(user='alice', user='bob')\n",
     )
 
     result = PythonDependencyAnalyzer().analyze(tmp_path)

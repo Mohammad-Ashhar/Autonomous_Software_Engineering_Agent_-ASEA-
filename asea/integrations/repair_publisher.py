@@ -243,7 +243,12 @@ def get_approved_repair_files(
         if is_excluded_repair_path(relative_path):
             continue
 
-        working_file = working_repo / relative_path
+        working_file = (working_repo / relative_path).resolve()
+
+        try:
+            working_file.relative_to(working_repo.resolve())
+        except ValueError:
+            continue
 
         if not working_file.is_file():
             continue

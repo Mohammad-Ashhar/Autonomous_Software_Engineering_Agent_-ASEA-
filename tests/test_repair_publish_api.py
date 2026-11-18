@@ -406,3 +406,36 @@ def test_resume_repair_reports_existing_pull_request(monkeypatch):
     final_update = jobs.updates[-1][1]
     assert final_update["status"] == "completed"
     assert "existing pull request was found" in final_update["message"]
+
+
+def test_publish_retry_endpoint_claims_and_schedules_job(monkeypatch):
+    jobs = FakeRepairJobs()
+    jobs.claim_publishing_retry = lambda job_id: job_id == "job-retry"
+    monkeypatch.setattr(main, "repair_jobs", jobs)
+    executor = FakeExecutor()
+    monkeypatch.setattr(main, "executor", executor)
+
+    response = main.retry_repair_publish("job-retry")
+
+    assert response == {
+        "message": "Publishing retry submitted.",
+        "job_id": "job-retry",
+        "status": "publishing_retry_queued",
+    }
+    assert executor.submitted == [
+        (main.retry_repair_publishing, ("job-retry",))
+    ]
+
+
+def test_publish_retry_endpoint_rejects_duplicate_claim(monkeypatch):
+    jobs = FakeRepairJobs()
+    jobs.claim_publishing_retry = lambda _job_id: False
+    monkeypatch.setattr(main, "repair_jobs", jobs)
+    monkeypatch.setattr(main, "executor", FakeExecutor())
+
+    try:
+        main.retry_repair_publish("job-retry")
+    except main.HTTPException as error:
+        assert error.status_code == 409
+    else:
+        raise AssertionError("Duplicate publishing retry must be rejected")

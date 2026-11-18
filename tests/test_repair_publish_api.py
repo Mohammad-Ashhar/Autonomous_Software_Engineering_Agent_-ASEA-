@@ -114,7 +114,7 @@ def test_run_repair_job_publishes_only_when_requested(monkeypatch):
     monkeypatch.setattr(
         main,
         "publish_validated_repairs",
-        lambda result: publish_calls.append(result) or published,
+        lambda result, **_kwargs: publish_calls.append(result) or published,
     )
 
     main.run_repair_job(
@@ -399,7 +399,7 @@ def test_resume_repair_reports_existing_pull_request(monkeypatch):
     monkeypatch.setattr(
         main,
         "_publish_repair_result",
-        lambda _result, **_kwargs: {"status": "PULL_REQUEST_EXISTS"},
+        lambda _result, _job_id=None: {"status": "PULL_REQUEST_EXISTS"},
     )
     main.resume_repair_job("job-existing-pr", "approved", "")
 

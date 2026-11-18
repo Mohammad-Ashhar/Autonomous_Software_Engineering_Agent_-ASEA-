@@ -1,6 +1,7 @@
 
 import re
 import time
+from math import isfinite
 from pathlib import Path
 
 import docker
@@ -15,43 +16,87 @@ class DockerTestRunner:
         timeout=120,
         memory_limit="512m"
     ):
-        self.client = docker.from_env()
-        self.image = image
-        self.timeout = timeout
-        self.memory_limit = memory_limit
+        if not isinstance(image, str) or not image.strip():
+            raise ValueError("Docker image must be a non-empty string.")
+        if (
+            isinstance(timeout, bool)
+            or not isinstance(timeout, (int, float))
+            or not isfinite(timeout)
+            or not 1 <= timeout <= 3600
+        ):
+            raise ValueError("Test timeout must be between 1 and 3600 seconds.")
+        if not isinstance(memory_limit, str) or not re.fullmatch(
+            r"\d+(?:[bBkKmMgG])?", memory_limit.strip()
+        ):
+            raise ValueError(
+                "Memory limit must be a positive byte value with an optional unit."
+            )
+
+        memory_value = re.fullmatch(
+            r"(\d+)([bBkKmMgG]?)", memory_limit.strip()
+        )
+        amount = int(memory_value.group(1))
+        unit = memory_value.group(2).lower()
+        multiplier = {"": 1, "b": 1, "k": 1024, "m": 1024**2, "g": 1024**3}[unit]
+        memory_bytes = amount * multiplier
+        if not 16 * 1024**2 <= memory_bytes <= 8 * 1024**3:
+            raise ValueError("Memory limit must be between 16 MiB and 8 GiB.")
+
+        self.client = None
+        self.image = image.strip()
+        self.timeout = float(timeout)
+        self.memory_limit = memory_limit.strip().lower()
 
     def parse_results(self, output, exit_code):
+        """Parse pytest's concise summary, including singular error counts."""
         counts = {
             "passed": 0,
             "failed": 0,
             "errors": 0,
             "skipped": 0,
             "xfailed": 0,
-            "xpassed": 0
+            "xpassed": 0,
         }
+        summary_pattern = re.compile(
+            r"\b(\d+)\s+(passed|failed|errors?|skipped|xfailed|xpassed)\b",
+            re.IGNORECASE,
+        )
 
-        for key in counts:
-            match = re.search(
-                rf"(\d+)\s+{key}",
-                output,
-                re.IGNORECASE
-            )
+        # Pytest may print arbitrary captured output containing phrases such
+        # as "2 passed". Count only its final duration-bearing summary line.
+        summary_lines = [
+            line.strip()
+            for line in output.splitlines()
+            if re.search(r"\bin\s+\d+(?:\.\d+)?s\s*$", line.strip())
+        ]
+        summary = summary_lines[-1] if summary_lines else ""
 
-            if match:
-                counts[key] = int(match.group(1))
+        for match in summary_pattern.finditer(summary):
+            label = match.group(2).lower()
+            key = "errors" if label in {"error", "errors"} else label
+            counts[key] += int(match.group(1))
 
         failed_tests = re.findall(
             r"^FAILED\s+(.+?)(?:\s+-|$)",
             output,
-            re.MULTILINE
+            re.MULTILINE,
         )
 
         total = sum(counts.values())
-
         if exit_code == 5:
             status = "NO_TESTS"
-        elif exit_code == 0:
+        elif exit_code == 0 and counts["passed"] > 0 and not (
+            counts["failed"] or counts["errors"]
+        ):
             status = "PASSED"
+        elif exit_code == 0 and total > 0:
+            # A suite containing only skipped or expected-failure tests did
+            # not demonstrate that any assertion passed.
+            status = "NO_EXECUTED_TESTS"
+        elif exit_code == 0:
+            # A zero exit code without a parseable test summary is not proof
+            # that any tests actually ran successfully.
+            status = "UNKNOWN"
         else:
             status = "FAILED"
 
@@ -59,7 +104,7 @@ class DockerTestRunner:
             "status": status,
             "total": total,
             **counts,
-            "failed_tests": failed_tests
+            "failed_tests": failed_tests,
         }
 
     def run_tests(self, repository_path):
@@ -73,7 +118,10 @@ class DockerTestRunner:
         start_time = time.monotonic()
 
         try:
-            container = self.client.containers.create(
+            # Defer daemon connection until execution. Analysis and workspace
+            # preparation must work even when Docker Desktop is unavailable.
+            client = docker.from_env()
+            container = client.containers.create(
                 image=self.image,
                 command=[
                     "python", "-m", "pytest",
@@ -153,7 +201,7 @@ class DockerTestRunner:
 
             return {
                 **results,
-                "success": exit_code == 0,
+                "success": results["status"] == "PASSED",
                 "timed_out": False,
                 "exit_code": exit_code,
                 "duration": duration,

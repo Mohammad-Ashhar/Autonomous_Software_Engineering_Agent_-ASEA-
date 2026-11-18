@@ -1,0 +1,291 @@
+"""Build a lightweight Python dependency graph and detect cross-file call errors."""
+
+import ast
+from importlib import util
+from pathlib import Path
+from typing import Any
+
+from asea.tools.repository import RepositoryManager
+from asea.tools.source_reader import read_python_source
+
+IGNORED_PARTS = {
+    ".git", ".venv", "venv", "__pycache__", "node_modules",
+    "dist", "build", ".pytest_cache", ".mypy_cache", ".ruff_cache",
+    "artifacts", "workspaces"
+}
+
+
+def _module_name(root: Path, source: Path) -> str | None:
+    relative = source.relative_to(root).with_suffix("")
+    parts = list(relative.parts)
+    if parts[-1] == "__init__":
+        parts.pop()
+    if not parts or any(not part.isidentifier() for part in parts):
+        return None
+    for parent in [source.parent, *source.parents]:
+        if parent == root:
+            break
+        if not (parent / "__init__.py").is_file():
+            return None
+    return ".".join(parts)
+
+
+def _resolve_from_module(module: str, package: str, level: int) -> str:
+    if level == 0:
+        return module
+    relative_name = "." * level + module
+    try:
+        return util.resolve_name(relative_name, package)
+    except ImportError:
+        return ""
+
+
+def _function_definitions(
+    tree: ast.Module
+) -> dict[str, ast.FunctionDef | ast.AsyncFunctionDef]:
+    definitions = {}
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            definitions[node.name] = node
+    return definitions
+
+
+def _call_argument_issue(
+    call: ast.Call,
+    definition: ast.FunctionDef | ast.AsyncFunctionDef
+) -> str | None:
+    """Return a deterministic signature mismatch, if one is provable."""
+    explicit_keyword_names = [
+        keyword.arg for keyword in call.keywords if keyword.arg is not None
+    ]
+    duplicate_keywords = sorted({
+        name for name in explicit_keyword_names
+        if explicit_keyword_names.count(name) > 1
+    })
+    if duplicate_keywords:
+        return (
+            "Call repeats keyword argument(s): "
+            + ", ".join(duplicate_keywords)
+            + "."
+        )
+
+    if any(isinstance(argument, ast.Starred) for argument in call.args):
+        return None
+    if any(keyword.arg is None for keyword in call.keywords):
+        return None
+
+    args = definition.args
+    positional = args.posonlyargs + args.args
+    supplied_positional = len(call.args)
+    if args.vararg is None and supplied_positional > len(positional):
+        return (
+            f"Call supplies {supplied_positional} positional arguments, "
+            f"but the target accepts at most {len(positional)}."
+        )
+
+    keyword_names = {keyword.arg for keyword in call.keywords}
+    positional_or_keyword = {argument.arg for argument in args.args}
+    keyword_only = {argument.arg for argument in args.kwonlyargs}
+    bound_positional = {
+        argument.arg
+        for argument in positional[:supplied_positional]
+    }
+    duplicate_values = sorted(bound_positional & keyword_names & positional_or_keyword)
+    if duplicate_values:
+        return (
+            "Call provides multiple values for argument(s): "
+            + ", ".join(duplicate_values)
+            + "."
+        )
+
+    required_positional = len(positional) - len(args.defaults)
+    missing = []
+    for index, argument in enumerate(positional[:required_positional]):
+        if index < supplied_positional:
+            continue
+        if argument in args.posonlyargs or argument.arg not in keyword_names:
+            missing.append(argument.arg)
+
+    required_keyword_only = [
+        argument.arg
+        for argument, default in zip(
+            args.kwonlyargs, args.kw_defaults, strict=True
+        )
+        if default is None and argument.arg not in keyword_names
+    ]
+    if missing or required_keyword_only:
+        names = missing + required_keyword_only
+        return "Call is missing required argument(s): " + ", ".join(names) + "."
+
+    if args.kwarg is None:
+        unexpected = sorted(keyword_names - positional_or_keyword - keyword_only)
+        if unexpected:
+            return (
+                "Call uses unexpected keyword argument(s): "
+                + ", ".join(unexpected)
+                + "."
+            )
+    return None
+
+
+def _attribute_parts(node: ast.AST) -> list[str]:
+    """Return dotted components for a simple name/attribute expression."""
+    if isinstance(node, ast.Name):
+        return [node.id]
+    if isinstance(node, ast.Attribute):
+        return _attribute_parts(node.value) + [node.attr]
+    return []
+
+
+class PythonDependencyAnalyzer:
+    """Index importable project modules and validate statically resolvable calls."""
+
+    def analyze(self, repository_path: str | Path) -> dict[str, Any]:
+        root = Path(repository_path).resolve()
+        if not root.is_dir():
+            raise NotADirectoryError(root)
+
+        module_files: dict[str, Path] = {}
+        trees: dict[Path, ast.Module] = {}
+        parse_errors = []
+
+        for source in RepositoryManager.get_python_files(root):
+            relative = source.relative_to(root)
+            if "tests" in relative.parts or source.name.startswith("test_"):
+                continue
+            module = _module_name(root, source)
+            if not module:
+                continue
+            try:
+                tree = ast.parse(read_python_source(source), filename=str(source))
+            except (OSError, UnicodeError, SyntaxError, ValueError) as error:
+                parse_errors.append({
+                    "file": str(relative),
+                    "error": str(error)
+                })
+                continue
+            module_files[module] = source
+            trees[source] = tree
+
+        definitions = {
+            module: _function_definitions(trees[source])
+            for module, source in module_files.items()
+        }
+        dependency_map: dict[str, set[str]] = {
+            module: set() for module in module_files
+        }
+        findings = []
+
+        for module, source in module_files.items():
+            tree = trees[source]
+            package = (
+                module
+                if source.name == "__init__.py"
+                else module.rpartition(".")[0]
+            )
+            imported_symbols: dict[str, tuple[str, str]] = {}
+            imported_modules: dict[str, str] = {}
+
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    for alias in node.names:
+                        target = alias.name
+                        if target in module_files:
+                            dependency_map[module].add(target)
+                            if alias.asname:
+                                imported_modules[alias.asname] = target
+                            elif "." not in target:
+                                imported_modules[target] = target
+                            else:
+                                imported_modules[target.split(".")[0]] = (
+                                    target.split(".")[0]
+                                )
+                elif isinstance(node, ast.ImportFrom):
+                    target_module = _resolve_from_module(
+                        node.module or "", package, node.level
+                    )
+                    if target_module in module_files:
+                        dependency_map[module].add(target_module)
+                        for alias in node.names:
+                            if alias.name in definitions[target_module]:
+                                imported_symbols[alias.asname or alias.name] = (
+                                    target_module, alias.name
+                                )
+                    elif target_module:
+                        # Support "from package import module" when the
+                        # imported module itself is indexed in the project.
+                        for alias in node.names:
+                            candidate = f"{target_module}.{alias.name}"
+                            if candidate in module_files:
+                                dependency_map[module].add(candidate)
+                                imported_modules[alias.asname or alias.name] = candidate
+
+            for call in (node for node in ast.walk(tree) if isinstance(node, ast.Call)):
+                target = None
+                if isinstance(call.func, ast.Name):
+                    target = imported_symbols.get(call.func.id)
+                elif isinstance(call.func, ast.Attribute):
+                    parts = _attribute_parts(call.func)
+                    if len(parts) >= 2:
+                        local_name = parts[0]
+                        imported_module = imported_modules.get(local_name)
+                        if imported_module:
+                            suffix = parts[1:]
+                            for split_at in range(len(suffix) - 1, -1, -1):
+                                module_suffix = suffix[:split_at]
+                                symbol_name = suffix[split_at]
+                                candidate_module = ".".join(
+                                    [imported_module, *module_suffix]
+                                )
+                                if (
+                                    candidate_module in module_files
+                                    and symbol_name
+                                    in definitions.get(candidate_module, {})
+                                ):
+                                    target = (candidate_module, symbol_name)
+                                    break
+
+                if not target:
+                    continue
+                target_module, target_name = target
+                definition = definitions.get(target_module, {}).get(target_name)
+                if definition is None:
+                    continue
+                issue = _call_argument_issue(call, definition)
+                if not issue:
+                    continue
+
+                target_file = module_files[target_module]
+                findings.append({
+                    "title": "Cross-file function call signature mismatch",
+                    "line": call.lineno,
+                    "severity": "high",
+                    "classification": "confirmed_bug",
+                    "confidence": 0.99,
+                    "description": (
+                        f"{issue} The imported target is "
+                        f"{target_module}.{target_name}, defined in "
+                        f"{target_file.relative_to(root)}:{definition.lineno}."
+                    ),
+                    "suggestion": (
+                        f"Update this call to match the signature of "
+                        f"{target_module}.{target_name}."
+                    ),
+                    "file": str(source),
+                    "source": "dependency_ast",
+                    "related_file": str(target_file),
+                    "related_line": definition.lineno,
+                    "dependency": target_module
+                })
+
+        serialized_map = {
+            module: sorted(dependencies)
+            for module, dependencies in sorted(dependency_map.items())
+        }
+        return {
+            "dependency_map": serialized_map,
+            "module_count": len(module_files),
+            "dependency_count": sum(map(len, dependency_map.values())),
+            "cross_file_findings": findings,
+            "parse_errors": parse_errors
+        }

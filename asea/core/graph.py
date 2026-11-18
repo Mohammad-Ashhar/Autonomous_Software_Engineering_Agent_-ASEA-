@@ -6,12 +6,15 @@ from typing import Any
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
 
-from asea.agents.bug_detector import bug_detector_node
+from asea.agents.bug_detector import BugDetectorAgent, bug_detector_node
 from asea.agents.patch_generator import PatchGeneratorAgent
 from asea.agents.patch_validator import PatchValidatorAgent
+from asea.agents.test_generation import test_generation_node
 from asea.core.state import ASEAState
 from asea.tools.analyzer import RepositoryAnalyzer
+from asea.tools.dependency_analyzer import PythonDependencyAnalyzer
 from asea.tools.test_runner import DockerTestRunner
+from asea.tools.workspace import repair_workspace_root
 
 # --------------------------------------------------
 # 1. REPOSITORY ANALYSIS
@@ -27,9 +30,21 @@ def repository_analysis_node(state: ASEAState) -> dict[str, Any]:
 
     analyzer = RepositoryAnalyzer()
 
-    result = analyzer.analyze_cloned_repository(
-        folder=str(repo_path)
+    # GitHub clones created by ASEA live directly inside the manager's
+    # workspace. Any other valid local directory must use the local path.
+    managed_clone = (
+        repo_path.parent == analyzer.repository_manager.workspace
+        and (repo_path / ".git").exists()
     )
+
+    if managed_clone:
+        result = analyzer.analyze_cloned_repository(
+            folder=str(repo_path)
+        )
+    else:
+        result = analyzer.analyze_local_repository(
+            folder=str(repo_path)
+        )
 
     output_file = Path(result["output_file"])
 
@@ -53,16 +68,70 @@ def repository_analysis_node(state: ASEAState) -> dict[str, Any]:
 def test_execution_node(state: ASEAState) -> dict[str, Any]:
     """Run the original repository tests before repairs."""
 
-    repo_path = Path(state["repo_path"]).resolve()
+    repo_path = Path(
+        state.get("working_repo_path") or state["repo_path"]
+    ).resolve()
 
-    runner = DockerTestRunner()
-    results = runner.run_tests(repo_path)
+    errors = list(state.get("errors", []))
+    try:
+        runner = DockerTestRunner()
+        results = runner.run_tests(repo_path)
+    except Exception as error:  # noqa: BLE001
+        message = f"Baseline test execution failed: {error}"
+        errors.append(message)
+        results = {
+            "success": False,
+            "status": "UNKNOWN",
+            "passed": 0,
+            "failed": 0,
+            "errors": 0,
+            "total": 0,
+            "failed_tests": [],
+            "output": "",
+            "reason": message,
+            "timed_out": False,
+        }
+        return {
+            "test_results": results,
+            "baseline_test_results": results,
+            "working_test_results": results,
+            "errors": errors,
+            "current_agent": "test_execution",
+            "status": "baseline_test_execution_failed",
+        }
+
+    if results.get("status") not in {"PASSED", "FAILED"}:
+        status = results.get("status", "UNKNOWN")
+        message = (
+            "Baseline tests were not available for comparison "
+            f"(status={status}); continuing with static analysis and repair."
+        )
+        errors.append(message)
+        return {
+            "test_results": results,
+            "baseline_test_results": results,
+            "working_test_results": results,
+            "errors": errors,
+            "current_agent": "test_execution",
+            "status": (
+                "baseline_tests_unavailable"
+                if status == "NO_TESTS"
+                else "baseline_test_execution_unavailable"
+            ),
+        }
 
     return {
         "test_results": results,
+        "baseline_test_results": results,
+        "working_test_results": results,
         "current_agent": "test_execution",
         "status": "baseline_tests_completed"
     }
+
+
+def route_after_test_execution(state: ASEAState) -> str:
+    """Always continue analysis; baseline tests are evidence, not a gate."""
+    return "continue"
 
 
 # --------------------------------------------------
@@ -74,7 +143,7 @@ def prepare_workspace_node(state: ASEAState) -> dict[str, Any]:
 
     repo_path = Path(state["repo_path"]).resolve()
 
-    workspace_root = repo_path.parent / "workspaces"
+    workspace_root = repair_workspace_root(repo_path)
     workspace_root.mkdir(parents=True, exist_ok=True)
 
     run_directory = Path(
@@ -265,7 +334,8 @@ def patch_generation_node(state: ASEAState) -> dict[str, Any]:
             file_path=working_bug_file,
             bug=bug,
             previous_feedback=previous_feedback,
-            attempt=attempt
+            attempt=attempt,
+            diff_path=relative_path.as_posix(),
         )
 
         if not isinstance(patch_result, dict):
@@ -299,8 +369,26 @@ def patch_generation_node(state: ASEAState) -> dict[str, Any]:
             "tests_passed": False,
             "reason": str(error),
             "bug_key": bug_key,
-            "attempt": attempt
+            "attempt": attempt,
+            "file": str(working_bug_file),
+            "generation_trace": generator.last_attempt_trace,
         }
+
+        # Failed attempts are first-class repair artifacts. Keeping them in
+        # the job result makes model and fallback failures inspectable in the
+        # dashboard/API instead of silently losing the attempt.
+        patches = list(state.get("patches", []))
+        patches.append(failed_result)
+
+        audit_log = list(state.get("audit_log", []))
+        audit_log.append({
+            "event": "patch_generation_failed",
+            "bug_key": bug_key,
+            "attempt": attempt,
+            "file": str(working_bug_file),
+            "reason": str(error),
+            "generation_trace": generator.last_attempt_trace,
+        })
 
         errors = list(state.get("errors", []))
 
@@ -310,8 +398,10 @@ def patch_generation_node(state: ASEAState) -> dict[str, Any]:
         )
 
         return {
+            "patches": patches,
             "retry_counts": retry_counts,
             "current_validation": failed_result,
+            "audit_log": audit_log,
             "errors": errors,
             "current_agent": "patch_generation",
             "status": "patch_generation_failed"
@@ -362,6 +452,9 @@ def human_patch_review_node(state: ASEAState) -> dict[str, Any]:
                 "No patch content available.",
             ),
             "attempt": patch.get("attempt", 1),
+            "generator": patch.get("generator", "unknown"),
+            "repair_scope": patch.get("repair_scope", "complete"),
+            "generation_trace": patch.get("generation_trace", []),
         })
 
         if not isinstance(review_response, dict):
@@ -462,6 +555,7 @@ def human_patch_review_node(state: ASEAState) -> dict[str, Any]:
             "patch_applied": False,
             "tests_passed": False,
             "reason": feedback,
+            "review_feedback": feedback,
         }
 
     return updates
@@ -562,7 +656,77 @@ def patch_validation_node(state: ASEAState) -> dict[str, Any]:
         )
     }
 
-    if validation_result.get("status") == "PATCH_VALIDATED":
+    if validation_result.get("status") in {"PATCH_VALIDATED", "PATCH_INTERMEDIATE"}:
+
+        # A deterministic syntax repair is an intermediate step, not proof
+        # that the underlying module is fully correct. Re-analyze the now
+        # parseable file so semantic defects hidden behind the syntax error
+        # can enter the normal prioritized repair queue.
+        latest_patch = patches[-1] if patches else {}
+        if latest_patch.get("repair_scope") == "syntax_only":
+            # Refresh the test baseline after syntax becomes importable. This
+            # lets later semantic patches reduce existing failures one at a
+            # time without being rejected as regressions against a collection
+            # error from the original syntax-broken repository.
+            try:
+                intermediate_tests = DockerTestRunner().run_tests(working_repo)
+                if (
+                    intermediate_tests.get("status") in {"PASSED", "FAILED"}
+                    and intermediate_tests.get("total", 0) > 0
+                ):
+                    updates["working_test_results"] = intermediate_tests
+            except Exception as error:  # noqa: BLE001
+                errors = list(state.get("errors", []))
+                errors.append(
+                    "Post-syntax test baseline refresh failed: " + str(error)
+                )
+                updates["errors"] = errors
+
+            try:
+                original_file = Path(bug["file"]).resolve()
+                relative_file = original_file.relative_to(repo_path)
+                repaired_file = (working_repo / relative_file).resolve()
+                repaired_file.relative_to(working_repo)
+                follow_up_findings = BugDetectorAgent().analyze_file(
+                    repaired_file
+                )
+                detected = list(state.get("detected_bugs", []))
+                prioritized = list(state.get("prioritized_bugs", []))
+                known_keys = {
+                    get_bug_key(item)
+                    for item in detected + prioritized
+                }
+                # Findings are discovered in the cumulative workspace, but
+                # bug identity and patch routing are anchored to the original
+                # repository. Normalize their file paths before adding them to
+                # state so the next patch-generation pass can safely map each
+                # finding back into the cumulative workspace.
+                new_findings = []
+                for finding in follow_up_findings:
+                    if finding.get("classification") != "confirmed_bug":
+                        continue
+                    normalized_finding = dict(finding)
+                    normalized_finding["file"] = str(original_file)
+                    finding_key = get_bug_key(normalized_finding)
+                    if finding_key not in known_keys:
+                        new_findings.append(normalized_finding)
+                        known_keys.add(finding_key)
+                detected.extend(new_findings)
+                prioritized.extend(new_findings)
+                updates["detected_bugs"] = detected
+                updates["prioritized_bugs"] = prioritized
+                if new_findings:
+                    print(
+                        "POST-SYNTAX REANALYSIS FOUND:",
+                        len(new_findings),
+                        "additional confirmed bug(s)"
+                    )
+            except Exception as error:  # noqa: BLE001
+                errors = list(state.get("errors", []))
+                errors.append(
+                    "Post-syntax repair analysis failed: " + str(error)
+                )
+                updates["errors"] = errors
 
         processed_keys = list(
             state.get("processed_bug_keys", [])
@@ -575,32 +739,37 @@ def patch_validation_node(state: ASEAState) -> dict[str, Any]:
         audit_log = list(state.get("audit_log", []))
 
         if bug_key not in processed_keys:
-
             processed_keys.append(bug_key)
-
-            repaired_bugs.append({
-                "bug_key": bug_key,
-                "title": bug.get("title"),
-                "severity": bug.get("severity"),
-                "file": bug.get("file"),
-                "status": "REPAIRED",
-                "attempts": validation_result.get("attempt", 1)
-            })
-
-            audit_log.append({
-                "agent": "patch_validation",
-                "event": "bug_repaired",
-                "bug_key": bug_key
-            })
+            if validation_result.get("status") == "PATCH_VALIDATED":
+                repaired_bugs.append({
+                    "bug_key": bug_key,
+                    "title": bug.get("title"),
+                    "severity": bug.get("severity"),
+                    "file": bug.get("file"),
+                    "status": "REPAIRED",
+                    "attempts": validation_result.get("attempt", 1)
+                })
+                audit_log.append({
+                    "agent": "patch_validation",
+                    "event": "bug_repaired",
+                    "bug_key": bug_key
+                })
+            else:
+                audit_log.append({
+                    "agent": "patch_validation",
+                    "event": "syntax_repair_intermediate",
+                    "bug_key": bug_key
+                })
 
         updates.update({
             "processed_bug_keys": processed_keys,
             "repaired_bugs": repaired_bugs,
-            "working_test_results": validation_result.get(
-                "test_results", {}
-            ),
             "audit_log": audit_log
         })
+        if validation_result.get("status") == "PATCH_VALIDATED":
+            updates["working_test_results"] = validation_result.get(
+                "test_results", {}
+            )
 
     return updates
 
@@ -610,7 +779,7 @@ def route_after_validation(state: ASEAState) -> str:
 
     validation = state.get("current_validation", {})
 
-    if validation.get("status") == "PATCH_VALIDATED":
+    if validation.get("status") in {"PATCH_VALIDATED", "PATCH_INTERMEDIATE"}:
         return "next_bug"
 
     bug_key = get_bug_key(state.get("current_bug", {}))
@@ -700,9 +869,45 @@ def final_validation_node(state: ASEAState) -> dict[str, Any]:
         state["working_repo_path"]
     ).resolve()
 
-    runner = DockerTestRunner()
+    errors = list(state.get("errors", []))
+    try:
+        runner = DockerTestRunner()
+        results = runner.run_tests(working_repo)
+    except Exception as error:  # noqa: BLE001
+        message = f"Final test execution failed: {error}"
+        errors.append(message)
+        results = {
+            "success": False,
+            "status": "UNKNOWN",
+            "passed": 0,
+            "failed": 0,
+            "errors": 0,
+            "total": 0,
+            "failed_tests": [],
+            "output": "",
+            "reason": message,
+            "timed_out": False,
+        }
 
-    results = runner.run_tests(working_repo)
+    # Refresh parser/dependency diagnostics against the repaired workspace.
+    # Baseline findings remain available separately for before/after comparison.
+    post_repair_analysis = {}
+    try:
+        dependency_results = PythonDependencyAnalyzer().analyze(working_repo)
+        post_repair_analysis = {
+            "module_count": dependency_results["module_count"],
+            "dependency_count": dependency_results["dependency_count"],
+            "cross_file_issue_count": len(
+                dependency_results["cross_file_findings"]
+            ),
+            "parse_errors": dependency_results["parse_errors"],
+        }
+    except Exception as error:  # noqa: BLE001
+        logging_error = (
+            "Post-repair dependency analysis failed: "
+            f"{type(error).__name__}: {error}"
+        )
+        errors.append(logging_error)
 
     final_status = (
         "COMPLETED"
@@ -711,7 +916,17 @@ def final_validation_node(state: ASEAState) -> dict[str, Any]:
     )
 
     return {
+        # Keep baseline_test_results immutable; these two fields are the
+        # authoritative terminal test outcome consumed by API and dashboard.
+        "test_results": results,
         "working_test_results": results,
+        "final_validation_results": results,
+        "post_repair_analysis": post_repair_analysis,
+        "dependency_map": dependency_results.get("dependency_map", {})
+        if post_repair_analysis else state.get("dependency_map", {}),
+        "dependency_analysis": post_repair_analysis
+        if post_repair_analysis else state.get("dependency_analysis", {}),
+        "errors": errors,
         "current_agent": "final_validation",
         "status": final_status
     }
@@ -737,13 +952,18 @@ def build_asea_graph(checkpointer=None):
     )
 
     workflow.add_node(
-        "test_execution",
-        test_execution_node
+        "workspace_preparation",
+        prepare_workspace_node
     )
 
     workflow.add_node(
-        "workspace_preparation",
-        prepare_workspace_node
+        "test_generation",
+        test_generation_node
+    )
+
+    workflow.add_node(
+        "test_execution",
+        test_execution_node
     )
 
     workflow.add_node(
@@ -784,9 +1004,17 @@ def build_asea_graph(checkpointer=None):
     # Initial workflow.
     workflow.add_edge(START, "repository_analysis")
     workflow.add_edge("repository_analysis", "bug_detector")
-    workflow.add_edge("bug_detector", "test_execution")
-    workflow.add_edge("test_execution", "workspace_preparation")
-    workflow.add_edge("workspace_preparation", "bug_prioritization")
+    workflow.add_edge("bug_detector", "workspace_preparation")
+    workflow.add_edge("workspace_preparation", "test_generation")
+    workflow.add_edge("test_generation", "test_execution")
+    workflow.add_conditional_edges(
+        "test_execution",
+        route_after_test_execution,
+        {
+            "continue": "bug_prioritization",
+            "finish": END,
+        },
+    )
     workflow.add_edge("bug_prioritization", "bug_selector")
 
     # Select the next bug.
@@ -867,6 +1095,9 @@ def create_initial_state(repo_path: str, review_mode: str = "cli") -> ASEAState:
         "patch_review_decision": "",
         "patch_review_feedback": "",
         "review_history": [],
+        "baseline_test_results": {},
+        "final_validation_results": {},
+        "post_repair_analysis": {},
         "status": "initialized",
     }
 

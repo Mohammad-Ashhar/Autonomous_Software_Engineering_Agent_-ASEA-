@@ -6,10 +6,8 @@ from github.GithubException import GithubException
 from asea.core.config import get_settings
 
 
-def get_github_repository() -> Any:
-    """
-    Authenticate with GitHub and return the configured repository.
-    """
+def get_github_client() -> Any:
+    """Authenticate with GitHub using the user's configured token."""
 
     settings = get_settings()
 
@@ -18,21 +16,9 @@ def get_github_repository() -> Any:
             "GITHUB_TOKEN is missing from the .env file."
         )
 
-    if not settings.github_repository:
-        raise ValueError(
-            "GITHUB_REPOSITORY is missing from the .env file."
-        )
-
     try:
         authentication = Auth.Token(settings.github_token)
-
-        github_client = Github(auth=authentication)
-
-        repository = github_client.get_repo(
-            settings.github_repository
-        )
-
-        return repository
+        return Github(auth=authentication)
 
     except GithubException as error:
         raise RuntimeError(
@@ -41,6 +27,7 @@ def get_github_repository() -> Any:
 
 
 def create_pull_request(
+    repository: Any,
     head_branch: str,
     base_branch: str,
     title: str,
@@ -61,8 +48,6 @@ def create_pull_request(
 
     if not title.strip():
         raise ValueError("Pull Request title cannot be empty.")
-
-    repository = get_github_repository()
 
     try:
         owner = repository.owner.login

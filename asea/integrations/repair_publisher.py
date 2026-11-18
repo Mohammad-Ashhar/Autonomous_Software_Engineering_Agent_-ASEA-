@@ -1,8 +1,8 @@
 import base64
+import hashlib
 import os
 import shutil
 import tempfile
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -24,6 +24,20 @@ EXCLUDED_PARTS = {
     "secrets.json",
     "id_rsa",
     "id_ed25519",
+    ".npmrc",
+    ".pypirc",
+    ".netrc",
+    ".git-credentials",
+    ".ssh",
+    ".aws",
+    ".azure",
+    ".kube",
+    ".gnupg",
+    ".terraform",
+    ".vault-token",
+    "application_default_credentials.json",
+    "service-account.json",
+    "service_account.json",
     ".venv",
     "venv",
     "__pycache__",
@@ -36,6 +50,63 @@ EXCLUDED_PARTS = {
     "build",
 }
 
+SENSITIVE_FILE_SUFFIXES = (
+    ".pem",
+    ".key",
+    ".p12",
+    ".pfx",
+    ".jks",
+    ".keystore",
+    ".secret",
+    ".secrets",
+    ".token",
+    ".credentials",
+    ".tfstate",
+    ".tfstate.backup",
+)
+
+
+def has_symlink_component(path: Path, root: Path) -> bool:
+    """Return whether path or any parent below root is a symlink."""
+
+    try:
+        relative_path = path.relative_to(root)
+    except ValueError:
+        return True
+
+    current = root
+    for part in relative_path.parts:
+        current = current / part
+        if current.is_symlink():
+            return True
+
+    return False
+
+
+def is_excluded_repair_path(path: Path) -> bool:
+    """Reject generated, environment, credential, and private-key paths."""
+
+    excluded_parts = {part.casefold() for part in EXCLUDED_PARTS}
+
+    normalized_parts = tuple(part.casefold() for part in path.parts)
+
+    if any(
+        normalized_parts[index:index + 2] == (".docker", "config.json")
+        for index in range(len(normalized_parts) - 1)
+    ):
+        return True
+
+    for normalized in normalized_parts:
+        if (
+            normalized in excluded_parts
+            or normalized == ".envrc"
+            or normalized.startswith(".env.")
+            or normalized.endswith(SENSITIVE_FILE_SUFFIXES)
+        ):
+            return True
+
+    return False
+
 
 def normalize_github_repository(repository_url: str) -> str:
     """Extract owner/repository from an HTTPS or SSH GitHub URL."""
@@ -44,6 +115,8 @@ def normalize_github_repository(repository_url: str) -> str:
 
     if repository_url.startswith("git@github.com:"):
         repository_path = repository_url.split(":", 1)[1]
+        if any(value in repository_path for value in ("?", "#", "\\\\")):
+            raise ValueError("Invalid GitHub repository URL.")
 
     else:
         parsed_url = urlsplit(repository_url)
@@ -56,23 +129,45 @@ def normalize_github_repository(repository_url: str) -> str:
         if parsed_url.scheme not in ("https", "ssh"):
             raise ValueError("Unsupported GitHub remote URL scheme.")
 
+        if (
+            parsed_url.password
+            or parsed_url.query
+            or parsed_url.fragment
+            or parsed_url.port not in (
+                None,
+                443 if parsed_url.scheme == "https" else 22,
+            )
+            or (parsed_url.scheme == "https" and parsed_url.username)
+            or (
+                parsed_url.scheme == "ssh"
+                and parsed_url.username not in (None, "git")
+            )
+        ):
+            raise ValueError("Invalid GitHub repository URL.")
+
         repository_path = parsed_url.path.strip("/")
 
     repository_path = repository_path.removesuffix(".git")
-
     parts = repository_path.split("/")
 
-    if len(parts) != 2 or not all(parts):
+    if (
+        len(parts) != 2
+        or not all(parts)
+        or any(part in {".", ".."} for part in parts)
+        or any(
+            not all(char.isalnum() or char in "._-" for char in part)
+            for part in parts
+        )
+    ):
         raise ValueError("Invalid GitHub repository URL.")
 
-    return "/".join(parts).casefold()
+    return f"{parts[0].casefold()}/{parts[1].casefold()}"
 
 
 def validate_source_repository(
     original_repo: Path,
-    configured_repository: str,
-) -> tuple[Repo, Path]:
-    """Verify that the source repository belongs to the configured GitHub repo."""
+) -> tuple[Repo, Path, str]:
+    """Identify the GitHub repository from the user's supplied source checkout."""
 
     try:
         source_git_repo = Repo(
@@ -104,21 +199,13 @@ def validate_source_repository(
 
     try:
         source_repository = normalize_github_repository(remote_url)
-        expected_repository = normalize_github_repository(
-            f"https://github.com/{configured_repository}"
-        )
     except ValueError as error:
         raise RuntimeError(
-            f"Publishing blocked: repository identity validation failed: {error}"
+            "Publishing blocked: source repository is not a supported "
+            f"GitHub remote: {error}"
         ) from error
 
-    if source_repository != expected_repository:
-        raise RuntimeError(
-            "Publishing blocked: source repository does not match "
-            "GITHUB_REPOSITORY."
-        )
-
-    return source_git_repo, git_root
+    return source_git_repo, git_root, source_repository
 
 
 def get_approved_repair_files(
@@ -169,10 +256,20 @@ def get_approved_repair_files(
         except ValueError:
             continue
 
-        if any(part in EXCLUDED_PARTS for part in relative_path.parts):
+        if is_excluded_repair_path(relative_path):
             continue
 
-        working_file = working_repo / relative_path
+        working_file_path = working_repo / relative_path
+
+        if has_symlink_component(working_file_path, working_repo):
+            continue
+
+        working_file = working_file_path.resolve()
+
+        try:
+            working_file.relative_to(working_repo.resolve())
+        except ValueError:
+            continue
 
         if not working_file.is_file():
             continue
@@ -190,6 +287,7 @@ def get_approved_repair_files(
 
 def publish_validated_repairs(
     state: dict[str, Any],
+    job_id: str | None = None,
 ) -> dict[str, Any]:
     """Publish approved repairs through a GitHub Pull Request."""
 
@@ -218,20 +316,9 @@ def publish_validated_repairs(
     if not settings.github_token:
         raise ValueError("GITHUB_TOKEN is missing from .env.")
 
-    if not settings.github_repository:
-        raise ValueError("GITHUB_REPOSITORY is missing from .env.")
-
-    if not settings.github_base_branch:
-        raise ValueError("GITHUB_BASE_BRANCH is missing from .env.")
-
-    repository_name = settings.github_repository.strip()
-    base_branch = settings.github_base_branch.strip()
-
-    # Validate repository identity before any publishing operation.
-    _, git_root = validate_source_repository(
-    original_repo,
-    repository_name,
-)
+    # The target is derived from the repository URL/path supplied to ASEA.
+    # Credentials authenticate the user; they must not pin ASEA to one repo.
+    _, git_root, repository_name = validate_source_repository(original_repo)
 
     repair_files = get_approved_repair_files(
         state,
@@ -267,26 +354,66 @@ def publish_validated_repairs(
                 "Publishing blocked: GitHub repository identity mismatch."
             )
 
+        base_branch = github_repository.default_branch
+        if not base_branch:
+            raise RuntimeError(
+                "Publishing blocked: GitHub did not report a default branch."
+            )
         github_repository.get_branch(base_branch)
 
         clone_url = github_repository.clone_url
+
+        # Use the token for both private-repository clone and push without
+        # embedding credentials in the remote URL or Git configuration.
+        encoded_token = base64.b64encode(
+            f"x-access-token:{settings.github_token}".encode()
+        ).decode("ascii")
+        authorization = f"AUTHORIZATION: basic {encoded_token}"
+        git_environment = os.environ.copy()
+        git_environment["GIT_CONFIG_COUNT"] = "1"
+        git_environment["GIT_CONFIG_KEY_0"] = "http.extraheader"
+        git_environment["GIT_CONFIG_VALUE_0"] = authorization
 
         publishing_repo = Repo.clone_from(
             clone_url,
             checkout_path,
             branch=base_branch,
             depth=1,
+            env=git_environment,
         )
 
-        branch_name = (
-            "asea/repair-"
-            + datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+        # A stable job-derived branch makes retries safe after a push or
+        # PR-creation interruption. Direct callers get a content fingerprint.
+        repair_fingerprint = "|".join(
+            (
+                f"{path.as_posix()}:"
+                f"{hashlib.sha256((working_repo / path).read_bytes()).hexdigest()}"
+            )
+            for path in repair_files
         )
+        branch_identity = job_id or f"{repository_name}|{repair_fingerprint}"
+        branch_suffix = hashlib.sha256(
+            branch_identity.encode("utf-8")
+        ).hexdigest()[:16]
+        branch_name = f"asea/repair-{branch_suffix}"
 
-        publishing_repo.git.checkout(
-            "-b",
-            branch_name,
+        remote_branch = publishing_repo.git.ls_remote(
+            "--heads",
+            "origin",
+            f"refs/heads/{branch_name}",
         )
+        if remote_branch:
+            publishing_repo.git.fetch(
+                "origin",
+                f"refs/heads/{branch_name}:refs/remotes/origin/{branch_name}",
+            )
+            publishing_repo.git.checkout(
+                "-B",
+                branch_name,
+                f"origin/{branch_name}",
+            )
+        else:
+            publishing_repo.git.checkout("-b", branch_name)
 
         repository_prefix = original_repo.relative_to(git_root)
 
@@ -312,9 +439,14 @@ def publish_validated_repairs(
                 repository_prefix / relative_path
             )
 
-            destination_file = (
-                checkout_path / destination_relative
-            ).resolve()
+            destination_file_path = checkout_path / destination_relative
+
+            if has_symlink_component(destination_file_path, checkout_path):
+                raise ValueError(
+                    "Publishing blocked: destination path contains a symlink."
+                )
+
+            destination_file = destination_file_path.resolve()
 
             try:
                 destination_file.relative_to(checkout_path.resolve())
@@ -323,10 +455,7 @@ def publish_validated_repairs(
         "Unsafe destination repair file path detected."
     ) from error
 
-            if any(
-                part in EXCLUDED_PARTS
-                for part in destination_relative.parts
-            ):
+            if is_excluded_repair_path(destination_relative):
                 raise ValueError(
                     "Publishing blocked: sensitive or excluded file detected."
                 )
@@ -352,40 +481,30 @@ def publish_validated_repairs(
 
         publishing_repo.index.add(copied_files)
 
-        if not publishing_repo.is_dirty(
+        has_staged_changes = publishing_repo.is_dirty(
             index=True,
             working_tree=False,
-        ):
+        )
+        if has_staged_changes:
+            publishing_repo.index.commit(
+                f"ASEA: repair {len(copied_files)} validated file(s)"
+            )
+            publishing_repo.git.execute(
+                [
+                    "git",
+                    "push",
+                    "origin",
+                    f"{branch_name}:{branch_name}",
+                ],
+                env=git_environment,
+            )
+        elif not remote_branch:
             raise RuntimeError(
-                "No Git changes were detected after copying repair files."
+                "No Git changes were detected for a new repair branch."
             )
 
-        publishing_repo.index.commit(
-            f"ASEA: repair {len(copied_files)} validated file(s)"
-        )
-
-        encoded_token = base64.b64encode(
-            f"x-access-token:{settings.github_token}".encode()
-        ).decode("ascii")
-
-        authorization = f"AUTHORIZATION: basic {encoded_token}"
-
-        git_environment = os.environ.copy()
-        git_environment["GIT_CONFIG_COUNT"] = "1"
-        git_environment["GIT_CONFIG_KEY_0"] = "http.extraheader"
-        git_environment["GIT_CONFIG_VALUE_0"] = authorization
-
-        publishing_repo.git.execute(
-            [
-                "git",
-                "push",
-                "origin",
-                f"{branch_name}:{branch_name}",
-            ],
-            env=git_environment,
-        )
-
         pull_request = create_pull_request(
+            repository=github_repository,
             head_branch=branch_name,
             base_branch=base_branch,
             title="ASEA: Automated validated code repairs",
@@ -402,10 +521,18 @@ def publish_validated_repairs(
             ),
         )
 
+        pull_request_status = pull_request.get("status", "CREATED")
+        publishing_status = (
+            "PULL_REQUEST_EXISTS"
+            if pull_request_status == "EXISTING"
+            else "PULL_REQUEST_CREATED"
+        )
+
         return {
-            "status": "PULL_REQUEST_CREATED",
+            "status": publishing_status,
             "branch": branch_name,
             "base_branch": base_branch,
+            "repository": repository_name,
             "commit": publishing_repo.head.commit.hexsha,
             "files": copied_files,
             "pull_request": pull_request,

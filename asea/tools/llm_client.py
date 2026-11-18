@@ -16,8 +16,8 @@ class OllamaClient:
         self.client = OpenAI(
             api_key="ollama",
             base_url=self.settings.ollama_base_url,
-            timeout=120.0,
-            max_retries=2,
+            timeout=60.0,
+            max_retries=0,
         )
 
     def chat(
@@ -50,5 +50,5 @@ class OllamaClient:
 
             print(
                 f"[OLLAMA] Request #{request_id} "
-                f"completed in {elapsed:.2f} seconds"
+                f"finished in {elapsed:.2f} seconds"
             )

@@ -16,6 +16,7 @@ dependencies = [
     "gitpython>=3.1.0",
     "pygithub>=2.0.0",
     "docker>=7.1.0",
+    "rich>=13.0.0",
     "tree-sitter==0.25.0",
     "tree-sitter-python==0.25.0",
 ]
@@ -42,6 +43,7 @@ dev = [
 
 [project.scripts]
 asea = "asea.cli:app"
+asea-api = "asea.api.dev_server:run"
 
 [tool.setuptools.packages.find]
 include = ["asea*"]

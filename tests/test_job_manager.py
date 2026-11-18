@@ -587,3 +587,37 @@ def test_publishing_retry_requires_a_failed_publish_result(tmp_path):
     )
 
     assert manager.claim_publishing_retry("publish-retry-002") is False
+
+
+
+def test_restart_recovery_releases_interrupted_publishing_retry_claims(tmp_path):
+    manager = create_test_manager(tmp_path / "publishing_retry_recovery.db")
+    manager.create_job("publish-retry-recovery", "demo_repo", publish_requested=True)
+    manager.update_job(
+        "publish-retry-recovery",
+        status="completed",
+        result={
+            "workflow": {"status": "COMPLETED"},
+            "publishing": {"status": "PUBLISH_FAILED"},
+        },
+    )
+    assert manager.claim_publishing_retry("publish-retry-recovery") is True
+
+    recovered = manager.reset_interrupted_publishing_retries()
+
+    assert recovered == 1
+    assert manager.get_job("publish-retry-recovery")["publishing_retry"] is False
+    assert manager.claim_publishing_retry("publish-retry-recovery") is True
+
+
+def test_restart_recovery_does_not_change_non_completed_job_claims(tmp_path):
+    manager = create_test_manager(tmp_path / "publishing_retry_recovery_status.db")
+    manager.create_job("publish-retry-running", "demo_repo", publish_requested=True)
+    manager.update_job(
+        "publish-retry-running",
+        status="running",
+        publishing_retry=True,
+    )
+
+    assert manager.reset_interrupted_publishing_retries() == 0
+    assert manager.get_job("publish-retry-running")["publishing_retry"] is True

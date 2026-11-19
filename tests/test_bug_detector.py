@@ -160,7 +160,10 @@ def test_mutable_constructor_defaults_are_detected():
         if item["title"] == "Mutable default argument"
     ]
     assert len(mutable_findings) == 3
-    assert all(\n        item["classification"] == "confirmed_bug"\n        for item in mutable_findings\n    )
+    assert all(
+        item["classification"] == "confirmed_bug"
+        for item in mutable_findings
+    )
 
 
 def test_immutable_and_none_defaults_are_not_reported():

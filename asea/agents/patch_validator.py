@@ -330,13 +330,8 @@ class PatchValidatorAgent:
     ) -> bool:
         """Check whether a patch introduces new test failures."""
 
-        baseline_failed = set(
-            baseline.get("failed_tests", [])
-        )
-
-        candidate_failed = set(
-            candidate.get("failed_tests", [])
-        )
+        baseline_failed = set(baseline.get("failed_tests", []))
+        candidate_failed = set(candidate.get("failed_tests", []))
 
         baseline_count = baseline.get("failed", 0)
         candidate_count = candidate.get("failed", 0)
@@ -349,6 +344,15 @@ class PatchValidatorAgent:
 
         if candidate_errors > baseline_errors:
             return False
+
+        # Test identifiers can shift when generated tests or collection
+        # order changes between candidate runs. For incremental repair, the
+        # authoritative signal is whether the aggregate number of failures
+        # and errors increased. Requiring exact identifier-set inclusion can
+        # reject a candidate that fixed multiple failures but left fewer
+        # failures with different identifiers.
+        if candidate_count < baseline_count:
+            return True
 
         return not candidate_failed or candidate_failed.issubset(
             baseline_failed

@@ -417,3 +417,42 @@ def outer():
 
     assert len(zero_divisors) == 1
     assert zero_divisors[0]["line"] == 4
+
+
+def test_nested_mutable_values_inside_tuple_defaults_are_detected():
+    agent = BugDetectorAgent()
+    tree = ast.parse(
+        """
+def positional(options=([],)):
+    return options
+
+def keyword_only(*, settings=({"enabled": True},)):
+    return settings
+
+def constructor(options=tuple([set()])):
+    return options
+"""
+    )
+
+    findings = agent.detect_ast_bugs(tree, Path("logic.py"))
+    mutable_defaults = [
+        item for item in findings
+        if item["title"] == "Mutable default argument"
+    ]
+
+    assert len(mutable_defaults) == 3
+    assert all(item["classification"] == "confirmed_bug" for item in mutable_defaults)
+
+
+def test_tuple_defaults_without_nested_mutables_are_not_reported():
+    agent = BugDetectorAgent()
+    tree = ast.parse(
+        """
+def calculate(options=(1, "safe", None)):
+    return options
+"""
+    )
+
+    findings = agent.detect_ast_bugs(tree, Path("logic.py"))
+
+    assert not any(item["title"] == "Mutable default argument" for item in findings)

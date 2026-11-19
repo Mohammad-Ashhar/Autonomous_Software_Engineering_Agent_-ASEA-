@@ -723,6 +723,7 @@ async function handleRetryPublishing() {
 )}
 
     {publishingResult?.status === "PUBLISH_FAILED" && (
+      <>
       <p role="alert">
         <strong>Repair validated; GitHub publishing failed.</strong>{" "}
         {typeof publishingResult.error === "string"
@@ -737,6 +738,7 @@ async function handleRetryPublishing() {
       >
         {isRetryingPublish || repairStatus?.publishing_retry ? "Publishing retry in progress..." : "Retry GitHub publishing"}
       </button>
+      </>
     )}
     {publishingResult?.status === "PULL_REQUEST_CREATED" && !pullRequest && (
       <p><strong>GitHub publishing completed.</strong> Pull request details were not included in the response.</p>

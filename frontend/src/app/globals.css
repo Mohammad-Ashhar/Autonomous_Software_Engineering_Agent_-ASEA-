@@ -1324,3 +1324,24 @@ button, a {
   color: var(--muted);
   font-size: 10px;
 }
+
+
+.pipeline-live-message {
+  margin: 12px 0 0;
+  padding: 11px 12px;
+  border: 1px solid var(--accent);
+  border-radius: 7px;
+  background: var(--accent-bg);
+  color: var(--foreground);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.pipeline-timestamps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin-top: 9px;
+  color: var(--muted);
+  font-size: 9px;
+}

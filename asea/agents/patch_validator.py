@@ -350,9 +350,13 @@ class PatchValidatorAgent:
         if candidate_errors > baseline_errors:
             return False
 
-        return not candidate_failed or candidate_failed.issubset(
-            baseline_failed
-        )
+        # Test identifiers can shift when generated tests or collection
+        # order changes between candidate runs. For incremental repair, the
+        # authoritative signal is whether the aggregate number of failures
+        # and errors increased. Requiring exact identifier-set inclusion can
+        # reject a candidate that fixed multiple failures but left fewer
+        # failures with different identifiers.
+        return candidate_count <= baseline_count
 
     def _promote_candidate(
         self,

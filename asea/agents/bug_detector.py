@@ -322,6 +322,7 @@ class BugDetectorAgent:
             for argument, default in zip(
                 node.args.kwonlyargs,
                 node.args.kw_defaults,
+                strict=True,
             ):
                 if default is not None:
                     report_mutable_default(argument, default)

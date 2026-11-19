@@ -29,14 +29,12 @@ class LocalPytestRunner:
             check=False,
         )
         output = completed.stdout + completed.stderr
-        counts = [
+        passed_match = re.search(r"(\\d+) passed", output)
+        passed = int(passed_match.group(1)) if passed_match else 0
+        total = passed + sum(
             int(count)
-            for count in re.findall(r"(\d+) (?:passed|failed|error)", output)
-        ]
-        total = sum(counts)
-        passed = int(re.search(r"(\d+) passed", output).group(1)) if re.search(
-            r"(\d+) passed", output
-        ) else 0
+            for count in re.findall(r"(\\d+) (?:failed|error)", output)
+        )
         failed = sum(
             int(count)
             for count in re.findall(r"(\d+) (?:failed|error)", output)

@@ -231,6 +231,74 @@ def test_statement_after_unconditional_continue_is_reported():
     assert unreachable[0]["line"] == 4
 
 
+def test_statement_after_if_else_with_both_branches_return_is_reported():
+    agent = BugDetectorAgent()
+    tree = ast.parse(
+        """
+def choose(value):
+    if value:
+        return 1
+    else:
+        return 2
+    print("unreachable")
+"""
+    )
+
+    findings = agent.detect_ast_bugs(tree, Path("logic.py"))
+    unreachable = [
+        item for item in findings
+        if item["title"] == "Unreachable statement"
+    ]
+
+    assert len(unreachable) == 1
+    assert unreachable[0]["line"] == 7
+
+
+def test_if_without_else_does_not_make_following_statement_unreachable():
+    agent = BugDetectorAgent()
+    tree = ast.parse(
+        """
+def choose(value):
+    if value:
+        return 1
+    print("reachable when value is false")
+"""
+    )
+
+    findings = agent.detect_ast_bugs(tree, Path("logic.py"))
+
+    assert not any(
+        item["title"] == "Unreachable statement"
+        and item["line"] == 5
+        for item in findings
+    )
+
+
+def test_nested_elif_branches_that_all_return_are_detected():
+    agent = BugDetectorAgent()
+    tree = ast.parse(
+        """
+def choose(value):
+    if value == 1:
+        return "one"
+    elif value == 2:
+        return "two"
+    else:
+        raise ValueError(value)
+    print("unreachable")
+"""
+    )
+
+    findings = agent.detect_ast_bugs(tree, Path("logic.py"))
+    unreachable = [
+        item for item in findings
+        if item["title"] == "Unreachable statement"
+    ]
+
+    assert len(unreachable) == 1
+    assert unreachable[0]["line"] == 9
+
+
 def test_assert_false_is_reported_as_potential_issue():
     agent = BugDetectorAgent()
     tree = ast.parse(

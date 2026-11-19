@@ -330,6 +330,9 @@ class PatchValidatorAgent:
     ) -> bool:
         """Check whether a patch introduces new test failures."""
 
+        baseline_failed = set(baseline.get("failed_tests", []))
+        candidate_failed = set(candidate.get("failed_tests", []))
+
         baseline_count = baseline.get("failed", 0)
         candidate_count = candidate.get("failed", 0)
 
@@ -348,7 +351,12 @@ class PatchValidatorAgent:
         # and errors increased. Requiring exact identifier-set inclusion can
         # reject a candidate that fixed multiple failures but left fewer
         # failures with different identifiers.
-        return candidate_count <= baseline_count
+        if candidate_count < baseline_count:
+            return True
+
+        return not candidate_failed or candidate_failed.issubset(
+            baseline_failed
+        )
 
     def _promote_candidate(
         self,

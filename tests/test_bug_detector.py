@@ -196,10 +196,10 @@ def test_unreachable_statement_is_reported():
 def test_statement_after_unconditional_break_is_reported():
     agent = BugDetectorAgent()
     tree = ast.parse(
-        "def process(items):\\n"
-        "    for item in items:\\n"
-        "        break\\n"
-        "        print(item)\\n"
+        "def process(items):\n"
+        "    for item in items:\n"
+        "        break\n"
+        "        print(item)\n"
     )
 
     findings = agent.detect_ast_bugs(tree, Path("logic.py"))
@@ -215,10 +215,10 @@ def test_statement_after_unconditional_break_is_reported():
 def test_statement_after_unconditional_continue_is_reported():
     agent = BugDetectorAgent()
     tree = ast.parse(
-        "def process(items):\\n"
-        "    for item in items:\\n"
-        "        continue\\n"
-        "        print(item)\\n"
+        "def process(items):\n"
+        "    for item in items:\n"
+        "        continue\n"
+        "        print(item)\n"
     )
 
     findings = agent.detect_ast_bugs(tree, Path("logic.py"))

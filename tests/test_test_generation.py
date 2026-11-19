@@ -1,3 +1,6 @@
+from pathlib import Path
+
+import asea.agents.test_generation as test_generation
 from asea.agents.test_generation import TestGenerationAgent, _validate_test_code
 
 
@@ -110,3 +113,103 @@ def test_generated_test_that_exercises_application_is_accepted():
     tree = _validate_test_code(source)
 
     assert len(tree.body) == 1
+
+
+
+def test_run_prioritizes_detected_bug_modules_within_module_limit(
+    tmp_path, monkeypatch
+):
+    for name in ("a_module.py", "b_module.py", "z_bug.py"):
+        (tmp_path / name).write_text(
+            "def value():\n    return 1\n",
+            encoding="utf-8",
+        )
+
+    agent = TestGenerationAgent(max_modules=2)
+    monkeypatch.setattr(
+        agent,
+        "_generate_for_module",
+        lambda _source, _module: (
+            "def test_value():\n"
+            "    assert module.value() == 1\n"
+        ),
+    )
+
+    result = agent.run(tmp_path, priority_files=["z_bug.py"])
+
+    assert result["status"] == "GENERATED"
+    assert result["eligible_module_count"] == 3
+    assert result["selected_module_count"] == 2
+    assert [item["module"] for item in result["generated_tests"]] == [
+        "z_bug",
+        "a_module",
+    ]
+    assert result["omitted_modules"] == ["b_module.py"]
+    assert "1 eligible module(s) were not selected" in result["reason"]
+
+
+def test_generation_node_prioritizes_files_from_detected_bugs(
+    tmp_path, monkeypatch
+):
+    repository = tmp_path / "repository"
+    working_repository = tmp_path / "working"
+    bug_file = repository / "src" / "acme" / "logic.py"
+    bug_file.parent.mkdir(parents=True)
+    bug_file.write_text("def value():\n    return 1\n", encoding="utf-8")
+    working_repository.mkdir()
+    captured = {}
+
+    class RecordingAgent:
+        def run(self, repository_path, *, priority_files):
+            captured["repository_path"] = repository_path
+            captured["priority_files"] = priority_files
+            return {"status": "NO_ELIGIBLE_MODULES"}
+
+    monkeypatch.setattr(
+        test_generation,
+        "TestGenerationAgent",
+        RecordingAgent,
+    )
+
+    result = test_generation.test_generation_node({
+        "repo_path": str(repository),
+        "working_repo_path": str(working_repository),
+        "detected_bugs": [{"file": str(bug_file), "title": "Known defect"}],
+    })
+
+    assert captured["repository_path"] == str(working_repository)
+    assert captured["priority_files"] == [Path("src/acme/logic.py")]
+    assert result["test_generation_results"]["status"] == "NO_ELIGIBLE_MODULES"
+
+
+
+def test_detected_bug_generates_targeted_test_even_when_suite_exists(
+    tmp_path, monkeypatch
+):
+    tests_directory = tmp_path / "tests"
+    tests_directory.mkdir()
+    (tests_directory / "test_existing.py").write_text(
+        "def test_existing():\n    assert True\n",
+        encoding="utf-8",
+    )
+    bug_source = tmp_path / "z_bug.py"
+    bug_source.write_text(
+        "def value():\n    return 1\n",
+        encoding="utf-8",
+    )
+
+    agent = TestGenerationAgent(max_modules=1)
+    monkeypatch.setattr(
+        agent,
+        "_generate_for_module",
+        lambda _source, _module: (
+            "def test_value():\n"
+            "    assert module.value() == 1\n"
+        ),
+    )
+
+    result = agent.run(tmp_path, priority_files=["z_bug.py"])
+
+    assert result["status"] == "GENERATED"
+    assert [item["module"] for item in result["generated_tests"]] == ["z_bug"]
+    assert (tests_directory / "test_existing.py").is_file()

@@ -632,3 +632,24 @@ def calculate(options=(1, "safe", None)):
     findings = agent.detect_ast_bugs(tree, Path("logic.py"))
 
     assert not any(item["title"] == "Mutable default argument" for item in findings)
+
+
+
+def test_is_positive_including_zero_is_detected_as_boundary_bug():
+    agent = BugDetectorAgent()
+    source = """
+def is_positive(number: int) -> bool:
+    return number >= 0
+"""
+
+    findings = agent.detect_ast_bugs(
+        ast.parse(source),
+        Path("logic.py"),
+    )
+
+    assert len(findings) == 1
+    assert findings[0]["title"] == "Incorrect positive-number check"
+    assert findings[0]["line"] == 3
+    assert findings[0]["classification"] == "confirmed_bug"
+    assert "accepts zero" in findings[0]["description"]
+    assert ">= 0" in findings[0]["suggestion"]

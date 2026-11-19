@@ -766,10 +766,11 @@ def patch_validation_node(state: ASEAState) -> dict[str, Any]:
             "repaired_bugs": repaired_bugs,
             "audit_log": audit_log
         })
-        if validation_result.get("status") == "PATCH_VALIDATED":
-            updates["working_test_results"] = validation_result.get(
-                "test_results", {}
-            )
+        # Keep the baseline aligned with every promoted candidate. This is
+        # essential for incremental repairs: later patches are compared with
+        # the latest known-good progress, not the original failing suite.
+        if validation_result.get("test_results"):
+            updates["working_test_results"] = validation_result["test_results"]
 
     return updates
 

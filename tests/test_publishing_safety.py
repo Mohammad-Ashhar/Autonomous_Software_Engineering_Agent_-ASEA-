@@ -27,7 +27,7 @@ def test_block_publishing_when_final_tests_fail():
 
     with pytest.raises(
         RuntimeError,
-        match="final tests did not pass",
+        match="final test evidence",
     ):
         publish_validated_repairs(state)
 
@@ -39,6 +39,6 @@ def test_block_publishing_when_test_results_missing():
 
     with pytest.raises(
         RuntimeError,
-        match="final tests did not pass",
+        match="final test evidence",
     ):
         publish_validated_repairs(state)

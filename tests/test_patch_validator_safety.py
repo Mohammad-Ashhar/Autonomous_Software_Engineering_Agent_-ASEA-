@@ -1,3 +1,4 @@
+from pathlib import Path
 import pytest
 
 from asea.agents.patch_validator import PatchValidatorAgent
@@ -217,3 +218,69 @@ def test_partial_repair_is_rejected_when_failure_count_increases():
     }
 
     assert not PatchValidatorAgent.has_no_new_failures(baseline, candidate)
+
+
+
+def test_candidate_promotion_does_not_rename_live_workspace(tmp_path, monkeypatch):
+    source = tmp_path / "module.py"
+    source.write_text("value = 1\\n", encoding="utf-8")
+    (tmp_path / ".git").mkdir()
+    (tmp_path / ".git" / "HEAD").write_text(
+        "ref: refs/heads/main\\n", encoding="utf-8"
+    )
+    candidate = tmp_path / "candidate"
+    candidate.mkdir()
+    (candidate / "module.py").write_text("value = 2\\n", encoding="utf-8")
+    (candidate / ".git").mkdir()
+    (candidate / ".git" / "HEAD").write_text(
+        "ref: refs/heads/temporary\\n", encoding="utf-8"
+    )
+
+    original_rename = Path.rename
+
+    def deny_workspace_rename(path, target):
+        if path == tmp_path:
+            raise PermissionError(
+                "[WinError 5] Access is denied: simulated locked workspace"
+            )
+        return original_rename(path, target)
+
+    monkeypatch.setattr(Path, "rename", deny_workspace_rename)
+
+    PatchValidatorAgent()._promote_candidate(tmp_path, candidate)
+
+    assert source.read_text(encoding="utf-8") == "value = 2\\n"
+    assert (tmp_path / ".git" / "HEAD").read_text(encoding="utf-8") == (
+        "ref: refs/heads/main\\n"
+    )
+    assert candidate.is_dir()
+
+
+def test_candidate_promotion_rolls_back_prior_file_when_replace_fails(
+    tmp_path, monkeypatch
+):
+    import os
+
+    (tmp_path / "a.py").write_text("a = 1\\n", encoding="utf-8")
+    (tmp_path / "b.py").write_text("b = 1\\n", encoding="utf-8")
+    candidate = tmp_path / "candidate"
+    candidate.mkdir()
+    (candidate / "a.py").write_text("a = 2\\n", encoding="utf-8")
+    (candidate / "b.py").write_text("b = 2\\n", encoding="utf-8")
+
+    real_replace = os.replace
+    calls = {"count": 0}
+
+    def fail_second_replace(source, destination):
+        calls["count"] += 1
+        if calls["count"] == 2:
+            raise PermissionError("simulated file lock")
+        return real_replace(source, destination)
+
+    monkeypatch.setattr("asea.agents.patch_validator.os.replace", fail_second_replace)
+
+    with pytest.raises(PermissionError, match="simulated file lock"):
+        PatchValidatorAgent()._promote_candidate(tmp_path, candidate)
+
+    assert (tmp_path / "a.py").read_text(encoding="utf-8") == "a = 1\\n"
+    assert (tmp_path / "b.py").read_text(encoding="utf-8") == "b = 1\\n"

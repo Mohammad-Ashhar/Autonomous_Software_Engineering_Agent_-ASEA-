@@ -1129,3 +1129,219 @@ button, a {
     flex-direction: column;
   }
 }
+
+
+/* Repair workflow details */
+.patch-preview,
+.patch-history,
+.audit-history,
+.repair-report details {
+  margin-top: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+
+.patch-preview summary,
+.patch-history summary,
+.audit-history summary,
+.repair-report details > summary {
+  padding: 12px 14px;
+  color: var(--foreground);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.patch-diff {
+  max-height: 480px;
+  overflow: auto;
+  margin: 0;
+  padding: 15px;
+  border-top: 1px solid var(--border);
+  background: var(--background);
+  color: var(--foreground);
+  font: 12px/1.65 Consolas, "Courier New", monospace;
+  white-space: pre;
+  tab-size: 4;
+}
+
+.publish-retry-button {
+  margin-top: 12px;
+}
+
+.repair-report {
+  display: grid;
+  gap: 14px;
+  margin-top: 20px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+
+.repair-report h3,
+.repair-report h4 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.repair-report h4 {
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .7px;
+}
+
+.test-summary,
+.repair-report-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 9px;
+}
+
+.test-summary > div,
+.repair-report-grid > div {
+  display: grid;
+  gap: 5px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+
+.test-summary strong,
+.repair-report-grid strong {
+  font-size: 20px;
+}
+
+.test-summary span,
+.repair-report-grid span {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.report-list {
+  display: grid;
+  gap: 8px;
+}
+
+.report-list article {
+  display: grid;
+  gap: 5px;
+  padding: 11px 13px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface);
+}
+
+.report-list article strong {
+  font-size: 12px;
+}
+
+.report-list article span {
+  color: var(--muted);
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+
+.patch-history > details {
+  margin: 0 10px 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface);
+}
+
+.patch-history > details > summary {
+  font-size: 11px;
+}
+
+.audit-history ol {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0 14px 10px 32px;
+}
+
+.audit-history li {
+  padding: 8px 0;
+  color: var(--foreground);
+  font-size: 11px;
+}
+
+.audit-history li span {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.pipeline-step.active .pipeline-marker {
+  color: var(--accent);
+  background: var(--accent-bg);
+  box-shadow: 0 0 0 3px var(--accent-bg);
+}
+
+.pipeline-step.active .step-time {
+  color: var(--accent);
+}
+
+.pipeline-step.failed .pipeline-marker {
+  color: var(--red);
+  background: rgba(240, 120, 120, 0.12);
+}
+
+.pipeline-step.failed .step-time {
+  color: var(--red);
+}
+
+@media (max-width: 650px) {
+  .test-summary,
+  .repair-report-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .patch-diff {
+    font-size: 10px;
+  }
+}
+
+
+.pipeline-error {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(240, 120, 120, 0.35);
+  border-radius: 7px;
+  color: var(--red);
+  background: rgba(240, 120, 120, 0.08);
+  font-size: 10px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.pipeline-idle {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+
+.pipeline-live-message {
+  margin: 12px 0 0;
+  padding: 11px 12px;
+  border: 1px solid var(--accent);
+  border-radius: 7px;
+  background: var(--accent-bg);
+  color: var(--foreground);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.pipeline-timestamps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin-top: 9px;
+  color: var(--muted);
+  font-size: 9px;
+}

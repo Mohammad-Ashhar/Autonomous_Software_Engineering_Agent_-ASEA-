@@ -8,6 +8,7 @@ import {
   getRepairStatus,
   getRepairHistory,
   submitPatchReview,
+  retryRepairPublishing,
   checkBackendHealth,
   type AnalyzeResponse,
   type RepairResponse,
@@ -102,6 +103,7 @@ const [repairJob, setRepairJob] = useState<RepairResponse | null>(null);
 const [repairStatus, setRepairStatus] = useState<RepairJob | null>(null);
 const [reviewFeedback, setReviewFeedback] = useState("");
 const [isSubmittingReview, setIsSubmittingReview] = useState(false);
+const [isRetryingPublish, setIsRetryingPublish] = useState(false);
 
   useEffect(() => {
   const frame = window.requestAnimationFrame(() => {
@@ -186,7 +188,7 @@ useEffect(() => {
 
       setRepairStatus(status);
 
-      if (status.status === "completed" || status.status === "failed") {
+      if ((status.status === "completed" && !status.publishing_retry) || status.status === "failed") {
         return;
       }
 
@@ -213,7 +215,7 @@ useEffect(() => {
       clearTimeout(timer);
     }
   };
-}, [repairJob?.job_id]);
+}, [repairJob?.job_id, repairStatus?.publishing_retry]);
 
   
 async function startAnalysis() {
@@ -327,6 +329,22 @@ async function handlePatchReview(decision: "approved" | "rejected") {
 }
 
 
+async function handleRetryPublishing() {
+  if (!repairJob?.job_id) return;
+  setIsRetryingPublish(true);
+  setNotice("Retrying GitHub publishing for the validated repair...");
+  try {
+    await retryRepairPublishing(repairJob.job_id);
+    setNotice("Publishing retry submitted. ASEA will update this job when GitHub responds.");
+    const status = await getRepairStatus(repairJob.job_id);
+    setRepairStatus(status);
+  } catch (error) {
+    setNotice(error instanceof Error ? error.message : "Unable to retry GitHub publishing.");
+  } finally {
+    setIsRetryingPublish(false);
+  }
+}
+
   const analysis = analysisResult?.analysis;
   const preflight = readRecord(analysis?.preflight);
   const syntaxErrors = Array.isArray(analysis?.syntax_errors)
@@ -354,6 +372,17 @@ async function handlePatchReview(decision: "approved" | "rejected") {
         (entry): entry is Record<string, unknown> => entry !== null,
       )
     : [];
+  const repairedBugs = Array.isArray(workflowResult?.repaired_bugs)
+    ? workflowResult.repaired_bugs.map(readRecord).filter((entry): entry is Record<string, unknown> => entry !== null)
+    : [];
+  const escalatedBugs = Array.isArray(workflowResult?.escalated_bugs)
+    ? workflowResult.escalated_bugs.map(readRecord).filter((entry): entry is Record<string, unknown> => entry !== null)
+    : [];
+  const patchHistory = Array.isArray(workflowResult?.patches)
+    ? workflowResult.patches.map(readRecord).filter((entry): entry is Record<string, unknown> => entry !== null)
+    : [];
+  const finalTests = readRecord(workflowResult?.final_validation_results)
+    ?? readRecord(workflowResult?.working_test_results);
   const bugsDetected = reviewBug ? 1 : 0;
   const bugsRepaired = auditLog.filter((entry) => entry.event === "bug_repaired").length;
   const pendingReviews = repairStatus?.status === "waiting_for_review" ? 1 : 0;
@@ -372,6 +401,19 @@ async function handlePatchReview(decision: "approved" | "rejected") {
       : "Recently",
   }));
 
+
+  const lifecycleIndex =
+    repairStatus?.status === "queued" ? 0 :
+    repairStatus?.status === "running" ? 1 :
+    repairStatus?.status === "waiting_for_review" ? 2 :
+    repairStatus?.status === "completed" ? 3 : -1;
+  const lifecycleFailed = repairStatus?.status === "failed";
+  const lifecycleSteps = [
+    { title: "Repair job submitted", description: "ASEA accepted the repository job." },
+    { title: "Autonomous repair", description: "Agents analyze issues and generate candidate patches." },
+    { title: "Human patch review", description: "Review and approve or reject proposed changes." },
+    { title: "Final validation & publishing", description: "Run final tests and publish only after approval." },
+  ];
 
   return (
     <main className="dashboard">
@@ -640,6 +682,12 @@ async function handlePatchReview(decision: "approved" | "rejected") {
           })}
         </details>
       )}
+      {typeof reviewRequest?.patch === "string" && (
+        <details className="patch-preview" open>
+          <summary>Proposed code diff · attempt {String(reviewRequest.attempt ?? 1)}</summary>
+          <pre className="patch-diff">{reviewRequest.patch}</pre>
+        </details>
+      )}
       <details>
         <summary>Full review payload</summary>
         <pre>{JSON.stringify(repairStatus.review_request, null, 2)}</pre>
@@ -675,13 +723,22 @@ async function handlePatchReview(decision: "approved" | "rejected") {
 )}
 
     {publishingResult?.status === "PUBLISH_FAILED" && (
+      <>
       <p role="alert">
         <strong>Repair validated; GitHub publishing failed.</strong>{" "}
         {typeof publishingResult.error === "string"
           ? publishingResult.error
           : "Check the backend GitHub token and repository permissions."}
-        {" "}The validated repair remains completed; publishing can be retried after a safe retry workflow is implemented.
       </p>
+      <button
+        className="repair-button publish-retry-button"
+        type="button"
+        onClick={handleRetryPublishing}
+        disabled={isRetryingPublish || Boolean(repairStatus?.publishing_retry)}
+      >
+        {isRetryingPublish || repairStatus?.publishing_retry ? "Publishing retry in progress..." : "Retry GitHub publishing"}
+      </button>
+      </>
     )}
     {publishingResult?.status === "PULL_REQUEST_CREATED" && !pullRequest && (
       <p><strong>GitHub publishing completed.</strong> Pull request details were not included in the response.</p>
@@ -705,16 +762,52 @@ async function handlePatchReview(decision: "approved" | "rejected") {
     )}
 
     {repairStatus?.result && (
-      <>
-        <strong>Repair Result</strong>
-        <pre>
-          {JSON.stringify(
-            repairStatus.result,
-            null,
-            2
-          )}
-        </pre>
-      </>
+      <section className="repair-report">
+        <h3>Repair report</h3>
+        {finalTests && (
+          <div className="test-summary" aria-label="Final test results">
+            <div><strong>{String(finalTests.passed ?? 0)}</strong><span>Passed</span></div>
+            <div><strong>{String(finalTests.failed ?? 0)}</strong><span>Failed</span></div>
+            <div><strong>{String(finalTests.errors ?? 0)}</strong><span>Errors</span></div>
+            <div><strong>{String(finalTests.total ?? 0)}</strong><span>Total</span></div>
+          </div>
+        )}
+        <div className="repair-report-grid">
+          <div><span>Repaired bugs</span><strong>{repairedBugs.length}</strong></div>
+          <div><span>Escalated bugs</span><strong>{escalatedBugs.length}</strong></div>
+          <div><span>Patch attempts</span><strong>{patchHistory.length}</strong></div>
+          <div><span>Audit events</span><strong>{auditLog.length}</strong></div>
+        </div>
+        {repairedBugs.length > 0 && (
+          <div className="report-list"><h4>Repaired issues</h4>{repairedBugs.map((bug, index) => (
+            <article key={String(bug.bug_key ?? index)}><strong>{String(bug.title ?? "Repaired issue")}</strong><span>{String(bug.file ?? "File not recorded")} · {String(bug.severity ?? "severity unknown")}</span></article>
+          ))}</div>
+        )}
+        {escalatedBugs.length > 0 && (
+          <div className="report-list"><h4>Needs attention</h4>{escalatedBugs.map((bug, index) => (
+            <article key={String(bug.bug_key ?? index)}><strong>{String(bug.title ?? "Unresolved issue")}</strong><span>{String(bug.file ?? "File not recorded")} · {String(bug.reason ?? "Could not be repaired")}</span></article>
+          ))}</div>
+        )}
+        {patchHistory.length > 0 && (
+          <details className="patch-history"><summary>Patch history ({patchHistory.length} attempts)</summary>
+            {patchHistory.map((patch, index) => (
+              <details key={`${String(patch.bug_key ?? index)}-${String(patch.attempt ?? index)}`}>
+                <summary>{String(patch.file ?? "Patch attempt")} · attempt {String(patch.attempt ?? index + 1)} · {String(patch.status ?? "generated")}</summary>
+                {typeof patch.patch === "string" ? <pre className="patch-diff">{patch.patch}</pre> : <p>{String(patch.reason ?? "No diff was recorded for this attempt.")}</p>}
+              </details>
+            ))}
+          </details>
+        )}
+        {auditLog.length > 0 && (
+          <details className="audit-history"><summary>Agent activity log ({auditLog.length} events)</summary>
+            <ol>{auditLog.map((entry, index) => <li key={`${String(entry.event ?? "event")}-${index}`}><strong>{formatStatus(String(entry.event ?? "event"))}</strong><span>{String(entry.agent ?? "ASEA agent")}</span></li>)}</ol>
+          </details>
+        )}
+        {finalTests && typeof finalTests.output === "string" && finalTests.output && (
+          <details><summary>Final test output</summary><pre className="patch-diff">{finalTests.output}</pre></details>
+        )}
+        <details className="raw-analysis"><summary>View complete workflow data</summary><pre>{JSON.stringify(repairStatus.result, null, 2)}</pre></details>
+      </section>
     )}
   </div>
 )}
@@ -807,30 +900,39 @@ async function handlePatchReview(decision: "approved" | "rejected") {
                   <h2>Agent activity</h2>
                   <p>Execution pipeline</p>
                 </div>
-                <span className="live-badge"><span /> LIVE</span>
+                <span className="live-badge"><span /> {repairStatus && ["queued", "running", "waiting_for_review"].includes(repairStatus.status) ? "LIVE" : "IDLE"}</span>
               </div>
 
               <div className="pipeline">
-                <div className="pipeline-step complete">
-                  <div className="pipeline-marker"><Icon name="check" size={13} /></div>
-                  <div><strong>Repository ingestion</strong><span>Source code indexed</span></div>
-                  <span className="step-time">Done</span>
-                </div>
-                <div className="pipeline-step complete">
-                  <div className="pipeline-marker"><Icon name="check" size={13} /></div>
-                  <div><strong>Static analysis</strong><span>Ruff · Semgrep · pytest</span></div>
-                  <span className="step-time">Done</span>
-                </div>
-                <div className="pipeline-step complete">
-                  <div className="pipeline-marker"><Icon name="check" size={13} /></div>
-                  <div><strong>AI bug detection</strong><span>Potential issues identified</span></div>
-                  <span className="step-time">Done</span>
-                </div>
-                <div className="pipeline-step waiting">
-                  <div className="pipeline-marker"><Icon name="clock" size={13} /></div>
-                  <div><strong>Patch validation</strong><span>Awaiting next repair job</span></div>
-                  <span className="step-time">Idle</span>
-                </div>
+                {lifecycleSteps.map((step, index) => {
+                  const complete = !lifecycleFailed && lifecycleIndex >= 0 &&
+                    (lifecycleIndex > index || repairStatus?.status === "completed");
+                  const active = !lifecycleFailed && lifecycleIndex === index &&
+                    repairStatus?.status !== "completed";
+                  const failed = lifecycleFailed && index === 1;
+                  const stateClass = complete ? "complete" : active ? "active" : failed ? "failed" : "waiting";
+                  const stateLabel = complete ? "Done" : active ? "Active" : failed ? "Stopped" : "Waiting";
+                  return (
+                    <div className={`pipeline-step ${stateClass}`} key={step.title}>
+                      <div className="pipeline-marker">
+                        {complete ? <Icon name="check" size={13} /> : failed ? <Icon name="alert" size={13} /> : <Icon name="clock" size={13} />}
+                      </div>
+                      <div><strong>{step.title}</strong><span>{step.description}</span></div>
+                      <span className="step-time">{stateLabel}</span>
+                    </div>
+                  );
+                })}
+                {repairStatus?.status === "failed" && repairStatus.error && (
+                  <p className="pipeline-error" role="alert">{repairStatus.error}</p>
+                )}
+                {repairStatus?.message && <p className="pipeline-live-message" role="status">{repairStatus.message}</p>}
+                {repairStatus?.created_at && (
+                  <div className="pipeline-timestamps">
+                    <span>Started {new Date(repairStatus.created_at).toLocaleString()}</span>
+                    {repairStatus.updated_at && <span>Updated {new Date(repairStatus.updated_at).toLocaleString()}</span>}
+                  </div>
+                )}
+                {!repairJob && <p className="pipeline-idle">Start a repair to see its live lifecycle here.</p>}
               </div>
 
               <div className="activity-footer">

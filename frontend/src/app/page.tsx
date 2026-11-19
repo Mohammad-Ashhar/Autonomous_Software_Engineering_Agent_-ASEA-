@@ -923,6 +923,13 @@ async function handleRetryPublishing() {
                 {repairStatus?.status === "failed" && repairStatus.error && (
                   <p className="pipeline-error" role="alert">{repairStatus.error}</p>
                 )}
+                {repairStatus?.message && <p className="pipeline-live-message" role="status">{repairStatus.message}</p>}
+                {repairStatus?.created_at && (
+                  <div className="pipeline-timestamps">
+                    <span>Started {new Date(repairStatus.created_at).toLocaleString()}</span>
+                    {repairStatus.updated_at && <span>Updated {new Date(repairStatus.updated_at).toLocaleString()}</span>}
+                  </div>
+                )}
                 {!repairJob && <p className="pipeline-idle">Start a repair to see its live lifecycle here.</p>}
               </div>
 

@@ -119,7 +119,7 @@ def test_run_prioritizes_detected_bug_modules_within_module_limit(
 ):
     for name in ("a_module.py", "b_module.py", "z_bug.py"):
         (tmp_path / name).write_text(
-            "def value():\\n    return 1\\n",
+            "def value():\n    return 1\n",
             encoding="utf-8",
         )
 
@@ -128,8 +128,8 @@ def test_run_prioritizes_detected_bug_modules_within_module_limit(
         agent,
         "_generate_for_module",
         lambda _source, _module: (
-            "def test_value():\\n"
-            "    assert module.value() == 1\\n"
+            "def test_value():\n"
+            "    assert module.value() == 1\n"
         ),
     )
 
@@ -153,7 +153,7 @@ def test_generation_node_prioritizes_files_from_detected_bugs(
     working_repository = tmp_path / "working"
     bug_file = repository / "src" / "acme" / "logic.py"
     bug_file.parent.mkdir(parents=True)
-    bug_file.write_text("def value():\\n    return 1\\n", encoding="utf-8")
+    bug_file.write_text("def value():\n    return 1\n", encoding="utf-8")
     working_repository.mkdir()
     captured = {}
 

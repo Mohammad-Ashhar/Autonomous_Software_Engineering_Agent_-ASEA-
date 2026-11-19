@@ -330,14 +330,6 @@ class PatchValidatorAgent:
     ) -> bool:
         """Check whether a patch introduces new test failures."""
 
-        baseline_failed = set(
-            baseline.get("failed_tests", [])
-        )
-
-        candidate_failed = set(
-            candidate.get("failed_tests", [])
-        )
-
         baseline_count = baseline.get("failed", 0)
         candidate_count = candidate.get("failed", 0)
 

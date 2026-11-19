@@ -297,6 +297,9 @@ def publish_validated_repairs(
         )
 
     test_results = state.get("working_test_results", {})
+    if not isinstance(test_results, dict):
+        test_results = {}
+
     try:
         executed_tests = int(test_results.get("total", 0))
         passed_tests = int(test_results.get("passed", 0))
@@ -307,8 +310,7 @@ def publish_validated_repairs(
         failed_tests = errored_tests = 1
 
     if (
-        not isinstance(test_results, dict)
-        or test_results.get("success") is not True
+        test_results.get("success") is not True
         or test_results.get("status") != "PASSED"
         or executed_tests <= 0
         or passed_tests <= 0

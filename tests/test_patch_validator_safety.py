@@ -171,3 +171,49 @@ def test_syntax_only_patch_is_intermediate_without_reliable_tests(tmp_path):
             "    except Exception:\n"
             "        return 0\n"
         )
+
+
+
+def test_reduced_failure_count_is_accepted_even_if_remaining_ids_change():
+    baseline = {
+        "failed": 3,
+        "errors": 0,
+        "failed_tests": ["test_a", "test_b", "test_c"],
+    }
+    candidate = {
+        "failed": 1,
+        "errors": 0,
+        "failed_tests": ["test_newly_reported"],
+    }
+
+    assert PatchValidatorAgent.has_no_new_failures(baseline, candidate)
+
+
+def test_equal_failure_count_with_new_failure_id_is_not_treated_as_progress():
+    baseline = {
+        "failed": 1,
+        "errors": 0,
+        "failed_tests": ["test_a"],
+    }
+    candidate = {
+        "failed": 1,
+        "errors": 0,
+        "failed_tests": ["test_new"],
+    }
+
+    assert not PatchValidatorAgent.has_no_new_failures(baseline, candidate)
+
+
+def test_partial_repair_is_rejected_when_failure_count_increases():
+    baseline = {
+        "failed": 2,
+        "errors": 0,
+        "failed_tests": ["test_a", "test_b"],
+    }
+    candidate = {
+        "failed": 3,
+        "errors": 0,
+        "failed_tests": ["test_a", "test_b", "test_c"],
+    }
+
+    assert not PatchValidatorAgent.has_no_new_failures(baseline, candidate)

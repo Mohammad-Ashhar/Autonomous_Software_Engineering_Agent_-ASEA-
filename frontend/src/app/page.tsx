@@ -402,6 +402,19 @@ async function handleRetryPublishing() {
   }));
 
 
+  const lifecycleIndex =
+    repairStatus?.status === "queued" ? 0 :
+    repairStatus?.status === "running" ? 1 :
+    repairStatus?.status === "waiting_for_review" ? 2 :
+    repairStatus?.status === "completed" ? 3 : -1;
+  const lifecycleFailed = repairStatus?.status === "failed";
+  const lifecycleSteps = [
+    { title: "Repair job submitted", description: "ASEA accepted the repository job." },
+    { title: "Autonomous repair", description: "Agents analyze issues and generate candidate patches." },
+    { title: "Human patch review", description: "Review and approve or reject proposed changes." },
+    { title: "Final validation & publishing", description: "Run final tests and publish only after approval." },
+  ];
+
   return (
     <main className="dashboard">
       <aside className="sidebar">
@@ -885,30 +898,32 @@ async function handleRetryPublishing() {
                   <h2>Agent activity</h2>
                   <p>Execution pipeline</p>
                 </div>
-                <span className="live-badge"><span /> LIVE</span>
+                <span className="live-badge"><span /> {repairStatus && ["queued", "running", "waiting_for_review"].includes(repairStatus.status) ? "LIVE" : "IDLE"}</span>
               </div>
 
               <div className="pipeline">
-                <div className="pipeline-step complete">
-                  <div className="pipeline-marker"><Icon name="check" size={13} /></div>
-                  <div><strong>Repository ingestion</strong><span>Source code indexed</span></div>
-                  <span className="step-time">Done</span>
-                </div>
-                <div className="pipeline-step complete">
-                  <div className="pipeline-marker"><Icon name="check" size={13} /></div>
-                  <div><strong>Static analysis</strong><span>Ruff · Semgrep · pytest</span></div>
-                  <span className="step-time">Done</span>
-                </div>
-                <div className="pipeline-step complete">
-                  <div className="pipeline-marker"><Icon name="check" size={13} /></div>
-                  <div><strong>AI bug detection</strong><span>Potential issues identified</span></div>
-                  <span className="step-time">Done</span>
-                </div>
-                <div className="pipeline-step waiting">
-                  <div className="pipeline-marker"><Icon name="clock" size={13} /></div>
-                  <div><strong>Patch validation</strong><span>Awaiting next repair job</span></div>
-                  <span className="step-time">Idle</span>
-                </div>
+                {lifecycleSteps.map((step, index) => {
+                  const complete = !lifecycleFailed && lifecycleIndex >= 0 &&
+                    (lifecycleIndex > index || repairStatus?.status === "completed");
+                  const active = !lifecycleFailed && lifecycleIndex === index &&
+                    repairStatus?.status !== "completed";
+                  const failed = lifecycleFailed && index === 1;
+                  const stateClass = complete ? "complete" : active ? "active" : failed ? "failed" : "waiting";
+                  const stateLabel = complete ? "Done" : active ? "Active" : failed ? "Stopped" : "Waiting";
+                  return (
+                    <div className={`pipeline-step ${stateClass}`} key={step.title}>
+                      <div className="pipeline-marker">
+                        {complete ? <Icon name="check" size={13} /> : failed ? <Icon name="alert" size={13} /> : <Icon name="clock" size={13} />}
+                      </div>
+                      <div><strong>{step.title}</strong><span>{step.description}</span></div>
+                      <span className="step-time">{stateLabel}</span>
+                    </div>
+                  );
+                })}
+                {repairStatus?.status === "failed" && repairStatus.error && (
+                  <p className="pipeline-error" role="alert">{repairStatus.error}</p>
+                )}
+                {!repairJob && <p className="pipeline-idle">Start a repair to see its live lifecycle here.</p>}
               </div>
 
               <div className="activity-footer">

@@ -336,7 +336,7 @@ class TestGenerationAgent:
         if not repository.is_dir():
             raise NotADirectoryError(repository)
 
-        if self._has_tests(repository):
+        if self._has_tests(repository) and not priority_files:
             return {
                 "status": "SKIPPED_EXISTING_TESTS",
                 "generated_tests": [],

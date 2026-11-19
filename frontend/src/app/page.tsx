@@ -8,6 +8,7 @@ import {
   getRepairStatus,
   getRepairHistory,
   submitPatchReview,
+  retryRepairPublishing,
   checkBackendHealth,
   type AnalyzeResponse,
   type RepairResponse,
@@ -102,6 +103,7 @@ const [repairJob, setRepairJob] = useState<RepairResponse | null>(null);
 const [repairStatus, setRepairStatus] = useState<RepairJob | null>(null);
 const [reviewFeedback, setReviewFeedback] = useState("");
 const [isSubmittingReview, setIsSubmittingReview] = useState(false);
+const [isRetryingPublish, setIsRetryingPublish] = useState(false);
 
   useEffect(() => {
   const frame = window.requestAnimationFrame(() => {
@@ -186,7 +188,7 @@ useEffect(() => {
 
       setRepairStatus(status);
 
-      if (status.status === "completed" || status.status === "failed") {
+      if ((status.status === "completed" && !status.publishing_retry) || status.status === "failed") {
         return;
       }
 
@@ -327,6 +329,22 @@ async function handlePatchReview(decision: "approved" | "rejected") {
 }
 
 
+async function handleRetryPublishing() {
+  if (!repairJob?.job_id) return;
+  setIsRetryingPublish(true);
+  setNotice("Retrying GitHub publishing for the validated repair...");
+  try {
+    await retryRepairPublishing(repairJob.job_id);
+    setNotice("Publishing retry submitted. ASEA will update this job when GitHub responds.");
+    const status = await getRepairStatus(repairJob.job_id);
+    setRepairStatus(status);
+  } catch (error) {
+    setNotice(error instanceof Error ? error.message : "Unable to retry GitHub publishing.");
+  } finally {
+    setIsRetryingPublish(false);
+  }
+}
+
   const analysis = analysisResult?.analysis;
   const preflight = readRecord(analysis?.preflight);
   const syntaxErrors = Array.isArray(analysis?.syntax_errors)
@@ -354,6 +372,17 @@ async function handlePatchReview(decision: "approved" | "rejected") {
         (entry): entry is Record<string, unknown> => entry !== null,
       )
     : [];
+  const repairedBugs = Array.isArray(workflowResult?.repaired_bugs)
+    ? workflowResult.repaired_bugs.map(readRecord).filter((entry): entry is Record<string, unknown> => entry !== null)
+    : [];
+  const escalatedBugs = Array.isArray(workflowResult?.escalated_bugs)
+    ? workflowResult.escalated_bugs.map(readRecord).filter((entry): entry is Record<string, unknown> => entry !== null)
+    : [];
+  const patchHistory = Array.isArray(workflowResult?.patches)
+    ? workflowResult.patches.map(readRecord).filter((entry): entry is Record<string, unknown> => entry !== null)
+    : [];
+  const finalTests = readRecord(workflowResult?.final_validation_results)
+    ?? readRecord(workflowResult?.working_test_results);
   const bugsDetected = reviewBug ? 1 : 0;
   const bugsRepaired = auditLog.filter((entry) => entry.event === "bug_repaired").length;
   const pendingReviews = repairStatus?.status === "waiting_for_review" ? 1 : 0;
@@ -640,6 +669,12 @@ async function handlePatchReview(decision: "approved" | "rejected") {
           })}
         </details>
       )}
+      {typeof reviewRequest?.patch === "string" && (
+        <details className="patch-preview" open>
+          <summary>Proposed code diff · attempt {String(reviewRequest.attempt ?? 1)}</summary>
+          <pre className="patch-diff">{reviewRequest.patch}</pre>
+        </details>
+      )}
       <details>
         <summary>Full review payload</summary>
         <pre>{JSON.stringify(repairStatus.review_request, null, 2)}</pre>
@@ -680,8 +715,15 @@ async function handlePatchReview(decision: "approved" | "rejected") {
         {typeof publishingResult.error === "string"
           ? publishingResult.error
           : "Check the backend GitHub token and repository permissions."}
-        {" "}The validated repair remains completed; publishing can be retried after a safe retry workflow is implemented.
       </p>
+      <button
+        className="repair-button publish-retry-button"
+        type="button"
+        onClick={handleRetryPublishing}
+        disabled={isRetryingPublish || Boolean(repairStatus?.publishing_retry)}
+      >
+        {isRetryingPublish || repairStatus?.publishing_retry ? "Publishing retry in progress..." : "Retry GitHub publishing"}
+      </button>
     )}
     {publishingResult?.status === "PULL_REQUEST_CREATED" && !pullRequest && (
       <p><strong>GitHub publishing completed.</strong> Pull request details were not included in the response.</p>
@@ -705,17 +747,53 @@ async function handlePatchReview(decision: "approved" | "rejected") {
     )}
 
     {repairStatus?.result && (
-      <>
-        <strong>Repair Result</strong>
-        <pre>
-          {JSON.stringify(
-            repairStatus.result,
-            null,
-            2
-          )}
-        </pre>
-      </>
-    )}
+      <section className="repair-report">
+        <h3>Repair report</h3>
+        {finalTests && (
+          <div className="test-summary" aria-label="Final test results">
+            <div><strong>{String(finalTests.passed ?? 0)}</strong><span>Passed</span></div>
+            <div><strong>{String(finalTests.failed ?? 0)}</strong><span>Failed</span></div>
+            <div><strong>{String(finalTests.errors ?? 0)}</strong><span>Errors</span></div>
+            <div><strong>{String(finalTests.total ?? 0)}</strong><span>Total</span></div>
+          </div>
+        )}
+        <div className="repair-report-grid">
+          <div><span>Repaired bugs</span><strong>{repairedBugs.length}</strong></div>
+          <div><span>Escalated bugs</span><strong>{escalatedBugs.length}</strong></div>
+          <div><span>Patch attempts</span><strong>{patchHistory.length}</strong></div>
+          <div><span>Audit events</span><strong>{auditLog.length}</strong></div>
+        </div>
+        {repairedBugs.length > 0 && (
+          <div className="report-list"><h4>Repaired issues</h4>{repairedBugs.map((bug, index) => (
+            <article key={String(bug.bug_key ?? index)}><strong>{String(bug.title ?? "Repaired issue")}</strong><span>{String(bug.file ?? "File not recorded")} · {String(bug.severity ?? "severity unknown")}</span></article>
+          ))}</div>
+        )}
+        {escalatedBugs.length > 0 && (
+          <div className="report-list"><h4>Needs attention</h4>{escalatedBugs.map((bug, index) => (
+            <article key={String(bug.bug_key ?? index)}><strong>{String(bug.title ?? "Unresolved issue")}</strong><span>{String(bug.file ?? "File not recorded")} · {String(bug.reason ?? "Could not be repaired")}</span></article>
+          ))}</div>
+        )}
+        {patchHistory.length > 0 && (
+          <details className="patch-history"><summary>Patch history ({patchHistory.length} attempts)</summary>
+            {patchHistory.map((patch, index) => (
+              <details key={`${String(patch.bug_key ?? index)}-${String(patch.attempt ?? index)}`}>
+                <summary>{String(patch.file ?? "Patch attempt")} · attempt {String(patch.attempt ?? index + 1)} · {String(patch.status ?? "generated")}</summary>
+                {typeof patch.patch === "string" ? <pre className="patch-diff">{patch.patch}</pre> : <p>{String(patch.reason ?? "No diff was recorded for this attempt.")}</p>}
+              </details>
+            ))}
+          </details>
+        )}
+        {auditLog.length > 0 && (
+          <details className="audit-history"><summary>Agent activity log ({auditLog.length} events)</summary>
+            <ol>{auditLog.map((entry, index) => <li key={`${String(entry.event ?? "event")}-${index}`}><strong>{formatStatus(String(entry.event ?? "event"))}</strong><span>{String(entry.agent ?? "ASEA agent")}</span></li>)}</ol>
+          </details>
+        )}
+        {finalTests && typeof finalTests.output === "string" && finalTests.output && (
+          <details><summary>Final test output</summary><pre className="patch-diff">{finalTests.output}</pre></details>
+        )}
+        <details className="raw-analysis"><summary>View complete workflow data</summary><pre>{JSON.stringify(repairStatus.result, null, 2)}</pre></details>
+      </section>
+    )
   </div>
 )}
 

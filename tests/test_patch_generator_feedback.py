@@ -257,3 +257,29 @@ def test_patch_generator_rejects_unsafe_diff_target(tmp_path, diff_path):
             {"title": "Incorrect addition"},
             diff_path=diff_path,
         )
+
+
+
+def test_successful_ollama_syntax_fix_is_marked_intermediate(tmp_path):
+    file_path = tmp_path / "bug.py"
+    original = (
+        "def calculate(payload):\n"
+        "    try\n"
+        "        return payload\n"
+        "    except ValueError:\n"
+        "        return None\n"
+    )
+    corrected = original.replace("    try\n", "    try:\n")
+    file_path.write_text(original, encoding="utf-8")
+    agent = PatchGeneratorAgent()
+    agent.llm.chat = lambda **_kwargs: corrected
+
+    result = agent.generate_patch(
+        file_path,
+        {"title": "Python syntax error", "line": 2},
+    )
+
+    assert result["generator"] == "ollama"
+    assert result["repair_scope"] == "syntax_only"
+    assert "-    try" in result["patch"]
+    assert "+    try:" in result["patch"]

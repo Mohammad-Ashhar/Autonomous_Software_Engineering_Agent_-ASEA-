@@ -284,11 +284,20 @@ class BugDetectorAgent:
             def is_mutable_default(default: ast.expr) -> bool:
                 if isinstance(default, (ast.List, ast.Dict, ast.Set)):
                     return True
-                return (
-                    isinstance(default, ast.Call)
-                    and isinstance(default.func, ast.Name)
-                    and default.func.id in {"list", "dict", "set"}
-                )
+                if isinstance(default, ast.Tuple):
+                    return any(is_mutable_default(item) for item in default.elts)
+                if not isinstance(default, ast.Call) or not isinstance(
+                    default.func, ast.Name
+                ):
+                    return False
+                if default.func.id in {"list", "dict", "set"}:
+                    return True
+                if default.func.id == "tuple":
+                    return any(
+                        is_mutable_default(argument)
+                        for argument in default.args
+                    )
+                return False
 
             def report_mutable_default(
                 argument: ast.arg,

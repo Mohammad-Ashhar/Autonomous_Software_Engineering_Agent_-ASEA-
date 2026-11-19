@@ -299,6 +299,76 @@ def choose(value):
     assert unreachable[0]["line"] == 9
 
 
+def test_statement_after_exhaustive_match_with_terminating_cases_is_reported():
+    agent = BugDetectorAgent()
+    tree = ast.parse(
+        """
+def choose(value):
+    match value:
+        case 1:
+            return "one"
+        case 2:
+            raise ValueError(value)
+        case _:
+            return "other"
+    print("unreachable")
+"""
+    )
+
+    findings = agent.detect_ast_bugs(tree, Path("logic.py"))
+    unreachable = [
+        item for item in findings
+        if item["title"] == "Unreachable statement"
+    ]
+
+    assert len(unreachable) == 1
+    assert unreachable[0]["line"] == 10
+
+
+def test_match_without_unconditional_wildcard_does_not_terminate():
+    agent = BugDetectorAgent()
+    tree = ast.parse(
+        """
+def choose(value):
+    match value:
+        case 1:
+            return "one"
+        case 2:
+            return "two"
+    print("reachable for other values")
+"""
+    )
+
+    findings = agent.detect_ast_bugs(tree, Path("logic.py"))
+
+    assert not any(
+        item["title"] == "Unreachable statement"
+        and item["line"] == 8
+        for item in findings
+    )
+
+
+def test_guarded_wildcard_does_not_make_match_exhaustive():
+    agent = BugDetectorAgent()
+    tree = ast.parse(
+        """
+def choose(value, allowed):
+    match value:
+        case _ if allowed:
+            return "allowed"
+    print("reachable when not allowed")
+"""
+    )
+
+    findings = agent.detect_ast_bugs(tree, Path("logic.py"))
+
+    assert not any(
+        item["title"] == "Unreachable statement"
+        and item["line"] == 6
+        for item in findings
+    )
+
+
 def test_assert_false_is_reported_as_potential_issue():
     agent = BugDetectorAgent()
     tree = ast.parse(

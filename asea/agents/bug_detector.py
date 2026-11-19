@@ -350,6 +350,21 @@ class BugDetectorAgent:
                         block_terminates(last.body)
                         and block_terminates(last.orelse)
                     )
+                if isinstance(last, ast.Match) and last.cases:
+                    final_case = last.cases[-1]
+                    is_unconditional_wildcard = (
+                        isinstance(final_case.pattern, ast.MatchAs)
+                        and final_case.pattern.pattern is None
+                        and final_case.pattern.name is None
+                        and final_case.guard is None
+                    )
+                    return (
+                        is_unconditional_wildcard
+                        and all(
+                            block_terminates(case.body)
+                            for case in last.cases
+                        )
+                    )
                 return False
 
             # A statement is unreachable when the preceding statement

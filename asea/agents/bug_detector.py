@@ -356,7 +356,8 @@ class BugDetectorAgent:
                             "confidence": 0.94,
                             "description": (
                                 "This statement follows an unconditional "
-                                "return or raise in the same code block."
+                                "return, raise, break, or continue in the "
+                                "same code block."
                             ),
                             "suggestion": (
                                 "Remove the unreachable statement or move "
@@ -366,7 +367,10 @@ class BugDetectorAgent:
                             "source": "ast"
                         })
                         break
-                    if isinstance(statement, (ast.Return, ast.Raise)):
+                    if isinstance(
+                        statement,
+                        (ast.Return, ast.Raise, ast.Break, ast.Continue),
+                    ):
                         terminal_seen = True
 
             # An unconditional assert False makes the function fail whenever

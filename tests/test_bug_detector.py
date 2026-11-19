@@ -193,6 +193,44 @@ def test_unreachable_statement_is_reported():
     assert any(item["title"] == "Unreachable statement" for item in findings)
 
 
+def test_statement_after_unconditional_break_is_reported():
+    agent = BugDetectorAgent()
+    tree = ast.parse(
+        "def process(items):\n"
+        "    for item in items:\n"
+        "        break\n"
+        "        print(item)\n"
+    )
+
+    findings = agent.detect_ast_bugs(tree, Path("logic.py"))
+
+    unreachable = [
+        item for item in findings
+        if item["title"] == "Unreachable statement"
+    ]
+    assert len(unreachable) == 1
+    assert unreachable[0]["line"] == 4
+
+
+def test_statement_after_unconditional_continue_is_reported():
+    agent = BugDetectorAgent()
+    tree = ast.parse(
+        "def process(items):\n"
+        "    for item in items:\n"
+        "        continue\n"
+        "        print(item)\n"
+    )
+
+    findings = agent.detect_ast_bugs(tree, Path("logic.py"))
+
+    unreachable = [
+        item for item in findings
+        if item["title"] == "Unreachable statement"
+    ]
+    assert len(unreachable) == 1
+    assert unreachable[0]["line"] == 4
+
+
 def test_assert_false_is_reported_as_potential_issue():
     agent = BugDetectorAgent()
     tree = ast.parse(

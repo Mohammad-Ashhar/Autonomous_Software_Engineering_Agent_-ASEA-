@@ -466,6 +466,15 @@ def route_after_generation(state: ASEAState) -> str:
     if state.get("status") == "patch_generation_completed":
         return "review"
 
+    current_validation = state.get("current_validation") or {}
+    patches = state.get("patches", [])
+    last_patch = patches[-1] if patches else {}
+    if (
+        current_validation.get("duplicate_patch")
+        or last_patch.get("duplicate_patch")
+    ):
+        return "escalate"
+
     bug_key = get_bug_key(state.get("current_bug", {}))
 
     attempts = state.get("retry_counts", {}).get(bug_key, 0)

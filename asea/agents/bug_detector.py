@@ -406,7 +406,7 @@ class BugDetectorAgent:
                 and expression.operand.value == 0
             )
     
-        for expression in ast.walk(node):
+        for expression in ast.walk(syntax_tree):
             if (
                 not isinstance(expression, ast.BinOp)
                 or not isinstance(expression.op, (ast.Div, ast.FloorDiv, ast.Mod))

@@ -417,3 +417,72 @@ def test_partial_validation_refreshes_baseline_for_next_repair(
     assert result["repaired_bugs"] == []
     assert result["current_validation"]["status"] == "PATCH_INTERMEDIATE"
     assert graph.route_after_validation(result) == "next_bug"
+
+
+
+def test_duplicate_repair_diff_stops_without_repeating_human_review(
+    tmp_path, monkeypatch
+):
+    feedback = {
+        "status": "PATCH_REJECTED",
+        "reason": "The candidate introduced new test failures.",
+        "test_results": {"failed": 2, "errors": 0, "total": 3},
+    }
+    state, _, key = _state(tmp_path, feedback, retries=1, max_retries=3)
+    same_patch = "--- a/module.py\n+++ b/module.py\n@@ -1 +1 @@\n-return 1\n+return 2\n"
+    state["patches"] = [{
+        "bug_key": key,
+        "patch": same_patch,
+        "attempt": 1,
+    }]
+
+    class RepeatingGenerator:
+        def generate_patch(self, **_kwargs):
+            return {
+                "file": "module.py",
+                "patch": same_patch,
+                "status": "PATCH_GENERATED",
+            }
+
+    monkeypatch.setattr(graph, "PatchGeneratorAgent", RepeatingGenerator)
+    result = graph.patch_generation_node(state)
+
+    assert result["status"] == "patch_generation_failed"
+    assert result["retry_counts"][key] == 3
+    assert result["patches"][-1]["duplicate_patch"] is True
+    assert "identical diff" in result["current_validation"]["reason"]
+    assert graph.route_after_generation(result) == "escalate"
+
+
+def test_validation_node_prints_failure_reason_and_test_counts(
+    tmp_path, monkeypatch, capsys
+):
+    state, _, key = _state(tmp_path)
+    state["patches"] = [{
+        "bug_key": key,
+        "patch": "diff",
+        "attempt": 1,
+    }]
+
+    class RejectingValidator:
+        def validate_patch(self, **_kwargs):
+            return {
+                "status": "PATCH_REJECTED",
+                "patch_applied": False,
+                "reason": "Candidate added a failing test.",
+                "test_results": {
+                    "passed": 1,
+                    "failed": 2,
+                    "errors": 0,
+                    "total": 3,
+                    "failed_tests": ["test_average", "test_empty_scores"],
+                },
+            }
+
+    monkeypatch.setattr(graph, "PatchValidatorAgent", RejectingValidator)
+    graph.patch_validation_node(state)
+    output = capsys.readouterr().out
+
+    assert "PATCH VALIDATION: PATCH_REJECTED" in output
+    assert "failed=2" in output
+    assert "test_empty_scores" in output

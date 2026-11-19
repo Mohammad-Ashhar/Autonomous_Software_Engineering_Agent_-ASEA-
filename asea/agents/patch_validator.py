@@ -1,5 +1,7 @@
 import ast
+import os
 import shutil
+import stat
 import subprocess
 import tempfile
 from pathlib import Path
@@ -363,46 +365,74 @@ class PatchValidatorAgent:
         working_repo_path: Path,
         candidate_repo: Path,
     ) -> None:
-        """Atomically promote a validated candidate while preserving runtime state."""
-        backup_repo = (
-            working_repo_path.parent
-            / f".{working_repo_path.name}.asea-backup-{uuid4().hex}"
-        )
-        working_repo_path.rename(backup_repo)
+        """Promote changed files without renaming the live repository.
+
+        Windows can deny directory renames when scanners, shells, or other
+        processes hold handles inside a workspace. File-level replacements
+        avoid moving the workspace root and preserve ASEA runtime directories.
+        Previously replaced files are rolled back if a later replacement fails.
+        """
+        preserved = {".git", ".venv", "venv", "artifacts", "workspaces"}
+        changes = []
+
+        for candidate_file in candidate_repo.rglob("*"):
+            relative = candidate_file.relative_to(candidate_repo)
+            if not relative.parts or relative.parts[0] in preserved:
+                continue
+            if not candidate_file.is_file() or candidate_file.is_symlink():
+                continue
+
+            destination = working_repo_path / relative
+            if destination.is_symlink():
+                raise OSError(
+                    f"Refusing to replace symlink during promotion: {destination}"
+                )
+            candidate_bytes = candidate_file.read_bytes()
+            original_bytes = (
+                destination.read_bytes() if destination.is_file() else None
+            )
+            if original_bytes == candidate_bytes:
+                continue
+            original_mode = (
+                stat.S_IMODE(destination.stat().st_mode)
+                if destination.is_file()
+                else None
+            )
+            changes.append(
+                (candidate_file, destination, original_bytes, original_mode)
+            )
+
+        promoted = []
         try:
-            candidate_repo.rename(working_repo_path)
-            for directory_name in (
-                ".git", ".venv", "venv", "artifacts", "workspaces",
-            ):
-                original_directory = backup_repo / directory_name
-                if original_directory.exists():
-                    destination = working_repo_path / directory_name
-                    destination_exists = (
-                        destination.exists() or destination.is_symlink()
-                    )
-                    if directory_name == ".git" and destination_exists:
-                        if destination.is_dir() and not destination.is_symlink():
-                            shutil.rmtree(destination)
-                        else:
-                            destination.unlink()
-                    elif destination_exists:
-                        raise FileExistsError(
-                            f"Cannot restore preserved directory: {directory_name}"
-                        )
-                    original_directory.rename(destination)
+            for candidate_file, destination, _old_bytes, _old_mode in changes:
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                staged_file = destination.with_name(
+                    f".{destination.name}.asea-{uuid4().hex}.tmp"
+                )
+                try:
+                    shutil.copy2(candidate_file, staged_file)
+                    os.replace(staged_file, destination)
+                finally:
+                    if staged_file.exists():
+                        staged_file.unlink()
+                promoted.append((destination, _old_bytes, _old_mode))
         except Exception:
-            for directory_name in (
-                ".git", ".venv", "venv", "artifacts", "workspaces",
-            ):
-                restored = working_repo_path / directory_name
-                original = backup_repo / directory_name
-                if restored.exists() and not original.exists():
-                    restored.rename(original)
-            if working_repo_path.exists():
-                working_repo_path.rename(candidate_repo)
-            backup_repo.rename(working_repo_path)
+            for destination, old_bytes, old_mode in reversed(promoted):
+                if old_bytes is None:
+                    destination.unlink(missing_ok=True)
+                    continue
+                rollback_file = destination.with_name(
+                    f".{destination.name}.asea-rollback-{uuid4().hex}.tmp"
+                )
+                try:
+                    rollback_file.write_bytes(old_bytes)
+                    if old_mode is not None:
+                        os.chmod(rollback_file, old_mode)
+                    os.replace(rollback_file, destination)
+                finally:
+                    if rollback_file.exists():
+                        rollback_file.unlink()
             raise
-        shutil.rmtree(backup_repo, ignore_errors=True)
 
     def validate_patch(
         self,

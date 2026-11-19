@@ -454,6 +454,14 @@ Rules:
             if original_has_syntax_error:
                 repair_scope = "syntax_only"
 
+        # A file that was initially unparseable must pass through the same
+        # intermediate syntax-repair path regardless of whether Ollama or
+        # the deterministic fallback produced the valid source. This allows
+        # the workflow to re-analyze defects that were hidden by the syntax
+        # error before attempting full-suite validation.
+        if original_has_syntax_error:
+            repair_scope = "syntax_only"
+
         patch = self.generate_unified_diff(
             original,
             corrected,

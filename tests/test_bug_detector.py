@@ -375,3 +375,45 @@ def calculate(value):
     findings = agent.detect_ast_bugs(tree, Path("logic.py"))
 
     assert not any(item["title"] == "Literal zero divisor" for item in findings)
+
+
+def test_literal_zero_divisors_are_detected_at_module_and_class_scope():
+    agent = BugDetectorAgent()
+    tree = ast.parse(
+        """
+module_value = 10 / 0
+
+class Calculator:
+    class_value = 10 // 0
+"""
+    )
+
+    findings = agent.detect_ast_bugs(tree, Path("logic.py"))
+    zero_divisors = [
+        item for item in findings
+        if item["title"] == "Literal zero divisor"
+    ]
+
+    assert [item["line"] for item in zero_divisors] == [2, 5]
+    assert all(item["classification"] == "potential_issue" for item in zero_divisors)
+
+
+def test_literal_zero_divisor_is_reported_once_for_nested_functions():
+    agent = BugDetectorAgent()
+    tree = ast.parse(
+        """
+def outer():
+    def inner():
+        return 1 / 0
+    return inner()
+"""
+    )
+
+    findings = agent.detect_ast_bugs(tree, Path("logic.py"))
+    zero_divisors = [
+        item for item in findings
+        if item["title"] == "Literal zero divisor"
+    ]
+
+    assert len(zero_divisors) == 1
+    assert zero_divisors[0]["line"] == 4

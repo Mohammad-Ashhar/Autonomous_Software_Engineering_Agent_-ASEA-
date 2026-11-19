@@ -327,51 +327,6 @@ class BugDetectorAgent:
                 if default is not None:
                     report_mutable_default(argument, default)
 
-            # A literal zero divisor always raises when this expression runs.
-            # Keep the finding as a potential issue because the containing path
-            # may be conditional or unreachable for a particular execution.
-            def is_literal_zero(expression: ast.expr) -> bool:
-                if isinstance(expression, ast.Constant):
-                    return (
-                        isinstance(expression.value, (int, float, complex, bool))
-                        and expression.value == 0
-                    )
-                return (
-                    isinstance(expression, ast.UnaryOp)
-                    and isinstance(expression.op, (ast.UAdd, ast.USub))
-                    and isinstance(expression.operand, ast.Constant)
-                    and isinstance(
-                        expression.operand.value,
-                        (int, float, complex, bool),
-                    )
-                    and expression.operand.value == 0
-                )
-
-            for expression in ast.walk(node):
-                if (
-                    not isinstance(expression, ast.BinOp)
-                    or not isinstance(expression.op, (ast.Div, ast.FloorDiv, ast.Mod))
-                    or not is_literal_zero(expression.right)
-                ):
-                    continue
-                findings.append({
-                    "title": "Literal zero divisor",
-                    "line": expression.lineno,
-                    "severity": "high",
-                    "classification": "potential_issue",
-                    "confidence": 0.99,
-                    "description": (
-                        "This division or modulo operation uses a literal zero "
-                        "as its divisor and raises ZeroDivisionError if executed."
-                    ),
-                    "suggestion": (
-                        "Ensure the divisor is non-zero before performing "
-                        "the operation, or handle the zero case explicitly."
-                    ),
-                    "file": str(file_path),
-                    "source": "ast",
-                })
-
             # Detect statements placed after an unconditional return/raise
             # in the same statement block.
             for child in ast.walk(node):
@@ -430,6 +385,52 @@ class BugDetectorAgent:
                         "file": str(file_path),
                         "source": "ast"
                     })
+
+        # A literal zero divisor always raises when this expression runs.
+        # Keep the finding as a potential issue because the containing path
+        # may be conditional or unreachable for a particular execution.
+        def is_literal_zero(expression: ast.expr) -> bool:
+            if isinstance(expression, ast.Constant):
+                return (
+                    isinstance(expression.value, (int, float, complex, bool))
+                    and expression.value == 0
+                )
+            return (
+                isinstance(expression, ast.UnaryOp)
+                and isinstance(expression.op, (ast.UAdd, ast.USub))
+                and isinstance(expression.operand, ast.Constant)
+                and isinstance(
+                    expression.operand.value,
+                    (int, float, complex, bool),
+                )
+                and expression.operand.value == 0
+            )
+    
+        for expression in ast.walk(syntax_tree):
+            if (
+                not isinstance(expression, ast.BinOp)
+                or not isinstance(expression.op, (ast.Div, ast.FloorDiv, ast.Mod))
+                or not is_literal_zero(expression.right)
+            ):
+                continue
+            findings.append({
+                "title": "Literal zero divisor",
+                "line": expression.lineno,
+                "severity": "high",
+                "classification": "potential_issue",
+                "confidence": 0.99,
+                "description": (
+                    "This division or modulo operation uses a literal zero "
+                    "as its divisor and raises ZeroDivisionError if executed."
+                ),
+                "suggestion": (
+                    "Ensure the divisor is non-zero before performing "
+                    "the operation, or handle the zero case explicitly."
+                ),
+                "file": str(file_path),
+                "source": "ast",
+            })
+    
 
         # Stable deduplication: one finding per rule and source line.
         unique_findings = {}

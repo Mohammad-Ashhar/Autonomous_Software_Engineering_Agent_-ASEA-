@@ -278,32 +278,53 @@ class BugDetectorAgent:
             if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 continue
 
-            # Mutable defaults are shared between calls and commonly cause
-            # state leakage. Report only literal mutable containers.
-            defaults = node.args.defaults
-            positional = node.args.posonlyargs + node.args.args
-            offset = len(positional) - len(defaults)
-            for index, default in enumerate(defaults):
+            # Mutable defaults are evaluated once when the function is
+            # defined and then shared by every call. Cover positional and
+            # keyword-only parameters, including common builtin constructors.
+            def is_mutable_default(default: ast.expr) -> bool:
                 if isinstance(default, (ast.List, ast.Dict, ast.Set)):
-                    argument = positional[offset + index]
-                    findings.append({
-                        "title": "Mutable default argument",
-                        "line": default.lineno,
-                        "severity": "medium",
-                        "classification": "confirmed_bug",
-                        "confidence": 0.99,
-                        "description": (
-                            f"Parameter '{argument.arg}' uses a mutable "
-                            "literal as its default value. The same object "
-                            "is reused across function calls."
-                        ),
-                        "suggestion": (
-                            "Use None as the default and create the mutable "
-                            "value inside the function."
-                        ),
-                        "file": str(file_path),
-                        "source": "ast"
-                    })
+                    return True
+                return (
+                    isinstance(default, ast.Call)
+                    and isinstance(default.func, ast.Name)
+                    and default.func.id in {"list", "dict", "set"}
+                )
+
+            def report_mutable_default(
+                argument: ast.arg,
+                default: ast.expr,
+            ) -> None:
+                if not is_mutable_default(default):
+                    return
+                findings.append({
+                    "title": "Mutable default argument",
+                    "line": default.lineno,
+                    "severity": "medium",
+                    "classification": "confirmed_bug",
+                    "confidence": 0.99,
+                    "description": (
+                        f"Parameter '{argument.arg}' uses a mutable default. "
+                        "The same object is reused across function calls."
+                    ),
+                    "suggestion": (
+                        "Use None as the default and create the mutable "
+                        "value inside the function."
+                    ),
+                    "file": str(file_path),
+                    "source": "ast",
+                })
+
+            positional = node.args.posonlyargs + node.args.args
+            offset = len(positional) - len(node.args.defaults)
+            for index, default in enumerate(node.args.defaults):
+                report_mutable_default(positional[offset + index], default)
+
+            for argument, default in zip(
+                node.args.kwonlyargs,
+                node.args.kw_defaults,
+            ):
+                if default is not None:
+                    report_mutable_default(argument, default)
 
             # Detect statements placed after an unconditional return/raise
             # in the same statement block.

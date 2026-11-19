@@ -128,6 +128,55 @@ def test_mutable_default_argument_is_detected():
     )["classification"] == "confirmed_bug"
 
 
+
+def test_mutable_keyword_only_default_is_detected():
+    agent = BugDetectorAgent()
+    tree = ast.parse(
+        "def collect(*, items=[]):\\n"
+        "    return items\\n"
+    )
+
+    findings = agent.detect_ast_bugs(tree, Path("logic.py"))
+
+    finding = next(
+        item for item in findings
+        if item["title"] == "Mutable default argument"
+    )
+    assert finding["line"] == 1
+    assert "items" in finding["description"]
+
+
+def test_mutable_constructor_defaults_are_detected():
+    agent = BugDetectorAgent()
+    tree = ast.parse(
+        "def collect(items=list(), *, options=dict(), tags=set()):\\n"
+        "    return items, options, tags\\n"
+    )
+
+    findings = agent.detect_ast_bugs(tree, Path("logic.py"))
+
+    mutable_findings = [
+        item for item in findings
+        if item["title"] == "Mutable default argument"
+    ]
+    assert len(mutable_findings) == 3
+    assert all(item["classification"] == "confirmed_bug" for item in mutable_findings)
+
+
+def test_immutable_and_none_defaults_are_not_reported():
+    agent = BugDetectorAgent()
+    tree = ast.parse(
+        "def collect(items=None, count=0, names=()):\\n"
+        "    return items, count, names\\n"
+    )
+
+    findings = agent.detect_ast_bugs(tree, Path("logic.py"))
+
+    assert not any(
+        item["title"] == "Mutable default argument"
+        for item in findings
+    )
+
 def test_unreachable_statement_is_reported():
     agent = BugDetectorAgent()
     tree = ast.parse(

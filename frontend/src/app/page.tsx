@@ -808,7 +808,7 @@ async function handleRetryPublishing() {
         )}
         <details className="raw-analysis"><summary>View complete workflow data</summary><pre>{JSON.stringify(repairStatus.result, null, 2)}</pre></details>
       </section>
-    )
+    )}
   </div>
 )}
 

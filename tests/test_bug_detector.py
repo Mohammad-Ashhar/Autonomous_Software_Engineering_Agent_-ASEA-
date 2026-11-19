@@ -132,8 +132,8 @@ def test_mutable_default_argument_is_detected():
 def test_mutable_keyword_only_default_is_detected():
     agent = BugDetectorAgent()
     tree = ast.parse(
-        "def collect(*, items=[]):\\n"
-        "    return items\\n"
+        "def collect(*, items=[]):\n"
+        "    return items\n"
     )
 
     findings = agent.detect_ast_bugs(tree, Path("logic.py"))
@@ -149,8 +149,8 @@ def test_mutable_keyword_only_default_is_detected():
 def test_mutable_constructor_defaults_are_detected():
     agent = BugDetectorAgent()
     tree = ast.parse(
-        "def collect(items=list(), *, options=dict(), tags=set()):\\n"
-        "    return items, options, tags\\n"
+        "def collect(items=list(), *, options=dict(), tags=set()):\n"
+        "    return items, options, tags\n"
     )
 
     findings = agent.detect_ast_bugs(tree, Path("logic.py"))
@@ -166,8 +166,8 @@ def test_mutable_constructor_defaults_are_detected():
 def test_immutable_and_none_defaults_are_not_reported():
     agent = BugDetectorAgent()
     tree = ast.parse(
-        "def collect(items=None, count=0, names=()):\\n"
-        "    return items, count, names\\n"
+        "def collect(items=None, count=0, names=()):\n"
+        "    return items, count, names\n"
     )
 
     findings = agent.detect_ast_bugs(tree, Path("logic.py"))

@@ -570,31 +570,31 @@ class PatchValidatorAgent:
                     "test_results": test_results
                 }
 
-            # A patch is not a repair merely because it did not make an
-            # already-failing suite worse. In particular, syntax repairs can
-            # expose runtime failures during test collection. Keep the
-            # candidate isolated and feed the failure output into the retry
-            # path until the suite actually passes.
+            # Repairs must be cumulative: a useful fix for one confirmed
+            # bug must not be discarded just because another known bug still
+            # fails the full suite. Promote only when the candidate introduces
+            # no new failures, then refresh the baseline so the next repair is
+            # judged against this improved workspace.
+            self._promote_candidate(working_repo_path, candidate_repo)
+
             if not tests_passed:
                 return {
-                    "status": "PATCH_REJECTED",
-                    "patch_applied": False,
+                    "status": "PATCH_INTERMEDIATE",
+                    "patch_applied": True,
                     "tests_passed": False,
                     "regression_free": True,
                     "reason": (
-                        "The candidate introduced no additional regressions, "
-                        "but the test suite still fails. The patch cannot be "
-                        "accepted until the existing failures are resolved."
+                        "The patch introduced no additional test failures. "
+                        "Its changes were preserved as an intermediate repair; "
+                        "remaining failures must be fixed before completion."
                     ),
                     "test_results": test_results
                 }
 
-            self._promote_candidate(working_repo_path, candidate_repo)
-
             return {
                 "status": "PATCH_VALIDATED",
                 "patch_applied": True,
-                "tests_passed": tests_passed,
+                "tests_passed": True,
                 "regression_free": True,
                 "test_results": test_results
             }

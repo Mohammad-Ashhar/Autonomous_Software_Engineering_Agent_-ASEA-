@@ -137,7 +137,7 @@ def _validate_test_code(source: str) -> ast.Module:
 
 
 class TestGenerationAgent:
-    """Generate conservative pytest coverage when a repository has no tests."""
+    """Generate conservative tests, prioritizing modules with known findings."""
 
     __test__ = False
 

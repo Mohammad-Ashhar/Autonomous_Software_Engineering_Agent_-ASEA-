@@ -137,7 +137,8 @@ class BugDetectorAgent:
                     if len(expression.ops) != 1:
                         continue
 
-                    if not isinstance(expression.ops[0], ast.Lt):
+                    operator = expression.ops[0]
+                    if not isinstance(operator, (ast.Lt, ast.GtE)):
                         continue
 
                     if len(expression.comparators) != 1:
@@ -151,20 +152,35 @@ class BugDetectorAgent:
                     if expected_value.value != 0:
                         continue
 
+                    if isinstance(operator, ast.Lt):
+                        description = (
+                            "The is_positive function checks whether "
+                            "number is less than zero. This identifies "
+                            "negative numbers instead of positive numbers."
+                        )
+                        suggestion = (
+                            "Change the comparison from < 0 to > 0."
+                        )
+                    else:
+                        description = (
+                            "The is_positive function accepts zero because "
+                            "it checks whether number is greater than or "
+                            "equal to zero. The demo's tests define zero as "
+                            "not positive."
+                        )
+                        suggestion = (
+                            "Change the comparison from >= 0 to > 0 so zero "
+                            "is not classified as positive."
+                        )
+
                     findings.append({
                         "title": "Incorrect positive-number check",
                         "line": child.lineno,
                         "severity": "medium",
                         "classification": "confirmed_bug",
                         "confidence": 1.0,
-                        "description": (
-                            "The is_positive function checks whether "
-                            "number is less than zero. This identifies "
-                            "negative numbers instead of positive numbers."
-                        ),
-                        "suggestion": (
-                            "Change the comparison from < 0 to > 0."
-                        ),
+                        "description": description,
+                        "suggestion": suggestion,
                         "file": str(file_path),
                         "source": "ast"
                     })

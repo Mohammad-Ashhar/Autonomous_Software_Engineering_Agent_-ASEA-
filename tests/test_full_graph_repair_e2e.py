@@ -8,6 +8,7 @@ from pathlib import Path
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.types import Command
 
+import asea.agents.test_generation as test_generation
 import asea.core.graph as graph
 
 
@@ -99,7 +100,7 @@ def test_full_graph_repairs_unfamiliar_src_package_after_human_approval(
         },
     )
     monkeypatch.setattr(
-        graph.TestGenerationAgent,
+        test_generation.TestGenerationAgent,
         "_generate_for_module",
         lambda _self, _source, _module: (
             "def test_even_number_returns_true_for_even_input():\n"

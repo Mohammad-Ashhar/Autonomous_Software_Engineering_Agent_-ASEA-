@@ -347,8 +347,60 @@ def patch_generation_node(state: ASEAState) -> dict[str, Any]:
         patch_result["bug_key"] = bug_key
 
         patches = list(state.get("patches", []))
-        patches.append(patch_result)
+        previous_same_bug = [
+            item for item in patches
+            if item.get("bug_key") == bug_key
+            and isinstance(item.get("patch"), str)
+        ]
+        duplicate = any(
+            item.get("patch") == patch_result.get("patch")
+            for item in previous_same_bug
+        )
+        if duplicate:
+            # Re-presenting the same source diff after validation rejected it
+            # cannot add new evidence. Stop instead of asking the human to
+            # approve an identical patch repeatedly.
+            reason = (
+                "Patch generation repeated an identical diff for this bug "
+                "after the previous attempt failed validation. "
+                "The last validation feedback was: "
+                f"{previous_feedback.get('reason', 'No reason recorded.')}"
+            )
+            retry_counts[bug_key] = max_retries
+            failed_result = {
+                "status": "PATCH_GENERATION_FAILED",
+                "patch_applied": False,
+                "tests_passed": False,
+                "reason": reason,
+                "bug_key": bug_key,
+                "attempt": attempt,
+                "file": str(working_bug_file),
+                "duplicate_patch": True,
+                "previous_validation": previous_feedback or {},
+                "generation_trace": patch_result.get("generation_trace", []),
+            }
+            patches.append(failed_result)
+            audit_log = list(state.get("audit_log", []))
+            audit_log.append({
+                "event": "duplicate_patch_stopped",
+                "bug_key": bug_key,
+                "attempt": attempt,
+                "reason": reason,
+            })
+            errors = list(state.get("errors", []))
+            errors.append(reason)
+            print("PATCH RETRY STOPPED:", reason)
+            return {
+                "patches": patches,
+                "retry_counts": retry_counts,
+                "current_validation": failed_result,
+                "audit_log": audit_log,
+                "errors": errors,
+                "current_agent": "patch_generation",
+                "status": "patch_generation_failed",
+            }
 
+        patches.append(patch_result)
         retry_counts[bug_key] = attempt
 
         return {
@@ -639,6 +691,25 @@ def patch_validation_node(state: ASEAState) -> dict[str, Any]:
 
     validation_result["bug_key"] = bug_key
     validation_result["bug_title"] = bug.get("title", "Unknown bug")
+
+    test_results = validation_result.get("test_results") or {}
+    print(
+        "PATCH VALIDATION:",
+        validation_result.get("status", "UNKNOWN"),
+        "|",
+        validation_result.get("reason", "No additional details."),
+    )
+    if test_results:
+        print(
+            "TEST COUNTS:",
+            f"passed={test_results.get('passed', 0)}",
+            f"failed={test_results.get('failed', 0)}",
+            f"errors={test_results.get('errors', 0)}",
+            f"total={test_results.get('total', 0)}",
+        )
+        failed_tests = test_results.get("failed_tests", [])
+        if failed_tests:
+            print("FAILING TESTS:", ", ".join(failed_tests))
 
     validation_results = list(
         state.get("validation_results", [])

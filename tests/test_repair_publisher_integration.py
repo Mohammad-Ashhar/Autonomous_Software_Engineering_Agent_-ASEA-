@@ -169,7 +169,76 @@ def test_publishing_is_blocked_when_final_validation_fails():
         "working_test_results": {"success": False, "status": "FAILED"},
     }
 
-    with pytest.raises(RuntimeError, match="final tests did not pass"):
+    with pytest.raises(RuntimeError, match="final test evidence"):
+        publisher.publish_validated_repairs(state)
+
+
+
+@pytest.mark.parametrize(
+    "test_results",
+    [
+        {},
+        {"success": True, "status": "NO_TESTS", "total": 0, "passed": 0},
+        {
+            "success": True,
+            "status": "NO_EXECUTED_TESTS",
+            "total": 0,
+            "passed": 0,
+        },
+        {
+            "success": True,
+            "status": "PASSED",
+            "total": 0,
+            "passed": 0,
+        },
+        {
+            "success": True,
+            "status": "PASSED",
+            "total": 2,
+            "passed": 0,
+        },
+        {
+            "success": True,
+            "status": "PASSED",
+            "total": 2,
+            "passed": 1,
+            "failed": 1,
+        },
+        {
+            "success": True,
+            "status": "PASSED",
+            "total": 2,
+            "passed": 2,
+            "errors": 1,
+        },
+        {
+            "success": False,
+            "status": "FAILED",
+            "total": 1,
+            "passed": 0,
+            "failed": 1,
+        },
+    ],
+)
+def test_publishing_requires_nonempty_successful_final_test_evidence(
+    test_results,
+):
+    state = {
+        "status": "COMPLETED",
+        "working_test_results": test_results,
+    }
+
+    with pytest.raises(RuntimeError, match="final test evidence"):
+        publisher.publish_validated_repairs(state)
+
+
+def test_publishing_rejects_non_mapping_test_evidence():
+    state = {
+        "status": "COMPLETED",
+        "working_test_results": None,
+    }
+
+    with pytest.raises(RuntimeError, match="final test evidence"):
         publisher.publish_validated_repairs(state)
 
 
@@ -200,7 +269,14 @@ def test_publishing_is_blocked_without_human_approval(tmp_path, monkeypatch):
         "status": "COMPLETED",
         "repo_path": str(original_path),
         "working_repo_path": str(working_path),
-        "working_test_results": {"success": True, "status": "PASSED"},
+        "working_test_results": {
+            "success": True,
+            "status": "PASSED",
+            "total": 1,
+            "passed": 1,
+            "failed": 0,
+            "errors": 0,
+        },
         "repaired_bugs": [
             {
                 "status": "REPAIRED",

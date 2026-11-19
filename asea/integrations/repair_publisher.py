@@ -297,10 +297,29 @@ def publish_validated_repairs(
         )
 
     test_results = state.get("working_test_results", {})
+    if not isinstance(test_results, dict):
+        test_results = {}
 
-    if not test_results.get("success", False):
+    try:
+        executed_tests = int(test_results.get("total", 0))
+        passed_tests = int(test_results.get("passed", 0))
+        failed_tests = int(test_results.get("failed", 0))
+        errored_tests = int(test_results.get("errors", 0))
+    except (TypeError, ValueError):
+        executed_tests = passed_tests = 0
+        failed_tests = errored_tests = 1
+
+    if (
+        test_results.get("success") is not True
+        or test_results.get("status") != "PASSED"
+        or executed_tests <= 0
+        or passed_tests <= 0
+        or failed_tests != 0
+        or errored_tests != 0
+    ):
         raise RuntimeError(
-            "Publishing blocked: final tests did not pass."
+            "Publishing blocked: final test evidence is missing, empty, "
+            "or unsuccessful."
         )
 
     original_repo = Path(state["repo_path"]).resolve()

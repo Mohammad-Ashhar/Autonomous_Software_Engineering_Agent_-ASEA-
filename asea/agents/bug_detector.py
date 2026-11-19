@@ -336,8 +336,25 @@ class BugDetectorAgent:
                 if default is not None:
                     report_mutable_default(argument, default)
 
-            # Detect statements placed after an unconditional return/raise
-            # in the same statement block.
+            def block_terminates(statements: list[ast.stmt]) -> bool:
+                if not statements:
+                    return False
+                last = statements[-1]
+                if isinstance(
+                    last,
+                    (ast.Return, ast.Raise, ast.Break, ast.Continue),
+                ):
+                    return True
+                if isinstance(last, ast.If) and last.orelse:
+                    return (
+                        block_terminates(last.body)
+                        and block_terminates(last.orelse)
+                    )
+                return False
+
+            # A statement is unreachable when the preceding statement
+            # always exits its block, including if/else branches that both
+            # terminate. A conditional without an else is not sufficient.
             for child in ast.walk(node):
                 body = getattr(child, "body", None)
                 if not isinstance(body, list):
@@ -356,8 +373,8 @@ class BugDetectorAgent:
                             "confidence": 0.94,
                             "description": (
                                 "This statement follows an unconditional "
-                                "return, raise, break, or continue in the "
-                                "same code block."
+                                "return, raise, break, or continue, or an "
+                                "if/else whose branches both terminate."
                             ),
                             "suggestion": (
                                 "Remove the unreachable statement or move "
@@ -367,6 +384,8 @@ class BugDetectorAgent:
                             "source": "ast"
                         })
                         break
+                    if block_terminates([statement]):
+                        terminal_seen = True
                     if isinstance(
                         statement,
                         (ast.Return, ast.Raise, ast.Break, ast.Continue),

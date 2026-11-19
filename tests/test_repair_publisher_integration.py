@@ -269,7 +269,14 @@ def test_publishing_is_blocked_without_human_approval(tmp_path, monkeypatch):
         "status": "COMPLETED",
         "repo_path": str(original_path),
         "working_repo_path": str(working_path),
-        "working_test_results": {\n            "success": True,\n            "status": "PASSED",\n            "total": 1,\n            "passed": 1,\n            "failed": 0,\n            "errors": 0,\n        },
+        "working_test_results": {
+            "success": True,
+            "status": "PASSED",
+            "total": 1,
+            "passed": 1,
+            "failed": 0,
+            "errors": 0,
+        },
         "repaired_bugs": [
             {
                 "status": "REPAIRED",

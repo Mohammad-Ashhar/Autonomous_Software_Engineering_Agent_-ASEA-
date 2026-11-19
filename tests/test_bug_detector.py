@@ -343,11 +343,13 @@ def test_bug_detector_skips_unknown_source_encoding_without_false_syntax_bug(tmp
 def test_literal_zero_divisors_are_detected_without_llm():
     agent = BugDetectorAgent()
     tree = ast.parse(
-        "def calculate(value):\\n"
-        "    first = value / 0\\n"
-        "    second = value // -0\\n"
-        "    third = value % False\\n"
-        "    return first, second, third\\n"
+        """
+def calculate(value):
+    first = value / 0
+    second = value // -0
+    third = value % False
+    return first, second, third
+"""
     )
 
     findings = agent.detect_ast_bugs(tree, Path("logic.py"))
@@ -358,17 +360,18 @@ def test_literal_zero_divisors_are_detected_without_llm():
 
     assert len(zero_divisors) == 3
     assert all(item["classification"] == "potential_issue" for item in zero_divisors)
-    assert [item["line"] for item in zero_divisors] == [2, 3, 4]
+    assert [item["line"] for item in zero_divisors] == [3, 4, 5]
 
 
 def test_nonzero_divisors_are_not_reported():
     agent = BugDetectorAgent()
     tree = ast.parse(
-        "def calculate(value):\\n"
-        "    return value / 2 + value // 3 + value % 5\\n"
+        """
+def calculate(value):
+    return value / 2 + value // 3 + value % 5
+"""
     )
 
     findings = agent.detect_ast_bugs(tree, Path("logic.py"))
 
     assert not any(item["title"] == "Literal zero divisor" for item in findings)
-

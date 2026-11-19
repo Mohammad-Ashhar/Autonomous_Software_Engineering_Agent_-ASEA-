@@ -215,7 +215,7 @@ useEffect(() => {
       clearTimeout(timer);
     }
   };
-}, [repairJob?.job_id]);
+}, [repairJob?.job_id, repairStatus?.publishing_retry]);
 
   
 async function startAnalysis() {

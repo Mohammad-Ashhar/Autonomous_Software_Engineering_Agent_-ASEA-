@@ -214,7 +214,7 @@ class TestGenerationAgent:
             if source.strip():
                 candidates.append((path, module_name))
 
-        return candidates[:self.max_modules]
+        return candidates
 
     @staticmethod
     def _deterministic_test_fallback(source: str) -> str | None:
@@ -326,7 +326,11 @@ class TestGenerationAgent:
             f"2 attempts: {last_error}"
         ) from last_error
 
-    def run(self, repository_path: str | Path) -> dict[str, Any]:
+    def run(
+        self,
+        repository_path: str | Path,
+        priority_files: list[str | Path] | None = None,
+    ) -> dict[str, Any]:
         repository = Path(repository_path).resolve()
 
         if not repository.is_dir():
@@ -344,8 +348,32 @@ class TestGenerationAgent:
             return {
                 "status": "NO_ELIGIBLE_MODULES",
                 "generated_tests": [],
+                "eligible_module_count": 0,
+                "selected_module_count": 0,
+                "omitted_modules": [],
                 "reason": "No importable Python application modules were found."
             }
+
+        priority_paths: set[Path] = set()
+        for priority_file in priority_files or []:
+            candidate = Path(priority_file)
+            if candidate.is_absolute():
+                try:
+                    candidate = candidate.resolve().relative_to(repository)
+                except ValueError:
+                    continue
+            if candidate.parts and ".." not in candidate.parts:
+                priority_paths.add(candidate)
+
+        modules.sort(
+            key=lambda item: (
+                item[0].relative_to(repository) not in priority_paths,
+                item[0].relative_to(repository).as_posix(),
+            )
+        )
+        eligible_module_count = len(modules)
+        omitted_modules = modules[self.max_modules:]
+        modules = modules[:self.max_modules]
 
         tests_directory = repository / "tests"
         tests_directory.mkdir(parents=True, exist_ok=True)
@@ -403,15 +431,29 @@ class TestGenerationAgent:
 
         status = "GENERATED" if generated else "GENERATION_FAILED"
 
+        omitted_paths = [
+            str(source.relative_to(repository))
+            for source, _module_name in omitted_modules
+        ]
+        reason = (
+            "Generated tests will be executed in the isolated Docker runner."
+            if generated
+            else "No valid tests could be generated."
+        )
+        if omitted_paths:
+            reason += (
+                f" Test generation was limited to {self.max_modules} modules; "
+                f"{len(omitted_paths)} eligible module(s) were not selected."
+            )
+
         return {
             "status": status,
             "generated_tests": generated,
             "failures": failures,
-            "reason": (
-                "Generated tests will be executed in the isolated Docker runner."
-                if generated
-                else "No valid tests could be generated."
-            )
+            "eligible_module_count": eligible_module_count,
+            "selected_module_count": len(modules),
+            "omitted_modules": omitted_paths,
+            "reason": reason,
         }
 
 
@@ -421,7 +463,25 @@ def test_generation_node(state: dict[str, Any]) -> dict[str, Any]:
     if not working_path:
         raise ValueError("Test generation requires a prepared working repository.")
 
-    result = TestGenerationAgent().run(working_path)
+    repository_path = Path(state.get("repo_path") or working_path).resolve()
+    priority_files = []
+    for bug in state.get("detected_bugs", []):
+        file_name = bug.get("file")
+        if not file_name:
+            continue
+        candidate = Path(file_name)
+        if candidate.is_absolute():
+            try:
+                candidate = candidate.resolve().relative_to(repository_path)
+            except ValueError:
+                continue
+        if candidate.parts and ".." not in candidate.parts:
+            priority_files.append(candidate)
+
+    result = TestGenerationAgent().run(
+        working_path,
+        priority_files=priority_files,
+    )
     print("TEST GENERATION:", result["status"])
 
     return {

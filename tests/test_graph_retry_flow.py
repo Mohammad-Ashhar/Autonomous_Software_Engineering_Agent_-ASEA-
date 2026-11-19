@@ -363,3 +363,57 @@ def test_final_validation_does_not_claim_success_when_no_tests_passed(
     assert result["status"] == "COMPLETED_WITH_REMAINING_FAILURES"
     assert result["test_results"]["status"] == "NO_TESTS"
     assert result["test_results"]["success"] is False
+
+
+
+def test_partial_validation_refreshes_baseline_for_next_repair(
+    tmp_path, monkeypatch
+):
+    candidate_tests = {
+        "status": "FAILED",
+        "success": False,
+        "total": 2,
+        "passed": 1,
+        "failed": 1,
+        "errors": 0,
+        "failed_tests": ["test_empty_scores"],
+        "timed_out": False,
+    }
+    state, _, key = _state(tmp_path)
+    state["patches"] = [{
+        "bug_key": key,
+        "repair_scope": "complete",
+        "patch": "diff",
+        "attempt": 1,
+    }]
+    state["detected_bugs"] = [state["current_bug"]]
+    state["prioritized_bugs"] = [state["current_bug"]]
+    state["processed_bug_keys"] = []
+    state["repaired_bugs"] = []
+    state["validation_results"] = []
+    state["working_test_results"] = {
+        "status": "FAILED",
+        "total": 2,
+        "failed": 2,
+        "errors": 0,
+        "failed_tests": ["test_average", "test_empty_scores"],
+    }
+
+    class PartialValidator:
+        def validate_patch(self, **_kwargs):
+            return {
+                "status": "PATCH_INTERMEDIATE",
+                "patch_applied": True,
+                "tests_passed": False,
+                "regression_free": True,
+                "test_results": candidate_tests,
+            }
+
+    monkeypatch.setattr(graph, "PatchValidatorAgent", PartialValidator)
+    result = graph.patch_validation_node(state)
+
+    assert result["working_test_results"] == candidate_tests
+    assert result["processed_bug_keys"] == [key]
+    assert result["repaired_bugs"] == []
+    assert result["current_validation"]["status"] == "PATCH_INTERMEDIATE"
+    assert graph.route_after_validation(result) == "next_bug"

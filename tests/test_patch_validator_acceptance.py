@@ -20,7 +20,7 @@ def _patch_result():
     }
 
 
-def test_existing_test_failures_cannot_be_accepted_as_validated(
+def test_non_regressing_partial_patch_is_preserved_for_next_repair(
     tmp_path, monkeypatch
 ):
     original, working = _setup_repositories(tmp_path)
@@ -58,12 +58,13 @@ def test_existing_test_failures_cannot_be_accepted_as_validated(
         },
     )
 
-    assert result["status"] == "PATCH_REJECTED"
-    assert result["patch_applied"] is False
+    assert result["status"] == "PATCH_INTERMEDIATE"
+    assert result["patch_applied"] is True
     assert result["tests_passed"] is False
     assert result["regression_free"] is True
-    assert "test suite still fails" in result["reason"]
-    assert (working / "bug.py").read_text(encoding="utf-8") == "value = 1\n"
+    assert "preserved as an intermediate repair" in result["reason"]
+    assert result["test_results"]["errors"] == 1
+    assert (working / "bug.py").read_text(encoding="utf-8") == "value = 2\n"
 
 
 def test_passing_candidate_is_promoted(tmp_path, monkeypatch):

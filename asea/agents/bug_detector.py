@@ -392,7 +392,12 @@ class BugDetectorAgent:
             key = (
                 finding.get("file"),
                 finding.get("line"),
-                finding.get("title")
+                finding.get("title"),
+                (
+                    finding.get("description")
+                    if finding.get("title") == "Mutable default argument"
+                    else None
+                ),
             )
             unique_findings[key] = finding
 

@@ -28,6 +28,8 @@ export interface RepairJob {
   review_request?: Record<string, unknown> | null;
   result?: Record<string, unknown> | null;
   publish_requested?: boolean;
+  publishing_retry?: boolean;
+  updated_at?: string;
 }
 
 export interface ReviewRequest {
@@ -136,4 +138,14 @@ export function getRepairHistory(
     offset: String(offset),
   });
   return request<RepairHistoryResponse>(`/repairs?${query.toString()}`);
+}
+
+
+export function retryRepairPublishing(
+  jobId: string,
+): Promise<RepairResponse> {
+  return request<RepairResponse>(
+    `/repair/${encodeURIComponent(jobId)}/publish`,
+    { method: "POST" },
+  );
 }

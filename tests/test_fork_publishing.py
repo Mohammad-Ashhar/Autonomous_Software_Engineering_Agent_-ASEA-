@@ -24,19 +24,23 @@ def test_writable_upstream_keeps_direct_publish_target():
 
 
 def test_read_only_upstream_creates_and_uses_authenticated_users_fork():
-    upstream = SimpleNamespace(
-        permissions=SimpleNamespace(push=False),
-        name="sample-project",
-        full_name="upstream/sample-project",
-    )
-    fork = SimpleNamespace(
-        full_name="contributor/sample-project",
-        parent=SimpleNamespace(full_name=upstream.full_name),
-        get_branch=lambda branch: assert_branch(branch),
-    )
+    class Upstream:
+        permissions = SimpleNamespace(push=False)
+        name = "sample-project"
+        full_name = "upstream/sample-project"
 
-    def assert_branch(branch):
-        assert branch == "main"
+        def create_fork(self):
+            return fork
+
+    class Fork:
+        full_name = "contributor/sample-project"
+        parent = SimpleNamespace(full_name="upstream/sample-project")
+
+        def get_branch(self, branch):
+            assert branch == "main"
+
+    fork = Fork()
+    upstream = Upstream()
 
     class User:
         login = "contributor"
@@ -48,8 +52,6 @@ def test_read_only_upstream_creates_and_uses_authenticated_users_fork():
     class GithubClient:
         def get_user(self):
             return User()
-
-    upstream.create_fork = lambda: fork
 
     target, head_owner, remote = resolve_publish_target(
         GithubClient(),

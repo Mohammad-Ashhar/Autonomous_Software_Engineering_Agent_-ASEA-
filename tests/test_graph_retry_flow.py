@@ -495,7 +495,7 @@ def test_final_validation_promotes_intermediate_repairs_after_full_suite_passes(
     working_repository.mkdir()
     source_file = tmp_path / "repo" / "module.py"
     source_file.parent.mkdir()
-    source_file.write_text("def value():\\n    return 1\\n", encoding="utf-8")
+    source_file.write_text("def value():\n    return 1\n", encoding="utf-8")
 
     bugs = [
         {

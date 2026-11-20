@@ -64,7 +64,6 @@ def test_approved_validated_repair_pushes_branch_and_opens_pull_request(
         full_name = "example/python-demo"
         default_branch = "master"
         clone_url = str(remote_path)
-        permissions = SimpleNamespace(push=True)
 
         def get_branch(self, branch_name):
             assert branch_name == self.default_branch

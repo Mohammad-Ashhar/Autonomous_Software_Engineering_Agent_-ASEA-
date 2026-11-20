@@ -439,8 +439,8 @@ Start the API in one PowerShell window:
 asea-api
 ```
 
-Start the worker in a second PowerShell window, from the same project directory
-and with the same virtual environment:
+Start exactly one worker process in a second PowerShell window, from the same
+project directory and with the same virtual environment:
 
 ```powershell
 asea-worker
@@ -448,7 +448,8 @@ asea-worker
 
 In this mode the API creates repair jobs and records review/publishing decisions;
 the worker claims queued jobs and performs repairs, review resumes, and
-publishing retries. Keep the worker running while jobs are executing. A clean
+publishing retries. Do not start multiple worker instances against the same
+SQLite queue. Keep the worker running while jobs are executing. A clean
 Ctrl+C finishes the current job before stopping. If the worker process crashes
 during a repair, that in-flight job is marked failed on the next worker start
 rather than being replayed automatically; queued jobs and pending human-review

@@ -432,6 +432,13 @@ async function handleRetryPublishing() {
     : [];
   const finalTests = readRecord(workflowResult?.final_validation_results)
     ?? readRecord(workflowResult?.working_test_results);
+  const finalValidationPassed =
+    repairStatus?.status === "completed"
+    && finalTests !== null
+    && Number(finalTests.passed ?? 0) > 0
+    && Number(finalTests.failed ?? 0) === 0
+    && Number(finalTests.errors ?? 0) === 0
+    && repairedBugs.length > 0;
   // The dashboard falls back to the newest persisted repair when no job is
   // currently open, so these metrics remain meaningful after a page refresh.
   const dashboardJob = repairStatus ?? repairHistory[0] ?? null;
@@ -642,8 +649,12 @@ async function handleRetryPublishing() {
         <strong>Repository checks completed</strong>
         <p>{String(analysis?.repository ?? "Python repository")}</p>
       </div>
-      <span className={syntaxErrors.length === 0 ? "check-status passed" : "check-status failed"}>
-        {syntaxErrors.length === 0 ? "Syntax checks passed" : `${syntaxErrors.length} syntax issue(s)`}
+      <span className={syntaxErrors.length === 0 || finalValidationPassed ? "check-status passed" : "check-status failed"}>
+        {syntaxErrors.length === 0
+          ? "Syntax checks passed"
+          : finalValidationPassed
+            ? "Initial syntax findings resolved"
+            : `${syntaxErrors.length} syntax issue(s)`}
       </span>
     </div>
     <div className="preflight-grid">
@@ -682,22 +693,27 @@ async function handleRetryPublishing() {
     </div>
     {syntaxErrors.length > 0 && (
       <div
-        className="syntax-error-list"
+        className={`syntax-error-list${finalValidationPassed ? " resolved" : ""}`}
         role={repairStatus?.status === "completed" ? "status" : "alert"}
       >
         <b>
-          {repairStatus?.status === "completed"
-            ? "Findings from initial repository analysis"
-            : "Syntax errors to fix before repair"}
+          {finalValidationPassed
+            ? "Initial repository findings — resolved"
+            : repairStatus?.status === "completed"
+              ? "Findings from initial repository analysis"
+              : "Syntax errors to fix before repair"}
         </b>
-        {repairStatus?.status === "completed" && (
-          <p>These issues were detected before repair. The completed workflow&apos;s final validation results are shown below.</p>
-        )}
+        {finalValidationPassed ? (
+          <p>All listed initial syntax findings were addressed by the repair. Final validation passed ({String(finalTests?.passed ?? 0)} passed, {String(finalTests?.failed ?? 0)} failed, {String(finalTests?.errors ?? 0)} errors). The original findings are retained below for reference.</p>
+        ) : repairStatus?.status === "completed" ? (
+          <p>These issues were detected before repair. They remain listed as initial findings because successful final validation has not been confirmed.</p>
+        ) : null}
         {syntaxErrors.map((error, index) => (
           <p key={`${String(error.file)}-${index}`}>
             <code>{String(error.file ?? "Unknown file")}</code>
             {": "}{String(error.message ?? "Syntax error")}
             {error.line ? ` (line ${String(error.line)})` : ""}
+            {finalValidationPassed && <strong> · Resolved</strong>}
           </p>
         ))}
       </div>

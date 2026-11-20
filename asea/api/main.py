@@ -15,9 +15,9 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from langgraph.checkpoint.sqlite import SqliteSaver
-from langgraph.types import Command
 from pydantic import BaseModel, ConfigDict, Field
 
+from asea.api.execution import RepairExecutionService
 from asea.api.job_manager import JobQueueFullError, repair_jobs
 from asea.api.protection import RequestProtectionMiddleware
 from asea.api.workspace_cleanup import cleanup_repair_workspace
@@ -210,291 +210,43 @@ def _publish_repair_result(
         }
 
 
+def _repair_execution_service() -> RepairExecutionService:
+    """Build the reusable workflow service from the API's current adapters."""
+    return RepairExecutionService(
+        repair_jobs=repair_jobs,
+        graph_provider=lambda: app.state.graph,
+        resolve_repository=resolve_repository,
+        create_initial_state=create_initial_state,
+        publish_repair_result=_publish_repair_result,
+        cleanup_repair_workspace=cleanup_repair_workspace,
+        safe_error_detail=_safe_error_detail,
+        workflow_job_outcome=_workflow_job_outcome,
+    )
+
+
 def run_repair_job(
     job_id: str,
     repository: str,
     publish: bool = False,
-):
-    """Execute an ASEA repair workflow in the background."""
+) -> None:
+    """Compatibility adapter used by the API executor and existing callers."""
+    _repair_execution_service().run_repair_job(job_id, repository, publish)
 
-    graph = None
-    config = None
-    try:
-        repair_jobs.update_job(
-            job_id,
-            status="running",
-            message="Resolving repository and starting repair.",
-        )
 
-        repo_path = resolve_repository(repository)
-
-        initial_state = create_initial_state(
-            str(repo_path),
-            review_mode="api",
-        )
-
-        config = {
-            "configurable": {
-                "thread_id": job_id,
-            },
-            "recursion_limit": 1000,
-        }
-
-        graph = app.state.graph
-
-        result = graph.invoke(
-            initial_state,
-            config=config,
-        )
-
-        snapshot = graph.get_state(config)
-
-        if snapshot.interrupts:
-            review_request = snapshot.interrupts[0].value
-
-            repair_jobs.update_job(
-                job_id,
-                status="waiting_for_review",
-                message="ASEA is waiting for patch approval.",
-                review_request=review_request,
-                result={"publish_requested": publish},
-            )
-
-        else:
-            job_result = {"workflow": result}
-            terminal_status, message, workflow_error = _workflow_job_outcome(result)
-
-            if publish and terminal_status == "completed":
-                publishing_result = _publish_repair_result(result, job_id)
-                job_result["publishing"] = publishing_result
-                if publishing_result["status"] == "PULL_REQUEST_CREATED":
-                    message = "ASEA repair completed and pull request created."
-                elif publishing_result["status"] == "PULL_REQUEST_EXISTS":
-                    message = (
-                        "ASEA repair completed; an existing pull request was found."
-                    )
-                else:
-                    message = (
-                        "ASEA repair completed and validation passed, "
-                        "but GitHub publishing failed."
-                    )
-
-            if not (
-                publish
-                and job_result.get("publishing", {}).get("status") == "PUBLISH_FAILED"
-            ):
-                cleanup_repair_workspace(result.get("repo_path", ""), result)
-            repair_jobs.update_job(
-                job_id,
-                status=terminal_status,
-                message=message,
-                result=job_result,
-                error=workflow_error,
-            )
-
-    except Exception as error:
-        if graph is not None and config is not None:
-            try:
-                snapshot = graph.get_state(config)
-                if snapshot.values:
-                    cleanup_repair_workspace(
-                        snapshot.values.get("repo_path", ""),
-                        snapshot.values,
-                    )
-            except Exception:
-                logging.exception(
-                    "Could not clean failed repair workspace. Job ID: %s",
-                    job_id,
-                )
-        logging.exception(
-            "ASEA repair job failed. Job ID: %s",
-            job_id,
-        )
-
-        repair_jobs.update_job(
-            job_id,
-            status="failed",
-            message="ASEA repair workflow failed.",
-            error=_safe_error_detail(error),
-        )
-def retry_repair_publishing(job_id: str):
-    """Retry GitHub publishing from a preserved, validated repair result."""
-    try:
-        job = repair_jobs.get_job(job_id)
-        if job is None:
-            repair_jobs.release_publishing_retry(job_id)
-            return
-        result = (job.get("result") or {}).get("workflow")
-        if not isinstance(result, dict):
-            repair_jobs.release_publishing_retry(job_id)
-            return
-
-        publishing_result = _publish_repair_result(result, job_id)
-        job_result = dict(job.get("result") or {})
-        job_result["publishing"] = publishing_result
-
-        if publishing_result.get("status") in {
-            "PULL_REQUEST_CREATED",
-            "PULL_REQUEST_EXISTS",
-        }:
-            message = (
-                "ASEA repair completed and pull request created."
-                if publishing_result["status"] == "PULL_REQUEST_CREATED"
-                else "ASEA repair completed; an existing pull request was found."
-            )
-            repair_jobs.update_job(
-                job_id,
-                message=message,
-                result=job_result,
-                error=None,
-                publishing_retry=False,
-            )
-            try:
-                cleanup_repair_workspace(result.get("repo_path", ""), result)
-            except Exception:
-                logging.exception(
-                    "Publishing succeeded but workspace cleanup failed. Job ID: %s",
-                    job_id,
-                )
-            return
-
-        repair_jobs.update_job(
-            job_id,
-            message=(
-                "ASEA repair remains validated, but GitHub publishing failed. "
-                "Publishing can be retried."
-            ),
-            result=job_result,
-            publishing_retry=False,
-        )
-    except Exception as error:
-        logging.exception(
-            "Unexpected error during publishing retry. Job ID: %s",
-            job_id,
-        )
-        try:
-            repair_jobs.update_job(
-                job_id,
-                message="Publishing retry failed unexpectedly; it can be retried.",
-                error=_safe_error_detail(error),
-                publishing_retry=False,
-            )
-        except Exception:
-            logging.exception(
-                "Could not persist publishing retry failure. Job ID: %s",
-                job_id,
-            )
-        finally:
-            repair_jobs.release_publishing_retry(job_id)
+def retry_repair_publishing(job_id: str) -> None:
+    """Compatibility adapter for a publishing retry."""
+    _repair_execution_service().retry_repair_publishing(job_id)
 
 
 def resume_repair_job(
     job_id: str,
     decision: str,
     feedback: str,
-):
-    """Resume a paused ASEA workflow after human patch review."""
+) -> None:
+    """Compatibility adapter for a human-reviewed workflow resume."""
+    _repair_execution_service().resume_repair_job(job_id, decision, feedback)
 
-    graph = None
-    config = None
-    try:
-        job = repair_jobs.get_job(job_id)
-        if job is None:
-            raise KeyError(f"Repair job not found: {job_id}")
-        publish = bool(
-            job.get("publish_requested", False)
-        )
-        if hasattr(repair_jobs, "acknowledge_review_start"):
-            if not repair_jobs.acknowledge_review_start(job_id, decision):
-                raise RuntimeError(
-                    "Review decision is no longer pending for this repair job."
-                )
-        graph = app.state.graph
 
-        config = {
-            "configurable": {
-                "thread_id": job_id,
-            },
-            "recursion_limit": 1000,
-        }
-
-        result = graph.invoke(
-            Command(
-                resume={
-                    "decision": decision,
-                    "feedback": feedback,
-                }
-            ),
-            config=config,
-        )
-
-        snapshot = graph.get_state(config)
-
-        if snapshot.interrupts:
-            review_request = snapshot.interrupts[0].value
-
-            repair_jobs.update_job(
-                job_id,
-                status="waiting_for_review",
-                message="ASEA generated another patch requiring approval.",
-                review_request=review_request,
-                result={"publish_requested": publish},
-            )
-
-        else:
-            job_result = {"workflow": result}
-            terminal_status, message, workflow_error = _workflow_job_outcome(result)
-            if publish and terminal_status == "completed":
-                publishing_result = _publish_repair_result(result, job_id)
-                job_result["publishing"] = publishing_result
-                if publishing_result["status"] == "PULL_REQUEST_CREATED":
-                    message = "ASEA repair completed and pull request created."
-                elif publishing_result["status"] == "PULL_REQUEST_EXISTS":
-                    message = (
-                        "ASEA repair completed; an existing pull request was found."
-                    )
-                else:
-                    message = (
-                        "ASEA repair completed and validation passed, "
-                        "but GitHub publishing failed."
-                    )
-            if not (
-                publish
-                and job_result.get("publishing", {}).get("status") == "PUBLISH_FAILED"
-            ):
-                cleanup_repair_workspace(result.get("repo_path", ""), result)
-            repair_jobs.update_job(
-                job_id,
-                status=terminal_status,
-                message=message,
-                result=job_result,
-                error=workflow_error,
-            )
-
-    except Exception as error:
-        if config is not None:
-            try:
-                snapshot = graph.get_state(config)
-                if snapshot.values:
-                    cleanup_repair_workspace(
-                        snapshot.values.get("repo_path", ""),
-                        snapshot.values,
-                    )
-            except Exception:
-                logging.exception(
-                    "Could not clean failed repair workspace. Job ID: %s",
-                    job_id,
-                )
-        logging.exception(
-            "ASEA failed while resuming the reviewed repair. Job ID: %s",
-            job_id,
-        )
-        repair_jobs.update_job(
-            job_id,
-            status="failed",
-            message="Failed to resume ASEA repair workflow.",
-            error=_safe_error_detail(error),
-        )
 app = FastAPI(
     title="ASEA API",
     description="Autonomous Software Engineering Agent REST API",

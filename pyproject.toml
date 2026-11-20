@@ -44,6 +44,7 @@ dev = [
 [project.scripts]
 asea = "asea.cli:app"
 asea-api = "asea.api.dev_server:run"
+asea-worker = "asea.api.worker:run"
 
 [tool.setuptools.packages.find]
 include = ["asea*"]

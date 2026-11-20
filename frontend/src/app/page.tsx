@@ -851,7 +851,7 @@ async function handleRetryPublishing() {
         <div className="repair-report-grid">
           <div><span>Repaired bugs</span><strong>{repairedBugs.length}</strong></div>
           <div><span>Escalated bugs</span><strong>{escalatedBugs.length}</strong></div>
-          <div><span>Patch attempts</span><strong>{patchHistory.length}</strong></div>
+          <div><span>Patches generated</span><strong>{patchHistory.length}</strong></div>
           <div><span>Audit events</span><strong>{auditLog.length}</strong></div>
         </div>
         {repairedBugs.length > 0 && (

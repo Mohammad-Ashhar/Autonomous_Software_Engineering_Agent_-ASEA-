@@ -383,8 +383,25 @@ async function handleRetryPublishing() {
     : [];
   const finalTests = readRecord(workflowResult?.final_validation_results)
     ?? readRecord(workflowResult?.working_test_results);
-  const bugsDetected = reviewBug ? 1 : 0;
-  const bugsRepaired = auditLog.filter((entry) => entry.event === "bug_repaired").length;
+  // The dashboard falls back to the newest persisted repair when no job is
+  // currently open, so these metrics remain meaningful after a page refresh.
+  const dashboardJob = repairStatus ?? repairHistory[0] ?? null;
+  const dashboardResult = readRecord(dashboardJob?.result);
+  const dashboardWorkflow =
+    readRecord(dashboardResult?.workflow) ?? dashboardResult;
+  const prioritizedBugs = Array.isArray(dashboardWorkflow?.prioritized_bugs)
+    ? dashboardWorkflow.prioritized_bugs
+    : Array.isArray(dashboardWorkflow?.detected_bugs)
+      ? dashboardWorkflow.detected_bugs
+      : [];
+  const dashboardRepairedBugs = Array.isArray(dashboardWorkflow?.repaired_bugs)
+    ? dashboardWorkflow.repaired_bugs
+    : [];
+  const hasRepairMetrics = dashboardWorkflow !== null;
+  const bugsDetected = reviewBug
+    ? 1
+    : prioritizedBugs.filter((bug) => readRecord(bug) !== null).length;
+  const bugsRepaired = dashboardRepairedBugs.length;
   const pendingReviews = repairStatus?.status === "waiting_for_review" ? 1 : 0;
   const currentJobs = repairHistory.map((job) => ({
     key: job.job_id,
@@ -841,13 +858,13 @@ async function handleRetryPublishing() {
             </article>
             <article className="stat-card">
               <div className="stat-top"><span>Bugs in current repair</span><span className="stat-icon orange"><Icon name="alert" /></span></div>
-              <div className="stat-number">{analysisResult ? bugsDetected || "—" : "—"}</div>
-              <div className="stat-foot">{analysisResult ? (bugsDetected ? "From the current repair review" : "No bug count returned by analysis API") : "Run an analysis first"}</div>
+              <div className="stat-number">{hasRepairMetrics ? bugsDetected : "—"}</div>
+              <div className="stat-foot">{hasRepairMetrics ? "Confirmed bugs in the latest repair" : "Available after a repair job starts"}</div>
             </article>
             <article className="stat-card">
               <div className="stat-top"><span>Issues repaired</span><span className="stat-icon green"><Icon name="check" /></span></div>
-              <div className="stat-number">{repairJob ? bugsRepaired : "—"}</div>
-              <div className="stat-foot">{pendingReviews ? "1 patch awaiting approval" : "Based on repair audit log"}</div>
+              <div className="stat-number">{hasRepairMetrics ? bugsRepaired : "—"}</div>
+              <div className="stat-foot">{pendingReviews ? "1 patch awaiting approval" : "Repaired issues in the latest repair"}</div>
             </article>
           </div>
 

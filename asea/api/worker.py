@@ -8,7 +8,6 @@ import logging
 import os
 import signal
 import time
-from pathlib import Path
 from threading import Event
 
 from langgraph.checkpoint.sqlite import SqliteSaver
@@ -47,6 +46,9 @@ def _positive_float(name: str, default: float, minimum: float = 0.1) -> float:
 
 def run() -> None:
     """Poll the shared local queue and execute work sequentially."""
+    from dotenv import load_dotenv
+
+    load_dotenv()
     if os.getenv("ASEA_EXECUTION_MODE", "api").strip().lower() != "worker":
         raise RuntimeError(
             "Set ASEA_EXECUTION_MODE=worker in the shared .env file "
@@ -76,7 +78,7 @@ def run() -> None:
         # A process crash cannot safely resume an arbitrary in-flight Python
         # call. Mark such jobs failed; queued jobs and review-paused jobs remain
         # recoverable and can be picked up on the next worker start.
-        interrupted = repair_jobs.mark_interrupted_jobs()
+        interrupted = repair_jobs.mark_orphaned_worker_jobs()
         if interrupted:
             logging.warning("Marked %s interrupted repair job(s) as failed.", interrupted)
 

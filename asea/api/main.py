@@ -11,6 +11,7 @@ from typing import Literal
 from urllib.parse import urlsplit
 from uuid import uuid4
 
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -29,6 +30,8 @@ from asea.core.graph import (
 from asea.integrations.repair_publisher import publish_validated_repairs
 from asea.tools.analyzer import RepositoryAnalyzer
 from asea.tools.repository import RepositoryManager
+
+load_dotenv()
 
 CHECKPOINT_DB_PATH = (
     Path(__file__).resolve().parents[2]
@@ -82,6 +85,9 @@ async def lifespan(app: FastAPI):
     # A fresh executor is required for every application lifespan. This keeps
     # test clients and ASGI reloads from reusing an executor already shut down.
     executor = ThreadPoolExecutor(max_workers=1)
+    worker_mode = (
+        os.getenv("ASEA_EXECUTION_MODE", "api").strip().lower() == "worker"
+    )
 
     try:
         # Keep the executor cleanup outside the checkpointer context so even a
@@ -90,8 +96,14 @@ async def lifespan(app: FastAPI):
             str(CHECKPOINT_DB_PATH)
         ) as checkpointer:
             checkpointer.setup()
-            recovered = repair_jobs.mark_interrupted_jobs()
-            publishing_retries = repair_jobs.reset_interrupted_publishing_retries()
+            # In worker mode the separate local process owns execution recovery.
+            # The API must not mark its queued jobs as interrupted.
+            recovered = 0 if worker_mode else repair_jobs.mark_interrupted_jobs()
+            publishing_retries = (
+                0
+                if worker_mode
+                else repair_jobs.reset_interrupted_publishing_retries()
+            )
             if publishing_retries:
                 logging.warning(
                     "Released %s interrupted publishing retries after restart.",
@@ -109,20 +121,21 @@ async def lifespan(app: FastAPI):
             )
             # Review decisions are committed to SQLite before scheduling. If
             # the process stopped between those steps, resume them on startup.
-            for pending_review in repair_jobs.list_pending_reviews():
-                try:
-                    executor.submit(
-                        resume_repair_job,
-                        pending_review["job_id"],
-                        pending_review["review_decision"],
-                        pending_review.get("review_feedback") or "",
-                    )
-                except RuntimeError:
-                    repair_jobs.release_review_claim(pending_review["job_id"])
-                    logging.exception(
-                        "Could not recover pending patch review %s.",
-                        pending_review["job_id"],
-                    )
+            if not worker_mode:
+                for pending_review in repair_jobs.list_pending_reviews():
+                    try:
+                        executor.submit(
+                            resume_repair_job,
+                            pending_review["job_id"],
+                            pending_review["review_decision"],
+                            pending_review.get("review_feedback") or "",
+                        )
+                    except RuntimeError:
+                        repair_jobs.release_review_claim(pending_review["job_id"])
+                        logging.exception(
+                            "Could not recover pending patch review %s.",
+                            pending_review["job_id"],
+                        )
 
             print("ASEA SQLite checkpoint database initialized.")
             print("ASEA LangGraph workflow compiled successfully.")
@@ -456,12 +469,13 @@ def start_repair(request: RepairRequest):
         ) from error
 
     try:
-        executor.submit(
-            run_repair_job,
-            job_id,
-            repository,
-            request.publish,
-        )
+        if os.getenv("ASEA_EXECUTION_MODE", "api").strip().lower() != "worker":
+            executor.submit(
+                run_repair_job,
+                job_id,
+                repository,
+                request.publish,
+            )
     except RuntimeError as error:
         logging.exception(
             "ASEA could not schedule repair job %s.",
@@ -540,7 +554,8 @@ def retry_repair_publish(job_id: str):
             ),
         )
     try:
-        executor.submit(retry_repair_publishing, job_id)
+        if os.getenv("ASEA_EXECUTION_MODE", "api").strip().lower() != "worker":
+            executor.submit(retry_repair_publishing, job_id)
     except RuntimeError as error:
         repair_jobs.release_publishing_retry(job_id)
         raise HTTPException(
@@ -609,12 +624,13 @@ def review_repair_patch(
         )
 
     try:
-        executor.submit(
-            resume_repair_job,
-            job_id,
-            request.decision,
-            request.feedback.strip(),
-        )
+        if os.getenv("ASEA_EXECUTION_MODE", "api").strip().lower() != "worker":
+            executor.submit(
+                resume_repair_job,
+                job_id,
+                request.decision,
+                request.feedback.strip(),
+            )
     except RuntimeError as error:
         repair_jobs.release_review_claim(job_id)
         raise HTTPException(

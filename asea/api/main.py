@@ -12,9 +12,6 @@ from urllib.parse import urlsplit
 from uuid import uuid4
 
 from dotenv import load_dotenv
-
-load_dotenv()
-
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -33,6 +30,8 @@ from asea.core.graph import (
 from asea.integrations.repair_publisher import publish_validated_repairs
 from asea.tools.analyzer import RepositoryAnalyzer
 from asea.tools.repository import RepositoryManager
+
+load_dotenv()
 
 CHECKPOINT_DB_PATH = (
     Path(__file__).resolve().parents[2]
@@ -86,7 +85,9 @@ async def lifespan(app: FastAPI):
     # A fresh executor is required for every application lifespan. This keeps
     # test clients and ASGI reloads from reusing an executor already shut down.
     executor = ThreadPoolExecutor(max_workers=1)
-    worker_mode = os.getenv("ASEA_EXECUTION_MODE", "api").strip().lower() == "worker"
+    worker_mode = (
+        os.getenv("ASEA_EXECUTION_MODE", "api").strip().lower() == "worker"
+    )
 
     try:
         # Keep the executor cleanup outside the checkpointer context so even a
@@ -99,7 +100,9 @@ async def lifespan(app: FastAPI):
             # The API must not mark its queued jobs as interrupted.
             recovered = 0 if worker_mode else repair_jobs.mark_interrupted_jobs()
             publishing_retries = (
-                0 if worker_mode else repair_jobs.reset_interrupted_publishing_retries()
+                0
+                if worker_mode
+                else repair_jobs.reset_interrupted_publishing_retries()
             )
             if publishing_retries:
                 logging.warning(

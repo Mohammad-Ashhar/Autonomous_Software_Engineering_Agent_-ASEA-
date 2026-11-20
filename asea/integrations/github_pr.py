@@ -32,7 +32,6 @@ def create_pull_request(
     base_branch: str,
     title: str,
     body: str,
-    head_owner: str | None = None,
 ) -> dict[str, Any]:
     """
     Create a GitHub Pull Request.
@@ -51,10 +50,7 @@ def create_pull_request(
         raise ValueError("Pull Request title cannot be empty.")
 
     try:
-        owner = head_owner or repository.owner.login
-        pull_request_head = (
-            f"{owner}:{head_branch}" if head_owner else head_branch
-        )
+        owner = repository.owner.login
 
         existing_prs = repository.get_pulls(
             state="open",
@@ -75,7 +71,7 @@ def create_pull_request(
         pull_request = repository.create_pull(
             title=title,
             body=body,
-            head=pull_request_head,
+            head=head_branch,
             base=base_branch,
         )
 

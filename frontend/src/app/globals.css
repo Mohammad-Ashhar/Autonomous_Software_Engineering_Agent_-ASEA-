@@ -1345,3 +1345,70 @@ button, a {
   color: var(--muted);
   font-size: 9px;
 }
+
+/* Clear patch sequence, per-issue validation, and audit context */
+.patch-history-note {
+  margin: 0 14px 12px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.5;
+}
+.patch-history-record {
+  margin: 0 10px 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface);
+  overflow: hidden;
+}
+.patch-history-record > summary {
+  display: grid;
+  gap: 5px;
+}
+.patch-record-heading {
+  color: var(--foreground);
+  font-size: 12px;
+}
+.patch-record-meta {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.patch-validation-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--border);
+  font-size: 10px;
+}
+.patch-validation-status {
+  font-weight: 700;
+}
+.patch-validation-status.passed {
+  color: var(--green);
+}
+.patch-validation-status.failed {
+  color: var(--red);
+}
+.patch-validation-status.pending,
+.patch-validation-counts {
+  color: var(--muted);
+}
+.patch-record-reason {
+  margin: 0;
+  padding: 12px 14px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.audit-history li {
+  display: grid;
+  gap: 4px;
+}
+.audit-history li span,
+.audit-history li small {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.5;
+}

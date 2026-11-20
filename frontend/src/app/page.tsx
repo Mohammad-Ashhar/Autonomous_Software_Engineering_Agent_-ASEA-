@@ -87,6 +87,27 @@ function formatStatus(status: string): string {
   return status.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
+function describePatchChange(diff: string, fallback: string): string {
+  if (/^\+\s*try\s*:/m.test(diff)) return "Restore missing try-block syntax";
+  if (/^\-\s*total_score\s*=\s*1/m.test(diff) && /^\+\s*total_score\s*=\s*0/m.test(diff)) {
+    return "Initialize the score accumulator at zero";
+  }
+  if (/^\+\s*if not scores\s*:/m.test(diff)) return "Handle empty score lists safely";
+  return fallback || "Code change";
+}
+
+function describeAuditEvent(event: string): string {
+  const descriptions: Record<string, string> = {
+    patch_approved: "Human reviewer approved this issue's proposed patch.",
+    patch_rejected: "Human reviewer rejected this issue's proposed patch.",
+    syntax_repair_intermediate: "Syntax repair passed its intermediate check; ASEA continued analysis.",
+    bug_repaired: "Validation passed and this issue was marked repaired.",
+    patch_generation_failed: "ASEA could not generate a patch for this issue.",
+    duplicate_patch_stopped: "ASEA stopped a repeated identical patch.",
+  };
+  return descriptions[event] ?? "Workflow event recorded.";
+}
+
 export default function Home() {
   const [theme, setTheme] = useState<"dark" | "light">("dark");
   const [themeLoaded, setThemeLoaded] = useState(false);
@@ -372,12 +393,40 @@ async function handleRetryPublishing() {
         (entry): entry is Record<string, unknown> => entry !== null,
       )
     : [];
+  const validationHistory = Array.isArray(workflowResult?.validation_results)
+    ? workflowResult.validation_results.map(readRecord).filter(
+        (entry): entry is Record<string, unknown> => entry !== null,
+      )
+    : [];
+  const detectedBugs = Array.isArray(workflowResult?.detected_bugs)
+    ? workflowResult.detected_bugs.map(readRecord).filter(
+        (entry): entry is Record<string, unknown> => entry !== null,
+      )
+    : [];
+  const prioritizedBugs = Array.isArray(workflowResult?.prioritized_bugs)
+    ? workflowResult.prioritized_bugs.map(readRecord).filter(
+        (entry): entry is Record<string, unknown> => entry !== null,
+      )
+    : [];
   const repairedBugs = Array.isArray(workflowResult?.repaired_bugs)
     ? workflowResult.repaired_bugs.map(readRecord).filter((entry): entry is Record<string, unknown> => entry !== null)
     : [];
   const escalatedBugs = Array.isArray(workflowResult?.escalated_bugs)
     ? workflowResult.escalated_bugs.map(readRecord).filter((entry): entry is Record<string, unknown> => entry !== null)
     : [];
+  const findBugTitle = (bugKey: unknown): string => {
+    if (typeof bugKey !== "string") return "";
+    const candidates = [
+      ...prioritizedBugs,
+      ...detectedBugs,
+      ...repairedBugs,
+      ...escalatedBugs,
+      ...validationHistory,
+    ];
+    const match = candidates.find((item) => item.bug_key === bugKey);
+    const title = match?.title ?? match?.bug_title;
+    return typeof title === "string" ? title : "";
+  };
   const patchHistory = Array.isArray(workflowResult?.patches)
     ? workflowResult.patches.map(readRecord).filter((entry): entry is Record<string, unknown> => entry !== null)
     : [];
@@ -389,7 +438,7 @@ async function handleRetryPublishing() {
   const dashboardResult = readRecord(dashboardJob?.result);
   const dashboardWorkflow =
     readRecord(dashboardResult?.workflow) ?? dashboardResult;
-  const prioritizedBugs = Array.isArray(dashboardWorkflow?.prioritized_bugs)
+  const dashboardPrioritizedBugs = Array.isArray(dashboardWorkflow?.prioritized_bugs)
     ? dashboardWorkflow.prioritized_bugs
     : Array.isArray(dashboardWorkflow?.detected_bugs)
       ? dashboardWorkflow.detected_bugs
@@ -400,7 +449,7 @@ async function handleRetryPublishing() {
   const hasRepairMetrics = dashboardWorkflow !== null;
   const bugsDetected = reviewBug
     ? 1
-    : prioritizedBugs.filter((bug) => readRecord(bug) !== null).length;
+    : dashboardPrioritizedBugs.filter((bug) => readRecord(bug) !== null).length;
   const bugsRepaired = dashboardRepairedBugs.length;
   const pendingReviews = repairStatus?.status === "waiting_for_review" ? 1 : 0;
   const currentJobs = repairHistory.map((job) => ({
@@ -802,7 +851,7 @@ async function handleRetryPublishing() {
         <div className="repair-report-grid">
           <div><span>Repaired bugs</span><strong>{repairedBugs.length}</strong></div>
           <div><span>Escalated bugs</span><strong>{escalatedBugs.length}</strong></div>
-          <div><span>Patch attempts</span><strong>{patchHistory.length}</strong></div>
+          <div><span>Patches generated</span><strong>{patchHistory.length}</strong></div>
           <div><span>Audit events</span><strong>{auditLog.length}</strong></div>
         </div>
         {repairedBugs.length > 0 && (
@@ -816,18 +865,68 @@ async function handleRetryPublishing() {
           ))}</div>
         )}
         {patchHistory.length > 0 && (
-          <details className="patch-history"><summary>Patch history ({patchHistory.length} records)</summary>
-            {patchHistory.map((patch, index) => (
-              <details key={`${String(patch.bug_key ?? "patch")}-${String(patch.attempt ?? "unknown")}-${index}`}>
-                <summary>Record {index + 1} · {String(patch.file ?? "Patch attempt")} · attempt {String(patch.attempt ?? "unknown")} · {String(patch.status ?? "status unknown")}</summary>
-                {typeof patch.patch === "string" ? <pre className="patch-diff">{patch.patch}</pre> : <p>{String(patch.reason ?? "No diff was recorded for this attempt.")}</p>}
-              </details>
-            ))}
+          <details className="patch-history">
+            <summary>Patch history ({patchHistory.length} patches)</summary>
+            <p className="patch-history-note">Patch numbers show the order of fixes. Attempt numbers count retries for the same issue.</p>
+            {patchHistory.map((patch, index) => {
+              const diff = typeof patch.patch === "string" ? patch.patch : "";
+              const attempt = Number(patch.attempt ?? 1);
+              const validation = [...validationHistory].reverse().find(
+                (item) => item.bug_key === patch.bug_key && Number(item.attempt ?? 1) === attempt,
+              );
+              const validationStatus = String(validation?.status ?? "NOT_RECORDED");
+              const validationTests = readRecord(validation?.test_results);
+              const issueTitle = String(
+                patch.bug_title ?? validation?.bug_title ?? findBugTitle(patch.bug_key) ?? "",
+              );
+              const patchSummary = describePatchChange(diff, issueTitle);
+              const fileName = String(patch.file ?? "File not recorded").split(/[\\/]/).pop();
+              const validationClass = ["PATCH_VALIDATED", "PATCH_INTERMEDIATE"].includes(validationStatus)
+                ? "passed"
+                : validationStatus === "PATCH_REJECTED" ? "failed" : "pending";
+              return (
+                <details className="patch-history-record" key={`${String(patch.bug_key ?? "patch")}-${attempt}-${index}`}>
+                  <summary>
+                    <span className="patch-record-heading">Patch {index + 1} of {patchHistory.length}: {patchSummary}</span>
+                    <span className="patch-record-meta">{fileName} · attempt {attempt} · {formatStatus(String(patch.status ?? "status unknown"))}</span>
+                  </summary>
+                  <div className="patch-validation-row">
+                    <strong>Validation: </strong>
+                    <span className={`patch-validation-status ${validationClass}`}>{formatStatus(validationStatus)}</span>
+                    {validationTests && (
+                      <span className="patch-validation-counts">
+                        {String(validationTests.passed ?? 0)} passed · {String(validationTests.failed ?? 0)} failed · {String(validationTests.errors ?? 0)} errors
+                      </span>
+                    )}
+                    {!validation && <span className="patch-validation-counts">No per-patch validation record was found.</span>}
+                  </div>
+                  {typeof patch.patch === "string"
+                    ? <pre className="patch-diff">{patch.patch}</pre>
+                    : <p className="patch-record-reason">{String(patch.reason ?? "No diff was recorded for this patch.")}</p>}
+                </details>
+              );
+            })}
           </details>
         )}
         {auditLog.length > 0 && (
-          <details className="audit-history"><summary>Agent activity log ({auditLog.length} events)</summary>
-            <ol>{auditLog.map((entry, index) => <li key={`${String(entry.event ?? "event")}-${index}`}><strong>{formatStatus(String(entry.event ?? "event"))}{entry.attempt !== undefined ? ` · attempt ${String(entry.attempt)}` : ""}</strong><span>{String(entry.agent ?? "ASEA agent")}</span></li>)}</ol>
+          <details className="audit-history">
+            <summary>Agent activity log ({auditLog.length} events)</summary>
+            <ol>{auditLog.map((entry, index) => {
+              const event = String(entry.event ?? "event");
+              const issueTitle = String(entry.bug_title ?? findBugTitle(entry.bug_key) ?? "");
+              const details = [
+                issueTitle || "Workflow-level event",
+                String(entry.agent ?? "ASEA agent"),
+                entry.attempt !== undefined ? `attempt ${String(entry.attempt)}` : "",
+              ].filter(Boolean).join(" · ");
+              return (
+                <li key={`${event}-${String(entry.bug_key ?? "workflow")}-${index}`}>
+                  <strong>{formatStatus(event)}</strong>
+                  <span>{describeAuditEvent(event)}</span>
+                  <small>{details}</small>
+                </li>
+              );
+            })}</ol>
           </details>
         )}
         {finalTests && typeof finalTests.output === "string" && finalTests.output && (

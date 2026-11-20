@@ -580,7 +580,7 @@ async function handleRetryPublishing() {
                 <small>Only approved repairs that pass final tests will be published. Backend GitHub credentials are required.</small>
               </span>
             </label>
-            {notice && (
+            {notice && !["completed", "failed"].includes(String(repairStatus?.status ?? "")) && (
   <div className="input-notice" role="status">
     {notice}
   </div>
@@ -632,8 +632,18 @@ async function handleRetryPublishing() {
       </div>
     </div>
     {syntaxErrors.length > 0 && (
-      <div className="syntax-error-list" role="alert">
-        <b>Syntax errors to fix before repair</b>
+      <div
+        className="syntax-error-list"
+        role={repairStatus?.status === "completed" ? "status" : "alert"}
+      >
+        <b>
+          {repairStatus?.status === "completed"
+            ? "Findings from initial repository analysis"
+            : "Syntax errors to fix before repair"}
+        </b>
+        {repairStatus?.status === "completed" && (
+          <p>These issues were detected before repair. The completed workflow&apos;s final validation results are shown below.</p>
+        )}
         {syntaxErrors.map((error, index) => (
           <p key={`${String(error.file)}-${index}`}>
             <code>{String(error.file ?? "Unknown file")}</code>
@@ -806,10 +816,10 @@ async function handleRetryPublishing() {
           ))}</div>
         )}
         {patchHistory.length > 0 && (
-          <details className="patch-history"><summary>Patch history ({patchHistory.length} attempts)</summary>
+          <details className="patch-history"><summary>Patch history ({patchHistory.length} records)</summary>
             {patchHistory.map((patch, index) => (
-              <details key={`${String(patch.bug_key ?? index)}-${String(patch.attempt ?? index)}`}>
-                <summary>{String(patch.file ?? "Patch attempt")} · attempt {String(patch.attempt ?? index + 1)} · {String(patch.status ?? "generated")}</summary>
+              <details key={`${String(patch.bug_key ?? "patch")}-${String(patch.attempt ?? "unknown")}-${index}`}>
+                <summary>Record {index + 1} · {String(patch.file ?? "Patch attempt")} · attempt {String(patch.attempt ?? "unknown")} · {String(patch.status ?? "status unknown")}</summary>
                 {typeof patch.patch === "string" ? <pre className="patch-diff">{patch.patch}</pre> : <p>{String(patch.reason ?? "No diff was recorded for this attempt.")}</p>}
               </details>
             ))}
@@ -817,7 +827,7 @@ async function handleRetryPublishing() {
         )}
         {auditLog.length > 0 && (
           <details className="audit-history"><summary>Agent activity log ({auditLog.length} events)</summary>
-            <ol>{auditLog.map((entry, index) => <li key={`${String(entry.event ?? "event")}-${index}`}><strong>{formatStatus(String(entry.event ?? "event"))}</strong><span>{String(entry.agent ?? "ASEA agent")}</span></li>)}</ol>
+            <ol>{auditLog.map((entry, index) => <li key={`${String(entry.event ?? "event")}-${index}`}><strong>{formatStatus(String(entry.event ?? "event"))}{entry.attempt !== undefined ? ` · attempt ${String(entry.attempt)}` : ""}</strong><span>{String(entry.agent ?? "ASEA agent")}</span></li>)}</ol>
           </details>
         )}
         {finalTests && typeof finalTests.output === "string" && finalTests.output && (

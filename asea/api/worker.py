@@ -76,7 +76,9 @@ def run() -> None:
         # recoverable and can be picked up on the next worker start.
         interrupted = repair_jobs.mark_orphaned_worker_jobs()
         if interrupted:
-            logging.warning("Marked %s interrupted repair job(s) as failed.", interrupted)
+            logging.warning(
+                "Marked %s interrupted repair job(s) as failed.", interrupted
+            )
 
         logging.info("ASEA local worker started; polling every %.1fs.", poll_seconds)
         while not _STOP.is_set():

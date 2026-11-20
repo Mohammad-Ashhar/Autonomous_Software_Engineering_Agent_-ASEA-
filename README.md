@@ -416,3 +416,44 @@ The endpoint returns `202 Accepted` when a retry is queued. It returns `404` for
 
 Retries reuse the repair job's deterministic publishing branch, so repeating a failed attempt does not create a new branch for the same job. A successful publication cleans up the preserved workspace; a failed attempt keeps it available for another retry. ASEA still requires human approval for every repair patch and never merges the pull request automatically.
 
+
+
+## Run the API with a separate local worker
+
+The optional local worker mode keeps repair execution out of the FastAPI process.
+It is intended for a **single Windows PC** where the API and worker share the
+same project directory, `.env`, SQLite job database, and LangGraph checkpoint
+database. It is not yet a cloud-to-PC worker connection; that requires a
+separate authenticated network protocol and shared durable cloud job store.
+
+Set this in `.env`:
+
+```dotenv
+ASEA_EXECUTION_MODE=worker
+ASEA_WORKER_POLL_SECONDS=2
+```
+
+Start the API in one PowerShell window:
+
+```powershell
+asea-api
+```
+
+Start the worker in a second PowerShell window, from the same project directory
+and with the same virtual environment:
+
+```powershell
+asea-worker
+```
+
+In this mode the API creates repair jobs and records review/publishing decisions;
+the worker claims queued jobs and performs repairs, review resumes, and
+publishing retries. Keep the worker running while jobs are executing. A clean
+Ctrl+C finishes the current job before stopping. If the worker process crashes
+during a repair, that in-flight job is marked failed on the next worker start
+rather than being replayed automatically; queued jobs and pending human-review
+decisions are preserved. The existing default `ASEA_EXECUTION_MODE=api`
+continues to run repairs inside the API process.
+
+Both processes must use the same local files. Do not run this SQLite worker
+mode with the API on a cloud host or with the worker on a different machine.

@@ -7,7 +7,6 @@ cloud-worker transport used by a future distributed deployment.
 import logging
 import os
 import signal
-import time
 from threading import Event
 
 from langgraph.checkpoint.sqlite import SqliteSaver
@@ -46,9 +45,6 @@ def _positive_float(name: str, default: float, minimum: float = 0.1) -> float:
 
 def run() -> None:
     """Poll the shared local queue and execute work sequentially."""
-    from dotenv import load_dotenv
-
-    load_dotenv()
     if os.getenv("ASEA_EXECUTION_MODE", "api").strip().lower() != "worker":
         raise RuntimeError(
             "Set ASEA_EXECUTION_MODE=worker in the shared .env file "

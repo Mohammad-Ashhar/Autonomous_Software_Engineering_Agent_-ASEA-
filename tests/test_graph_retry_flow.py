@@ -486,3 +486,126 @@ def test_validation_node_prints_failure_reason_and_test_counts(
     assert "PATCH VALIDATION: PATCH_REJECTED" in output
     assert "failed=2" in output
     assert "test_empty_scores" in output
+
+
+def test_final_validation_promotes_intermediate_repairs_after_full_suite_passes(
+    tmp_path, monkeypatch
+):
+    working_repository = tmp_path / "working"
+    working_repository.mkdir()
+    source_file = tmp_path / "repo" / "module.py"
+    source_file.parent.mkdir()
+    source_file.write_text("def value():\\n    return 1\\n", encoding="utf-8")
+
+    bugs = [
+        {
+            "file": str(source_file),
+            "line": 2,
+            "title": "Syntax repair",
+            "severity": "high",
+        },
+        {
+            "file": str(source_file),
+            "line": 3,
+            "title": "Accumulator repair",
+            "severity": "high",
+        },
+        {
+            "file": str(source_file),
+            "line": 4,
+            "title": "Empty input repair",
+            "severity": "high",
+        },
+    ]
+    keys = [graph.get_bug_key(bug) for bug in bugs]
+    validations = [
+        {
+            "bug_key": keys[0],
+            "bug_title": bugs[0]["title"],
+            "status": "PATCH_INTERMEDIATE",
+            "attempt": 1,
+        },
+        {
+            "bug_key": keys[1],
+            "bug_title": bugs[1]["title"],
+            "status": "PATCH_INTERMEDIATE",
+            "attempt": 2,
+        },
+        {
+            "bug_key": keys[2],
+            "bug_title": bugs[2]["title"],
+            "status": "PATCH_VALIDATED",
+            "attempt": 1,
+        },
+    ]
+    existing_repair = {
+        "bug_key": keys[2],
+        "title": bugs[2]["title"],
+        "severity": "high",
+        "file": str(source_file),
+        "status": "REPAIRED",
+        "attempts": 1,
+    }
+    existing_event = {
+        "agent": "patch_validation",
+        "event": "bug_repaired",
+        "bug_key": keys[2],
+    }
+
+    class PassingRunner:
+        def run_tests(self, _repository):
+            return {
+                "status": "PASSED",
+                "success": True,
+                "total": 2,
+                "passed": 2,
+                "failed": 0,
+                "errors": 0,
+            }
+
+    class DependencyAnalyzer:
+        def analyze(self, _repository):
+            return {
+                "module_count": 1,
+                "dependency_count": 0,
+                "cross_file_findings": [],
+                "dependency_map": {},
+                "parse_errors": [],
+            }
+
+    monkeypatch.setattr(graph, "DockerTestRunner", PassingRunner)
+    monkeypatch.setattr(graph, "PythonDependencyAnalyzer", DependencyAnalyzer)
+    state = {
+        "working_repo_path": str(working_repository),
+        "detected_bugs": bugs,
+        "prioritized_bugs": bugs,
+        "validation_results": validations,
+        "repaired_bugs": [existing_repair],
+        "audit_log": [existing_event],
+        "errors": [],
+    }
+
+    result = graph.final_validation_node(state)
+
+    assert result["status"] == "COMPLETED"
+    assert {item["bug_key"] for item in result["repaired_bugs"]} == set(keys)
+    assert len(result["repaired_bugs"]) == 3
+    repaired_events = [
+        item for item in result["audit_log"]
+        if item.get("event") == "bug_repaired"
+    ]
+    assert {item["bug_key"] for item in repaired_events} == set(keys)
+    assert len(repaired_events) == 3
+    promoted_events = [
+        item for item in repaired_events
+        if item.get("confirmed_by_final_validation")
+    ]
+    assert {item["bug_key"] for item in promoted_events} == set(keys[:2])
+
+    # Re-running final validation must not duplicate repair or audit records.
+    repeated = graph.final_validation_node({**state, **result})
+    assert len(repeated["repaired_bugs"]) == 3
+    assert len([
+        item for item in repeated["audit_log"]
+        if item.get("event") == "bug_repaired"
+    ]) == 3

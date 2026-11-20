@@ -515,6 +515,42 @@ class RepairJobManager:
                 ).fetchall()
         return [self._row_to_dict(row) for row in rows]
 
+    def claim_next_queued_job(self) -> dict[str, Any] | None:
+        """Atomically move the oldest queued job to running for one worker."""
+        now = datetime.now(timezone.utc).isoformat()
+        with self.lock:
+            with self._connection() as connection:
+                connection.execute("BEGIN IMMEDIATE")
+                row = connection.execute(
+                    "SELECT * FROM repair_jobs WHERE status = 'queued' "
+                    "ORDER BY created_at, job_id LIMIT 1"
+                ).fetchone()
+                if row is None:
+                    return None
+                cursor = connection.execute(
+                    "UPDATE repair_jobs SET status = 'running', "
+                    "message = 'Local worker claimed repair job.', updated_at = ? "
+                    "WHERE job_id = ? AND status = 'queued'",
+                    (now, row["job_id"]),
+                )
+                if cursor.rowcount != 1:
+                    return None
+                claimed = connection.execute(
+                    "SELECT * FROM repair_jobs WHERE job_id = ?",
+                    (row["job_id"],),
+                ).fetchone()
+                return self._row_to_dict(claimed)
+
+    def list_pending_publishing_retries(self) -> list[dict[str, Any]]:
+        """Return completed jobs whose publishing retry was claimed by the API."""
+        with self.lock:
+            with self._connection() as connection:
+                rows = connection.execute(
+                    "SELECT * FROM repair_jobs WHERE status = 'completed' "
+                    "AND publishing_retry = 1 ORDER BY updated_at, job_id"
+                ).fetchall()
+        return [self._row_to_dict(row) for row in rows]
+
     def list_jobs(
         self,
         limit: int = 50,

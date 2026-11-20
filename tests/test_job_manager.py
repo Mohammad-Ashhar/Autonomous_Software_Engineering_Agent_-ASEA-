@@ -621,3 +621,65 @@ def test_restart_recovery_does_not_change_non_completed_job_claims(tmp_path):
 
     assert manager.reset_interrupted_publishing_retries() == 0
     assert manager.get_job("publish-retry-running")["publishing_retry"] is True
+
+
+
+def test_local_worker_claims_oldest_queued_job_atomically(tmp_path):
+    db_path = tmp_path / "worker_claim.db"
+    managers = [
+        create_test_manager(db_path),
+        create_test_manager(db_path),
+    ]
+    managers[0].create_job("worker-001", "repo-one")
+    managers[0].create_job("worker-002", "repo-two")
+
+    claimed = managers[1].claim_next_queued_job()
+
+    assert claimed is not None
+    assert claimed["job_id"] == "worker-001"
+    assert claimed["status"] == "running"
+    assert managers[0].claim_next_queued_job()["job_id"] == "worker-002"
+    assert managers[1].claim_next_queued_job() is None
+
+
+def test_worker_restart_preserves_queued_and_review_decision_jobs(tmp_path):
+    manager = create_test_manager(tmp_path / "worker_recovery.db")
+    manager.create_job("queued-worker", "repo-one")
+    manager.create_job("running-worker", "repo-two")
+    manager.create_job("review-worker", "repo-three")
+    manager.update_job("running-worker", status="running")
+    manager.update_job(
+        "review-worker",
+        status="waiting_for_review",
+        review_request={"patch": "diff"},
+    )
+    assert manager.claim_review(
+        "review-worker",
+        decision="approved",
+        feedback="",
+    )
+
+    assert manager.mark_orphaned_worker_jobs() == 1
+    assert manager.get_job("queued-worker")["status"] == "queued"
+    assert manager.get_job("running-worker")["status"] == "failed"
+    review = manager.get_job("review-worker")
+    assert review["status"] == "running"
+    assert review["review_decision"] == "approved"
+
+
+def test_worker_lists_claimed_publishing_retries(tmp_path):
+    manager = create_test_manager(tmp_path / "worker_publish_retry.db")
+    manager.create_job("worker-publish", "repo", publish_requested=True)
+    manager.update_job(
+        "worker-publish",
+        status="completed",
+        result={
+            "workflow": {"status": "COMPLETED"},
+            "publishing": {"status": "PUBLISH_FAILED"},
+        },
+    )
+
+    assert manager.claim_publishing_retry("worker-publish") is True
+    pending = manager.list_pending_publishing_retries()
+
+    assert [job["job_id"] for job in pending] == ["worker-publish"]

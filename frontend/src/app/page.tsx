@@ -438,7 +438,7 @@ async function handleRetryPublishing() {
   const dashboardResult = readRecord(dashboardJob?.result);
   const dashboardWorkflow =
     readRecord(dashboardResult?.workflow) ?? dashboardResult;
-  const prioritizedBugs = Array.isArray(dashboardWorkflow?.prioritized_bugs)
+  const dashboardPrioritizedBugs = Array.isArray(dashboardWorkflow?.prioritized_bugs)
     ? dashboardWorkflow.prioritized_bugs
     : Array.isArray(dashboardWorkflow?.detected_bugs)
       ? dashboardWorkflow.detected_bugs
@@ -449,7 +449,7 @@ async function handleRetryPublishing() {
   const hasRepairMetrics = dashboardWorkflow !== null;
   const bugsDetected = reviewBug
     ? 1
-    : prioritizedBugs.filter((bug) => readRecord(bug) !== null).length;
+    : dashboardPrioritizedBugs.filter((bug) => readRecord(bug) !== null).length;
   const bugsRepaired = dashboardRepairedBugs.length;
   const pendingReviews = repairStatus?.status === "waiting_for_review" ? 1 : 0;
   const currentJobs = repairHistory.map((job) => ({

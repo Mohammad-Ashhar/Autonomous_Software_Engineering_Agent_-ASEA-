@@ -3,14 +3,12 @@ import hashlib
 import os
 import shutil
 import tempfile
-import time
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
 from git import Repo
 from git.exc import GitCommandError
-from github.GithubException import GithubException
 
 from asea.core.config import get_settings
 from asea.integrations.github_pr import create_pull_request
@@ -287,60 +285,6 @@ def get_approved_repair_files(
     return sorted(approved_files)
 
 
-def resolve_publish_target(
-    github_client: Any,
-    repository: Any,
-    base_branch: str,
-) -> tuple[Any, str | None, str]:
-    """Use the upstream repository when writable, otherwise publish from a fork."""
-
-    permissions = getattr(repository, "permissions", None)
-    if getattr(permissions, "push", False) is True:
-        return repository, None, "origin"
-
-    authenticated_user = github_client.get_user()
-    fork_full_name = f"{authenticated_user.login}/{repository.name}"
-
-    try:
-        fork_repository = authenticated_user.get_repo(repository.name)
-        parent = getattr(fork_repository, "parent", None)
-        if (
-            parent is None
-            or parent.full_name.casefold() != repository.full_name.casefold()
-        ):
-            raise RuntimeError(
-                "Publishing blocked: an existing repository with the fork name "
-                "does not belong to the requested upstream repository."
-            )
-    except GithubException as error:
-        if error.status != 404:
-            raise RuntimeError(
-                "Could not check for an existing GitHub fork."
-            ) from error
-        fork_repository = repository.create_fork()
-
-    # GitHub creates forks asynchronously. Wait briefly for the base branch
-    # to become available before attempting to push the repair branch.
-    for attempt in range(30):
-        try:
-            fork_repository.get_branch(base_branch)
-            break
-        except GithubException as error:
-            if error.status not in (404, 409) or attempt == 29:
-                raise RuntimeError(
-                    "The GitHub fork is not ready for publishing. "
-                    "Please retry publishing shortly."
-                ) from error
-            time.sleep(1)
-
-    if fork_repository.full_name.casefold() != fork_full_name.casefold():
-        raise RuntimeError(
-            "Publishing blocked: GitHub returned an unexpected fork owner."
-        )
-
-    return fork_repository, authenticated_user.login, "fork"
-
-
 def publish_validated_repairs(
     state: dict[str, Any],
     job_id: str | None = None,
@@ -436,11 +380,6 @@ def publish_validated_repairs(
             )
         github_repository.get_branch(base_branch)
 
-        publish_repository, head_owner, push_remote = resolve_publish_target(
-            github_client,
-            github_repository,
-            base_branch,
-        )
         clone_url = github_repository.clone_url
 
         # Use the token for both private-repository clone and push without
@@ -461,8 +400,6 @@ def publish_validated_repairs(
             depth=1,
             env=git_environment,
         )
-        if push_remote == "fork":
-            publishing_repo.create_remote("fork", publish_repository.clone_url)
 
         # A stable job-derived branch makes retries safe after a push or
         # PR-creation interruption. Direct callers get a content fingerprint.
@@ -481,18 +418,18 @@ def publish_validated_repairs(
 
         remote_branch = publishing_repo.git.ls_remote(
             "--heads",
-            push_remote,
+            "origin",
             f"refs/heads/{branch_name}",
         )
         if remote_branch:
             publishing_repo.git.fetch(
-                push_remote,
-                f"refs/heads/{branch_name}:refs/remotes/{push_remote}/{branch_name}",
+                "origin",
+                f"refs/heads/{branch_name}:refs/remotes/origin/{branch_name}",
             )
             publishing_repo.git.checkout(
                 "-B",
                 branch_name,
-                f"{push_remote}/{branch_name}",
+                f"origin/{branch_name}",
             )
         else:
             publishing_repo.git.checkout("-b", branch_name)
@@ -581,7 +518,7 @@ def publish_validated_repairs(
                 [
                     "git",
                     "push",
-                    push_remote,
+                    "origin",
                     f"{branch_name}:{branch_name}",
                 ],
                 env=git_environment,
@@ -607,7 +544,6 @@ def publish_validated_repairs(
                 "All changes were validated in an isolated Docker workspace. "
                 "Please review before merging."
             ),
-            head_owner=head_owner,
         )
 
         pull_request_status = pull_request.get("status", "CREATED")
@@ -622,8 +558,6 @@ def publish_validated_repairs(
             "branch": branch_name,
             "base_branch": base_branch,
             "repository": repository_name,
-            "publish_target": publish_repository.full_name,
-            "used_fork": push_remote == "fork",
             "commit": publishing_repo.head.commit.hexsha,
             "files": copied_files,
             "pull_request": pull_request,

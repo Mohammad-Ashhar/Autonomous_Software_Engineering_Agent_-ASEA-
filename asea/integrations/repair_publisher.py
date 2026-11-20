@@ -492,7 +492,7 @@ def publish_validated_repairs(
             publishing_repo.git.checkout(
                 "-B",
                 branch_name,
-                f"origin/{branch_name}",
+                f"{push_remote}/{branch_name}",
             )
         else:
             publishing_repo.git.checkout("-b", branch_name)

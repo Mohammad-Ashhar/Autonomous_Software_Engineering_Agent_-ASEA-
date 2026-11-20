@@ -551,6 +551,31 @@ class RepairJobManager:
                 ).fetchall()
         return [self._row_to_dict(row) for row in rows]
 
+    def mark_orphaned_worker_jobs(self) -> int:
+        """Fail only in-flight worker jobs after a worker process restart.
+
+        Queued jobs and jobs with a persisted review decision remain available
+        for the worker to process.
+        """
+        now = datetime.now(timezone.utc).isoformat()
+        with self.lock:
+            with self._connection() as connection:
+                cursor = connection.execute(
+                    "UPDATE repair_jobs SET status = 'failed', "
+                    "message = 'Local worker stopped before this repair completed.', "
+                    "error = ?, updated_at = ? "
+                    "WHERE status = 'running' AND review_decision IS NULL",
+                    (
+                        json.dumps(
+                            "The local worker stopped during execution. "
+                            "This job was not automatically replayed because "
+                            "the interrupted operation may not be idempotent."
+                        ),
+                        now,
+                    ),
+                )
+                return cursor.rowcount
+
     def list_jobs(
         self,
         limit: int = 50,

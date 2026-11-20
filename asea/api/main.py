@@ -5,7 +5,7 @@ import re
 import secrets
 import time
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, nullcontext
 from pathlib import Path
 from typing import Literal
 from urllib.parse import urlsplit
@@ -92,10 +92,14 @@ async def lifespan(app: FastAPI):
     try:
         # Keep the executor cleanup outside the checkpointer context so even a
         # failed database setup or graph compilation cannot leak its worker.
-        with SqliteSaver.from_conn_string(
-            str(CHECKPOINT_DB_PATH)
-        ) as checkpointer:
-            checkpointer.setup()
+        checkpointer_context = (
+            nullcontext(None)
+            if worker_mode
+            else SqliteSaver.from_conn_string(str(CHECKPOINT_DB_PATH))
+        )
+        with checkpointer_context as checkpointer:
+            if checkpointer is not None:
+                checkpointer.setup()
             # In worker mode the separate local process owns execution recovery.
             # The API must not mark its queued jobs as interrupted.
             recovered = 0 if worker_mode else repair_jobs.mark_interrupted_jobs()
@@ -116,8 +120,10 @@ async def lifespan(app: FastAPI):
                 )
 
             app.state.checkpointer = checkpointer
-            app.state.graph = build_asea_graph(
-                checkpointer=checkpointer
+            app.state.graph = (
+                build_asea_graph(checkpointer=checkpointer)
+                if checkpointer is not None
+                else None
             )
             # Review decisions are committed to SQLite before scheduling. If
             # the process stopped between those steps, resume them on startup.
@@ -137,8 +143,9 @@ async def lifespan(app: FastAPI):
                             pending_review["job_id"],
                         )
 
-            print("ASEA SQLite checkpoint database initialized.")
-            print("ASEA LangGraph workflow compiled successfully.")
+            if not worker_mode:
+                print("ASEA SQLite checkpoint database initialized.")
+                print("ASEA LangGraph workflow compiled successfully.")
             yield
     finally:
         logging.info(
@@ -666,7 +673,10 @@ def health_check():
 def readiness_check():
     """Readiness probe: verifies initialized workflow and job storage."""
     try:
-        if not hasattr(app.state, "graph"):
+        worker_mode = (
+            os.getenv("ASEA_EXECUTION_MODE", "api").strip().lower() == "worker"
+        )
+        if not worker_mode and not getattr(app.state, "graph", None):
             raise RuntimeError("Workflow graph is not initialized.")
         repair_jobs.check_database()
     except Exception as error:

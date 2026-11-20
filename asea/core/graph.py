@@ -996,7 +996,72 @@ def final_validation_node(state: ASEAState) -> dict[str, Any]:
         else "COMPLETED_WITH_REMAINING_FAILURES"
     )
 
+    # Intermediate patches are deliberately not marked repaired while other
+    # failures remain. Once the complete cumulative workspace passes final
+    # validation, promote every accepted intermediate repair into the
+    # repaired-bug history and audit log. Keep this idempotent because a
+    # resumed/replayed final-validation node must not duplicate records.
+    repaired_bugs = list(state.get("repaired_bugs", []))
+    audit_log = list(state.get("audit_log", []))
+    if results.get("success", False):
+        known_bugs = {}
+        for bug in (
+            list(state.get("detected_bugs", []))
+            + list(state.get("prioritized_bugs", []))
+        ):
+            known_bugs[get_bug_key(bug)] = bug
+
+        repaired_keys = {
+            item.get("bug_key")
+            for item in repaired_bugs
+            if item.get("bug_key")
+        }
+        audited_repaired_keys = {
+            item.get("bug_key")
+            for item in audit_log
+            if item.get("event") == "bug_repaired"
+            and item.get("bug_key")
+        }
+
+        for validation in state.get("validation_results", []):
+            if validation.get("status") not in {
+                "PATCH_VALIDATED",
+                "PATCH_INTERMEDIATE",
+            }:
+                continue
+
+            bug_key = validation.get("bug_key")
+            if not bug_key:
+                continue
+
+            bug = known_bugs.get(bug_key, {})
+            if bug_key not in repaired_keys:
+                repaired_bugs.append({
+                    "bug_key": bug_key,
+                    "title": bug.get(
+                        "title",
+                        validation.get("bug_title", "Unknown bug"),
+                    ),
+                    "severity": bug.get("severity"),
+                    "file": bug.get("file"),
+                    "status": "REPAIRED",
+                    "attempts": validation.get("attempt", 1),
+                })
+                repaired_keys.add(bug_key)
+
+            if bug_key not in audited_repaired_keys:
+                audit_log.append({
+                    "agent": "final_validation",
+                    "event": "bug_repaired",
+                    "bug_key": bug_key,
+                    "validation_status": validation.get("status"),
+                    "confirmed_by_final_validation": True,
+                })
+                audited_repaired_keys.add(bug_key)
+
     return {
+        "repaired_bugs": repaired_bugs,
+        "audit_log": audit_log,
         # Keep baseline_test_results immutable; these two fields are the
         # authoritative terminal test outcome consumed by API and dashboard.
         "test_results": results,

@@ -642,7 +642,7 @@ async function handleRetryPublishing() {
             : "Syntax errors to fix before repair"}
         </b>
         {repairStatus?.status === "completed" && (
-          <p>These issues were detected before repair. The completed workflow's final validation results are shown below.</p>
+          <p>These issues were detected before repair. The completed workflow&apos;s final validation results are shown below.</p>
         )}
         {syntaxErrors.map((error, index) => (
           <p key={`${String(error.file)}-${index}`}>

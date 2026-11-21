@@ -2,9 +2,16 @@
 
 ## Status and scope
 
-This document specifies the first distributed-worker protocol for the hybrid ASEA deployment. It is a design contract, not an implementation: the current `ASEA_EXECUTION_MODE=worker` runtime still uses a shared local SQLite database and is not compatible with a cloud API on another machine.
+This document specifies the distributed-worker protocol for the hybrid ASEA deployment. The PostgreSQL worker credential and lease API is being delivered incrementally. The current `ASEA_EXECUTION_MODE=worker` runtime still uses a shared local SQLite database and is not compatible with a cloud API on another machine.
 
 The first distributed release remains single-user until browser authentication and account ownership are implemented. Do not expose worker enrollment or job APIs publicly before those prerequisites and the persistence migration are complete.
+
+## Implementation status\n\nThe initial API foundation now provides one-time enrollment-code issuance and exchange, per-worker HMAC-hashed bearer credentials, owner-scoped worker listing/revocation, worker authentication, worker heartbeat, PostgreSQL queue claims with fencing generations, lease renewal, and idempotent bounded event insertion. The cloud worker runtime, safe review checkpoint handoff, completion/failure transitions, lease-expiry recovery, and end-to-end Supabase integration are not yet implemented. Do not deploy or connect a worker until those remaining stages and database-backed integration tests are complete.\n\nRequired backend settings are `ASEA_DATABASE_URL` and a randomly generated `ASEA_WORKER_CREDENTIAL_PEPPER` of at least 32 characters. Keep the pepper server-side and stable; changing it invalidates all enrolled worker credentials. Enrollment codes expire after 10 minutes and are single-use. Worker secrets are returned only once by the enrollment exchange.\n\n### Implemented API routes
+
+- User-authenticated: `POST /v1/workers/enrollment-code`, `GET /v1/workers`, and `POST /v1/workers/{worker_id}/revoke`.
+- Worker-authenticated: `POST /v1/worker/enroll`, `POST /v1/worker/heartbeat`, `POST /v1/worker/jobs/claim`, `POST /v1/worker/jobs/{job_id}/heartbeat`, and `POST /v1/worker/jobs/{job_id}/events`.
+
+Apply migrations `0001_cloud_coordination.sql`, `0002_job_manager_compatibility.sql`, and `0003_cloud_worker_protocol_indexes.sql` in order before using these routes. The enrollment-code and worker-secret hashes use HMAC-SHA256 with the server-only pepper. A worker may hold one active lease at a time. Lease expiry does not automatically requeue a job; recovery transitions are intentionally a later implementation stage.
 
 ## Trust boundaries
 

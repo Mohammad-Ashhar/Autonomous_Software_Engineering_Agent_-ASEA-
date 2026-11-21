@@ -136,6 +136,22 @@ class CloudWorkerManager:
             )
             connection.execute(
                 """
+                UPDATE public.asea_repair_jobs
+                SET status = 'failed',
+                    message = 'Cloud worker was revoked during repair execution.',
+                    error = to_jsonb(
+                        'The assigned worker was revoked. Submit a new repair job to retry.'::text
+                    ),
+                    updated_at = now()
+                WHERE status = 'running' AND job_id IN (
+                    SELECT job_id FROM public.asea_job_leases
+                    WHERE worker_id = %s AND released_at IS NULL
+                )
+                """,
+                (UUID(worker_id),),
+            )
+            connection.execute(
+                """
                 UPDATE public.asea_job_leases SET released_at = now()
                 WHERE worker_id = %s AND released_at IS NULL
                 """,
@@ -383,6 +399,15 @@ class CloudWorkerManager:
                 ),
             ).fetchone()
             if lease is None:
+                existing = self._existing_terminal_event(
+                    connection, identity, job_id, idempotency_key, event_type
+                )
+                if existing is not None:
+                    return {
+                        "status": "completed",
+                        "event_id": existing,
+                        "replayed": True,
+                    }
                 raise WorkerProtocolError("Lease is expired, revoked, or superseded.")
             updated = connection.execute(
                 """
@@ -451,6 +476,15 @@ class CloudWorkerManager:
                 ),
             ).fetchone()
             if lease is None:
+                existing = self._existing_terminal_event(
+                    connection, identity, job_id, idempotency_key, event_type
+                )
+                if existing is not None:
+                    return {
+                        "status": "failed",
+                        "event_id": existing,
+                        "replayed": True,
+                    }
                 raise WorkerProtocolError("Lease is expired, revoked, or superseded.")
             updated = connection.execute(
                 """

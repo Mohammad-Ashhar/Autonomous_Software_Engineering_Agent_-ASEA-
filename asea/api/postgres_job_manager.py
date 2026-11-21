@@ -163,7 +163,11 @@ class PostgresRepairJobManager(RepairJobManager):
         if value is None or isinstance(value, (dict, list, int, float, bool)):
             return value
         if isinstance(value, str):
-            return json.loads(value)
+            try:
+                return json.loads(value)
+            except json.JSONDecodeError:
+                # psycopg already decodes JSONB scalar strings to Python str.
+                return value
         return value
 
     @staticmethod

@@ -1,9 +1,7 @@
 import hashlib
 import hmac
 
-import pytest
-
-from asea.api.cloud_workers import CloudWorkerManager, WorkerProtocolError
+from asea.api.cloud_workers import CloudWorkerManager
 
 
 def _manager():

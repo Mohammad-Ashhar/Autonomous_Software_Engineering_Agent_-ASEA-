@@ -52,3 +52,16 @@ def test_postgres_manager_requires_database_url(monkeypatch):
 
     with pytest.raises(RuntimeError, match="ASEA_DATABASE_URL"):
         PostgresRepairJobManager()
+
+
+
+def test_postgres_jsonb_deserializer_preserves_decoded_string_scalars():
+    assert PostgresRepairJobManager._deserialize("plain error message") == (
+        "plain error message"
+    )
+
+
+def test_postgres_jsonb_deserializer_decodes_json_text():
+    assert PostgresRepairJobManager._deserialize('{"status": "failed"}') == {
+        "status": "failed"
+    }

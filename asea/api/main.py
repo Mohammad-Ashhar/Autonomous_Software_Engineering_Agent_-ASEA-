@@ -21,6 +21,11 @@ from pydantic import BaseModel, ConfigDict, Field
 from asea.api.execution import RepairExecutionService
 from asea.api.job_manager import JobQueueFullError, repair_jobs
 from asea.api.protection import RequestProtectionMiddleware
+from asea.api.supabase_auth import (
+    SupabaseAuthError,
+    supabase_auth_configuration,
+    verify_supabase_access_token,
+)
 from asea.api.workspace_cleanup import cleanup_repair_workspace
 from asea.cli import resolve_repository
 from asea.core.graph import (
@@ -40,35 +45,20 @@ CHECKPOINT_DB_PATH = (
 )
 
 
-def validate_api_security_configuration(environment: str, api_key: str | None) -> None:
-    """Enforce a sufficiently strong API key before production startup."""
+def validate_api_security_configuration(
+    environment: str,
+    api_key: str | None,
+) -> None:
+    """Require Supabase identity verification before production startup."""
     if environment.strip().lower() != "production":
         return
-
-    if api_key is None:
+    try:
+        supabase_auth_configuration()
+    except SupabaseAuthError as error:
         raise RuntimeError(
-            "ASEA_API_KEY must be configured when ASEA_ENV=production."
-        )
-
-    normalized_key = api_key.strip()
-    if len(normalized_key) < 32:
-        raise RuntimeError(
-            "ASEA_API_KEY must contain at least 32 non-whitespace characters "
+            "SUPABASE_URL and SUPABASE_ANON_KEY must be configured "
             "when ASEA_ENV=production."
-        )
-
-
-def is_valid_api_key(authorization: str | None, expected_key: str) -> bool:
-    """Validate a Bearer token without leaking timing information."""
-    if not authorization:
-        return False
-    scheme, separator, supplied_key = authorization.partition(" ")
-    return (
-        bool(separator)
-        and scheme.lower() == "bearer"
-        and bool(supplied_key)
-        and secrets.compare_digest(supplied_key, expected_key)
-    )
+        ) from error
 
 
 @asynccontextmanager
@@ -384,20 +374,40 @@ async def handle_unexpected_exception(request: Request, error: Exception):
 
 
 @app.middleware("http")
-async def require_api_key(request: Request, call_next):
-    """Protect API operations when an API key is configured."""
-    configured_key = os.getenv("ASEA_API_KEY")
-    api_key = configured_key.strip() if configured_key else ""
-    if api_key and request.url.path != "/health" and request.method != "OPTIONS":
-        if not is_valid_api_key(
-            request.headers.get("authorization"),
-            api_key,
-        ):
+async def require_api_identity(request: Request, call_next):
+    """Authenticate API requests and attach a verified owner identity."""
+    if request.url.path in {"/health", "/ready"} or request.method == "OPTIONS":
+        return await call_next(request)
+    supabase_url = os.getenv("SUPABASE_URL", "").strip()
+    supabase_key = os.getenv("SUPABASE_ANON_KEY", "").strip()
+    if supabase_url or supabase_key:
+        authorization = request.headers.get("authorization", "")
+        scheme, separator, token = authorization.partition(" ")
+        if not separator or scheme.lower() != "bearer" or not token.strip():
             return JSONResponse(
                 status_code=401,
-                content={"detail": "A valid Bearer API key is required."},
+                content={"detail": "A valid Supabase Bearer access token is required."},
                 headers={"WWW-Authenticate": "Bearer"},
             )
+        try:
+            request.state.user_id = verify_supabase_access_token(token)
+        except SupabaseAuthError as error:
+            invalid = "invalid or expired" in str(error).lower()
+            return JSONResponse(
+                status_code=401 if invalid else 503,
+                content={"detail": str(error)},
+                headers={"Cache-Control": "no-store"},
+            )
+        return await call_next(request)
+    configured_key = os.getenv("ASEA_API_KEY")
+    api_key = configured_key.strip() if configured_key else ""
+    if api_key and not is_valid_api_key(request.headers.get("authorization"), api_key):
+        return JSONResponse(
+            status_code=401,
+            content={"detail": "A valid Bearer API key is required."},
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    request.state.user_id = None
     return await call_next(request)
 
 
@@ -438,7 +448,7 @@ class ReviewRequest(BaseModel):
         description="Optional feedback explaining the review decision.",
     )   
 @app.post("/repair", status_code=202)
-def start_repair(request: RepairRequest):
+def start_repair(request: RepairRequest, http_request: Request):
     """Start an ASEA repair job in the background."""
 
     repository = request.repository.strip()
@@ -467,6 +477,7 @@ def start_repair(request: RepairRequest):
             job_id=job_id,
             repository=repository,
             publish_requested=request.publish,
+            owner_id=getattr(http_request.state, "user_id", None),
         )
     except JobQueueFullError as error:
         raise HTTPException(
@@ -507,6 +518,7 @@ def start_repair(request: RepairRequest):
 
 @app.get("/repairs")
 def list_repair_jobs(
+    http_request: Request,
     limit: int = 50,
     offset: int = 0,
     status: Literal[
@@ -543,16 +555,18 @@ def list_repair_jobs(
         limit=limit,
         offset=offset,
         status=status,
+        owner_id=getattr(http_request.state, "user_id", None),
     )
 
 
 @app.post("/repair/{job_id}/publish", status_code=202)
-def retry_repair_publish(job_id: str):
+def retry_repair_publish(job_id: str, http_request: Request):
     """Retry publishing a validated repair without rerunning its workflow."""
-    job = repair_jobs.get_job(job_id)
+    owner_id = getattr(http_request.state, "user_id", None)
+    job = repair_jobs.get_job(job_id, owner_id=owner_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Repair job not found.")
-    if not repair_jobs.claim_publishing_retry(job_id):
+    if not repair_jobs.claim_publishing_retry(job_id, owner_id=owner_id):
         raise HTTPException(
             status_code=409,
             detail=(
@@ -577,10 +591,12 @@ def retry_repair_publish(job_id: str):
 
 
 @app.get("/repair/{job_id}")
-def get_repair_status(job_id: str):
+def get_repair_status(job_id: str, http_request: Request):
     """Retrieve the current status of a repair job."""
 
-    job = repair_jobs.get_job(job_id)
+    job = repair_jobs.get_job(
+        job_id, owner_id=getattr(http_request.state, "user_id", None)
+    )
 
     if job is None:
         raise HTTPException(
@@ -594,10 +610,12 @@ def get_repair_status(job_id: str):
 def review_repair_patch(
     job_id: str,
     request: ReviewRequest,
+    http_request: Request,
 ):
     """Approve or reject a patch and resume the ASEA workflow."""
 
-    job = repair_jobs.get_job(job_id)
+    owner_id = getattr(http_request.state, "user_id", None)
+    job = repair_jobs.get_job(job_id, owner_id=owner_id)
 
     if job is None:
         raise HTTPException(
@@ -624,6 +642,7 @@ def review_repair_patch(
         job_id,
         decision=request.decision,
         feedback=request.feedback.strip(),
+        owner_id=owner_id,
     ):
         raise HTTPException(
             status_code=409,

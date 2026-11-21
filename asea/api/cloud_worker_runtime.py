@@ -85,6 +85,21 @@ class LeaseGuard:
         self.thread.join(timeout=2)
 
 
+def _snapshot_interrupts(snapshot) -> list:
+    """Return pending LangGraph interrupts across checkpoint tasks.
+
+    StateSnapshot exposes pending interrupts on each PregelTask, not as a
+    top-level "interrupts" attribute. The top-level fallback keeps adapters
+    and older test doubles compatible.
+    """
+    direct = getattr(snapshot, "interrupts", None)
+    if direct is not None:
+        return list(direct)
+    pending = []
+    for task in getattr(snapshot, "tasks", ()) or ():
+        pending.extend(getattr(task, "interrupts", ()) or ())
+    return pending
+
 def _checkpoint_reference(snapshot, job_id: str, worker_id: str) -> dict:
     config = getattr(snapshot, "config", None) or {}
     configurable = config.get("configurable", {}) if isinstance(config, dict) else {}
@@ -133,6 +148,7 @@ def execute_claimed_job(
                 result = graph.invoke(initial_state, config=config)
 
             snapshot = graph.get_state(config)
+            interrupts = _snapshot_interrupts(snapshot)
             if lease.lost.is_set():
                 _LOG.error(
                     "Stopping finalization for job %s because its lease was lost.",
@@ -140,13 +156,13 @@ def execute_claimed_job(
                 )
                 return "lease_lost"
 
-            if snapshot.interrupts:
+            if interrupts:
                 reference = _checkpoint_reference(snapshot, job_id, worker_id)
                 client.pause_for_review(
                     job_id,
                     lease_id,
                     generation,
-                    snapshot.interrupts[0].value,
+                    interrupts[0].value,
                     reference,
                     f"{job_id}:{generation}:review",
                 )

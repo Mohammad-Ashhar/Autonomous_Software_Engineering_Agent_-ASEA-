@@ -45,7 +45,9 @@ def test_request_does_not_require_worker_secret_for_enrollment():
     response.read.return_value = b'{"worker_id":"id","worker_secret":"secret"}'
     response.__enter__.return_value = response
     client = CloudWorkerClient("https://example.com")
-    with patch("asea.api.cloud_worker_client.urlopen", return_value=response) as open_url:
+    with patch(
+        "asea.api.cloud_worker_client.urlopen", return_value=response
+    ) as open_url:
         result = client.enroll("one-time-code")
     assert result["worker_id"] == "id"
     request = open_url.call_args.args[0]

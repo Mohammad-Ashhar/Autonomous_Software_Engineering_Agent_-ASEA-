@@ -1,4 +1,6 @@
 
+import { getAccessToken } from "@/lib/auth";
+
 const configuredApiUrl = process.env.NEXT_PUBLIC_API_URL?.trim();
 const API_URL =
   configuredApiUrl ||
@@ -48,12 +50,14 @@ async function request<T>(
   }
 
   let response: Response;
+  const accessToken = await getAccessToken();
 
   try {
     response = await fetch(`${API_URL}${endpoint}`, {
       ...options,
       headers: {
         "Content-Type": "application/json",
+        ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
         ...options.headers,
       },
       cache: "no-store",

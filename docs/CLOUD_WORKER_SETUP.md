@@ -2,10 +2,12 @@
 
 ## Current delivery scope
 
-The cloud-worker HTTPS client, enrollment commands, and durable PostgreSQL
-LangGraph checkpoint adapter are available. The cloud API now supports checkpoint-backed human-review handoff. The worker
-polling/execution loop is still a separate delivery; continue using the existing
-local SQLite worker until that runtime is available.
+The cloud-worker HTTPS client, enrollment commands, PostgreSQL LangGraph
+checkpoint adapter, and cloud polling/execution runtime are available. The
+worker runs on the enrolled machine, claims owner-scoped jobs over HTTPS, renews
+fenced leases, and stores graph checkpoints in PostgreSQL. Human-review pauses
+release the lease; after approval, the same enrolled worker resumes the saved
+checkpoint.
 
 ## Install the optional worker dependencies
 
@@ -16,14 +18,13 @@ python -m pip install -e ".[cloud-worker]"
 ```
 
 The optional `keyring` dependency stores the worker credential in the operating
-system credential vault. The PostgreSQL checkpoint extra lets the upcoming
-cloud runtime persist LangGraph state in the same Supabase database used for
-job coordination. ASEA does not write the worker secret to a plaintext
+system credential vault. The PostgreSQL checkpoint extra persists LangGraph state in the same Supabase
+database used for job coordination. ASEA does not write the worker secret to a plaintext
 configuration file or print it to the terminal.
 
 The worker will use `ASEA_DATABASE_URL` with `sslmode=require` (or stronger).
-The first cloud-worker runtime startup will initialize LangGraph checkpoint
-tables through the official PostgreSQL checkpointer. Keep the database URL in
+The first cloud-worker startup initializes LangGraph checkpoint tables through
+the official PostgreSQL checkpointer. Keep the database URL in
 the worker machine environment; never put it in the repository or dashboard.
 
 ## Enroll this machine
@@ -45,9 +46,26 @@ Check local enrollment:
 asea cloud-worker status --api-url https://YOUR-ASEA-API.example.com
 ```
 
-Use the same normalized API URL for status and later runtime commands. If the
+Use the same normalized API URL for status and runtime commands. If the
 credential vault is unavailable or locked, enrollment fails rather than
 falling back to plaintext storage.
+
+## Run the cloud worker
+
+Keep the worker machine's local Ollama service, Docker engine, GitHub publishing
+configuration (if publishing is requested), and `ASEA_DATABASE_URL` available.
+Then start the polling process:
+
+```powershell
+asea cloud-worker run --api-url https://YOUR-ASEA-API.example.com
+```
+
+The worker processes one job at a time. `ASEA_CLOUD_WORKER_POLL_SECONDS`
+controls idle polling (default 5 seconds). Lease renewal runs while a repair is
+executing. Keep the same machine and its ASEA workspace available for jobs that
+pause for review: workspace paths are local, and the job is pinned to the worker
+that created its checkpoint. Stop the process with Ctrl+C; do not terminate the
+process forcefully during an active repair.
 
 ## Security notes
 

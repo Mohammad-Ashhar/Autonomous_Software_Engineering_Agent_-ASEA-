@@ -474,7 +474,7 @@ class CloudWorkerManager:
         with self._connect() as connection:
             row = connection.execute(
                 """
-                UPDATE public.asea_repair_jobs
+                UPDATE public.asea_repair_jobs AS j
                 SET status = 'queued',
                     message = 'Patch review submitted; waiting for the assigned worker.',
                     review_decision = %s,
@@ -486,7 +486,7 @@ class CloudWorkerManager:
                   AND execution_worker_id IS NOT NULL
                   AND EXISTS (
                       SELECT 1 FROM public.asea_workers w
-                      WHERE w.worker_id = execution_worker_id AND w.status = 'active'
+                      WHERE w.worker_id = j.execution_worker_id AND w.status = 'active'
                   )
                 RETURNING job_id
                 """,

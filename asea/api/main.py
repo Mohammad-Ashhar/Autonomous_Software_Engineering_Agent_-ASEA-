@@ -934,7 +934,11 @@ def readiness_check():
             os.getenv("ASEA_EXECUTION_MODE", "api").strip().lower() == "worker"
         )
         cloud_storage = bool(os.getenv("ASEA_DATABASE_URL", "").strip())
-        if not worker_mode and not cloud_storage and not getattr(app.state, "graph", None):
+        if (
+            not worker_mode
+            and not cloud_storage
+            and not getattr(app.state, "graph", None)
+        ):
             raise RuntimeError("Workflow graph is not initialized.")
         repair_jobs.check_database()
     except Exception as error:

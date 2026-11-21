@@ -236,6 +236,31 @@ class PostgresRepairJobManager(RepairJobManager):
             )
             return cursor.rowcount
 
+    def mark_orphaned_worker_jobs(self) -> int:
+        now = datetime.now(timezone.utc)
+        from psycopg.types.json import Jsonb
+
+        with self._connection() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE public.asea_repair_jobs
+                SET status = 'failed',
+                    message = 'Local worker stopped before this repair completed.',
+                    error = ?,
+                    updated_at = ?
+                WHERE status = 'running' AND review_decision IS NULL
+                """,
+                (
+                    Jsonb(
+                        "The local worker stopped during execution. "
+                        "This job was not automatically replayed because "
+                        "the interrupted operation may not be idempotent."
+                    ),
+                    now,
+                ),
+            )
+            return cursor.rowcount
+
     def claim_next_queued_job(self) -> dict[str, Any] | None:
         now = datetime.now(timezone.utc)
         with self._connection() as connection:

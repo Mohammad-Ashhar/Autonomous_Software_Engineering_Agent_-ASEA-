@@ -38,6 +38,8 @@ api = [
 ]
 cloud-worker = [
     "keyring>=25.5.0",
+    "langgraph-checkpoint-postgres>=2.0.0",
+    "psycopg[binary]>=3.2",
 ]
 dev = [
     "pytest>=8.0.0",

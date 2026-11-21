@@ -2,10 +2,11 @@
 
 ## Current delivery scope
 
-The cloud-worker HTTPS client and enrollment commands are available. This is
-only the secure transport/enrollment foundation: it does not yet poll, claim,
-or execute repair jobs. Continue using the existing local SQLite worker until
-the cloud execution runtime and review checkpoint handoff are delivered.
+The cloud-worker HTTPS client, enrollment commands, and durable PostgreSQL
+LangGraph checkpoint adapter are available. The worker still does not poll,
+claim, or execute cloud repair jobs. Continue using the existing local SQLite
+worker until the cloud execution runtime and review checkpoint handoff are
+delivered.
 
 ## Install the optional worker dependencies
 
@@ -16,8 +17,15 @@ python -m pip install -e ".[cloud-worker]"
 ```
 
 The optional `keyring` dependency stores the worker credential in the operating
-system credential vault. ASEA does not write the worker secret to a plaintext
+system credential vault. The PostgreSQL checkpoint extra lets the upcoming
+cloud runtime persist LangGraph state in the same Supabase database used for
+job coordination. ASEA does not write the worker secret to a plaintext
 configuration file or print it to the terminal.
+
+The worker will use `ASEA_DATABASE_URL` with `sslmode=require` (or stronger).
+The first cloud-worker runtime startup will initialize LangGraph checkpoint
+tables through the official PostgreSQL checkpointer. Keep the database URL in
+the worker machine environment; never put it in the repository or dashboard.
 
 ## Enroll this machine
 

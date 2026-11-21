@@ -23,3 +23,5 @@ services:
         sync: false
       - key: ASEA_CORS_ORIGINS
         sync: false
+      - key: ASEA_WORKER_CREDENTIAL_PEPPER
+        sync: false

@@ -9,7 +9,6 @@ import logging
 import os
 import signal
 import threading
-from uuid import uuid4
 
 from langgraph.types import Command
 
@@ -19,14 +18,14 @@ from asea.api.cloud_worker_client import (
     CloudWorkerClient,
     load_worker_credentials,
 )
-from asea.api.workspace_cleanup import cleanup_repair_workspace
-from asea.cli import resolve_repository
-from asea.core.graph import build_asea_graph, create_initial_state
 from asea.api.main import (
     _publish_repair_result,
     _safe_error_detail,
     _workflow_job_outcome,
 )
+from asea.api.workspace_cleanup import cleanup_repair_workspace
+from asea.cli import resolve_repository
+from asea.core.graph import build_asea_graph, create_initial_state
 
 _LOG = logging.getLogger(__name__)
 _STOP = threading.Event()

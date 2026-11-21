@@ -8,6 +8,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 import json
 import os
+import re
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
@@ -41,9 +42,8 @@ class _PostgresConnection:
     def execute(self, statement, parameters=()):
         # The shared manager uses SQLite's qmark placeholders. SQL statements
         # contain no literal question marks, so a direct conversion is safe.
-        return self._connection.execute(
-            statement.replace("?", "%s"), parameters
-        )
+        statement = re.sub(r"\brepair_jobs\b", "public.asea_repair_jobs", statement)
+        return self._connection.execute(statement.replace("?", "%s"), parameters)
 
     def __enter__(self):
         self._connection.__enter__()
@@ -86,7 +86,6 @@ class PostgresRepairJobManager(RepairJobManager):
     def _connect(self):
         try:
             import psycopg
-            from psycopg.rows import dict_row
         except ImportError as error:
             raise RuntimeError(
                 "Install ASEA's API dependencies to use PostgreSQL storage."
@@ -246,8 +245,8 @@ class PostgresRepairJobManager(RepairJobManager):
                 FROM public.asea_repair_jobs
                 WHERE status = 'queued'
                 ORDER BY created_at, job_id
-                FOR UPDATE SKIP LOCKED
                 LIMIT 1
+                FOR UPDATE SKIP LOCKED
                 """
             ).fetchone()
             if row is None:

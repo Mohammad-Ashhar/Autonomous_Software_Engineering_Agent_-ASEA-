@@ -32,7 +32,7 @@ class FakeGraph:
 
     def get_state(self, _config):
         return SimpleNamespace(
-            interrupts=self.interrupts,
+            tasks=(SimpleNamespace(interrupts=self.interrupts),),
             config={
                 "configurable": {
                     "checkpoint_id": "checkpoint-123",
@@ -107,3 +107,26 @@ def test_poll_interval_rejects_invalid_values(monkeypatch, value):
 
     with pytest.raises(RuntimeError):
         runtime._positive_seconds("ASEA_CLOUD_WORKER_POLL_SECONDS", 5.0)
+
+
+
+def test_snapshot_interrupts_are_collected_from_langgraph_tasks():
+    interrupt = SimpleNamespace(value={"patch": "diff"})
+    snapshot = SimpleNamespace(
+        tasks=(
+            SimpleNamespace(interrupts=(interrupt,)),
+            SimpleNamespace(interrupts=()),
+        )
+    )
+
+    assert runtime._snapshot_interrupts(snapshot) == [interrupt]
+
+
+def test_snapshot_interrupts_support_legacy_top_level_shape():
+    interrupt = SimpleNamespace(value={"patch": "diff"})
+    snapshot = SimpleNamespace(
+        interrupts=(interrupt,),
+        tasks=(SimpleNamespace(interrupts=()),),
+    )
+
+    assert runtime._snapshot_interrupts(snapshot) == [interrupt]

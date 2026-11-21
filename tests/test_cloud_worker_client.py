@@ -1,5 +1,7 @@
 import json
+from io import BytesIO
 from unittest.mock import MagicMock, patch
+from urllib.error import HTTPError
 
 import pytest
 
@@ -55,9 +57,6 @@ def test_request_does_not_require_worker_secret_for_enrollment():
 
 
 def test_api_error_does_not_echo_authorization_header():
-    from urllib.error import HTTPError
-    from io import BytesIO
-
     error = HTTPError(
         "https://example.com", 401, "Unauthorized", {}, BytesIO(b'{"detail":"revoked"}')
     )

@@ -130,3 +130,27 @@ def test_snapshot_interrupts_support_legacy_top_level_shape():
     )
 
     assert runtime._snapshot_interrupts(snapshot) == [interrupt]
+
+
+def test_idle_worker_heartbeat_is_sent_when_due(monkeypatch):
+    client = FakeClient()
+    monkeypatch.setattr(runtime, "IDLE_HEARTBEAT_SECONDS", 30)
+
+    last = runtime._heartbeat_if_due(client, 10.0, now=39.0)
+    assert last == 10.0
+    assert not [call for call in client.calls if call[0] == "heartbeat"]
+
+    last = runtime._heartbeat_if_due(client, last, now=40.0)
+    assert last == 40.0
+    assert [call[0] for call in client.calls] == ["heartbeat"]
+
+
+def test_idle_worker_heartbeat_is_not_repeated_before_interval(monkeypatch):
+    client = FakeClient()
+    monkeypatch.setattr(runtime, "IDLE_HEARTBEAT_SECONDS", 30)
+
+    last = runtime._heartbeat_if_due(client, 100.0, now=130.0)
+    last = runtime._heartbeat_if_due(client, last, now=159.0)
+
+    assert last == 130.0
+    assert len([call for call in client.calls if call[0] == "heartbeat"]) == 1

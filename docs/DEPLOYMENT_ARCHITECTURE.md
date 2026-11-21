@@ -42,8 +42,8 @@ The deployment target is a zero-cost prototype using provider free tiers where a
 ## Persistence and recovery
 
 - PostgreSQL is the source of truth for cloud job metadata, ownership, worker leases, review decisions, and event history.
-- LangGraph checkpoints and repository workspaces remain local to the worker initially. The worker must persist checkpoints on disk and recover paused review workflows after restart.
-- A worker restart must re-register, renew its lease, and safely resume or release work. Expired leases must become eligible for reassignment only after the server determines whether the previous attempt can be resumed safely.
+- LangGraph checkpoints are stored in PostgreSQL through the cloud checkpointer. Repository workspaces remain on the enrolled worker machine; keep that machine and its workspace available for review-paused jobs. Worker affinity prevents another machine from claiming a paused job.
+- An idle worker sends periodic heartbeats; an executing worker renews its job lease while the graph runs. Expired running leases are failed conservatively rather than blindly replayed. A review-paused job can resume on its assigned worker when that worker reconnects and the local repository workspace is still present.
 - Do not deploy the current SQLite files on an ephemeral cloud filesystem as production persistence.
 
 ## Implementation sequence
@@ -67,4 +67,4 @@ The deployment target is a zero-cost prototype using provider free tiers where a
 
 ## Worker protocol
 
-The initial Supabase PostgreSQL schema is documented in [POSTGRES_PERSISTENCE.md](POSTGRES_PERSISTENCE.md) and defined in `migrations/postgres/0001_cloud_coordination.sql`. It is schema-only; the API still uses local SQLite until the PostgreSQL adapter and transactional worker protocol are implemented. The detailed enrollment, authentication, lease, fencing, review-resume, and recovery contract is documented in [WORKER_PROTOCOL.md](WORKER_PROTOCOL.md). Implement and test that protocol before enabling distributed worker endpoints or deploying the cloud API.
+The cloud PostgreSQL schema and migrations are documented in [POSTGRES_PERSISTENCE.md](POSTGRES_PERSISTENCE.md). The API uses PostgreSQL-backed job coordination, worker enrollment, fenced leases, review decisions, and durable LangGraph checkpoints when `ASEA_DATABASE_URL` is configured. The local SQLite mode remains available for development. The detailed enrollment, authentication, lease, fencing, review-resume, and recovery contract is documented in [WORKER_PROTOCOL.md](WORKER_PROTOCOL.md). Apply all migrations and complete the deployment checklist before exposing the cloud API.

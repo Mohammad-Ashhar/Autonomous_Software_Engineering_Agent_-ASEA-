@@ -392,7 +392,7 @@ The GitHub Actions workflow runs Python linting, compilation, Docker sandbox ima
 
 ## Current scope
 
-ASEA is under active development. The current analyzer, test-generation, and repair workflow is primarily designed for Python repositories. The API supports shared Bearer-key authentication in production mode, request-size limits, and per-process rate limiting. It does not provide user identity, role-based authorization, multi-user isolation, distributed rate limiting, or distributed workers. Before a remote deployment, place the API behind a trusted reverse proxy or API gateway, configure deployment-specific CORS and shared rate limiting there, and use managed secret storage. Do not expose the development server directly to the public internet.
+ASEA is under active development. The current analyzer, test-generation, and repair workflow is primarily designed for Python repositories. The cloud API supports Supabase user authentication, owner-scoped job access, enrolled-worker credentials, PostgreSQL-backed job coordination, and a separate cloud-worker runtime. The hybrid cloud deployment is still awaiting live Supabase integration and end-to-end validation. The API also applies request-size limits and per-process rate limiting; multi-instance deployments need shared rate limiting at a trusted reverse proxy or API gateway. Configure deployment-specific CORS and managed secret storage before exposing the service. Do not expose the development server directly to the public internet.
 
 
 ### API request protections

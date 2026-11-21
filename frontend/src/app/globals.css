@@ -1475,3 +1475,25 @@ button, a {
   font-size: 12px;
 }
 .auth-session-bar button { padding: 7px 12px; font-size: 12px; }
+
+
+/* Cloud worker settings */
+.settings-page { max-width: 1050px; margin: 0 auto; padding: 38px 32px 56px; }
+.settings-page h1 { margin: 8px 0; font-size: 30px; }
+.settings-lead { color: var(--muted); line-height: 1.7; font-size: 13px; max-width: 760px; }
+.settings-panel { margin-top: 22px; padding: 22px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+.settings-panel h2 { margin: 0 0 8px; font-size: 17px; }
+.settings-panel p { color: var(--muted); font-size: 12px; line-height: 1.65; }
+.settings-command { display: block; margin: 10px 0; padding: 13px; overflow-wrap: anywhere; white-space: pre-wrap; border: 1px solid var(--border); border-radius: 8px; background: var(--background); color: var(--foreground); font: 12px/1.65 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.settings-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+.settings-button { min-height: 39px; padding: 0 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2); color: var(--foreground); cursor: pointer; font-size: 12px; font-weight: 700; }
+.settings-button.primary { border: 0; background: linear-gradient(110deg,#6269e9,#8968e9); color: white; }
+.settings-button:disabled { opacity: .5; cursor: not-allowed; }
+.settings-message { margin-top: 13px; padding: 11px 13px; border-radius: 8px; background: var(--surface-2); color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.worker-list { display: grid; gap: 10px; margin-top: 15px; }
+.worker-item { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; padding: 13px; border: 1px solid var(--border); border-radius: 8px; }
+.worker-item strong { font-size: 12px; }
+.worker-item small { display: block; margin-top: 5px; color: var(--muted); font-size: 10px; }
+.worker-state { color: var(--green); font-size: 10px; font-weight: 700; text-transform: uppercase; }
+.settings-back { color: var(--accent); text-decoration: none; font-size: 12px; }
+@media (max-width: 650px) { .settings-page { padding: 25px 15px; } .settings-panel { padding: 17px; } }

@@ -533,7 +533,7 @@ async function handleRetryPublishing() {
               {backendStatus === "online" ? "ASEA API health check succeeded." : backendStatus === "offline" ? "Start the FastAPI backend to enable analysis and repair." : "Checking the ASEA API connection."}
             </div>
           </div>
-          <a className="nav-item" href="#settings">
+          <a className="nav-item" href="/settings">
             <Icon name="settings" /> Settings
           </a>
           <div className="profile">

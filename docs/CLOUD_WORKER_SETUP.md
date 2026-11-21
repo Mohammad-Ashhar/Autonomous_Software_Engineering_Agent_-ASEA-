@@ -61,8 +61,8 @@ asea cloud-worker run --api-url https://YOUR-ASEA-API.example.com
 ```
 
 The worker processes one job at a time. `ASEA_CLOUD_WORKER_POLL_SECONDS`
-controls idle polling (default 5 seconds). Lease renewal runs while a repair is
-executing. Keep the same machine and its ASEA workspace available for jobs that
+controls idle polling (default 5 seconds). The worker sends periodic heartbeats
+while idle and renews the fenced job lease while a repair is executing. Keep the same machine and its ASEA workspace available for jobs that
 pause for review: workspace paths are local, and the job is pinned to the worker
 that created its checkpoint. Stop the process with Ctrl+C; do not terminate the
 process forcefully during an active repair.

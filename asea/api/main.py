@@ -103,10 +103,14 @@ def _worker_identity(request: Request) -> dict:
     authorization = request.headers.get("authorization", "")
     scheme, separator, secret = authorization.partition(" ")
     if not separator or scheme.lower() != "bearer":
-        raise HTTPException(status_code=401, detail="Worker bearer credential required.")
+        raise HTTPException(
+            status_code=401, detail="Worker bearer credential required."
+        )
     identity = _cloud_workers().authenticate(secret.strip())
     if identity is None:
-        raise HTTPException(status_code=401, detail="Worker credential is invalid or revoked.")
+        raise HTTPException(
+            status_code=401, detail="Worker credential is invalid or revoked."
+        )
     return identity
     worker_mode = (
         os.getenv("ASEA_EXECUTION_MODE", "api").strip().lower() == "worker"
@@ -557,18 +561,25 @@ def create_worker_enrollment_code(http_request: Request):
 def get_cloud_workers(http_request: Request):
     owner_id = _request_owner_id(http_request)
     if owner_id is None:
-        raise HTTPException(status_code=401, detail="Supabase user authentication required.")
+        raise HTTPException(
+            status_code=401, detail="Supabase user authentication required."
+        )
     try:
         return {"items": _cloud_workers().list_workers(owner_id)}
     except RuntimeError as error:
-        raise HTTPException(status_code=503, detail="Cloud worker storage is not configured.") from error
+        raise HTTPException(
+            status_code=503,
+            detail="Cloud worker storage is not configured.",
+        ) from error
 
 
 @app.post("/v1/workers/{worker_id}/revoke")
 def revoke_cloud_worker(worker_id: str, http_request: Request):
     owner_id = _request_owner_id(http_request)
     if owner_id is None:
-        raise HTTPException(status_code=401, detail="Supabase user authentication required.")
+        raise HTTPException(
+            status_code=401, detail="Supabase user authentication required."
+        )
     try:
         if not _cloud_workers().revoke_worker(owner_id, worker_id):
             raise HTTPException(
@@ -578,7 +589,10 @@ def revoke_cloud_worker(worker_id: str, http_request: Request):
     except ValueError as error:
         raise HTTPException(status_code=400, detail="Invalid worker ID.") from error
     except RuntimeError as error:
-        raise HTTPException(status_code=503, detail="Cloud worker storage is not configured.") from error
+        raise HTTPException(
+            status_code=503,
+            detail="Cloud worker storage is not configured.",
+        ) from error
 
 
 @app.post("/v1/worker/enroll")
@@ -590,7 +604,10 @@ def enroll_cloud_worker(request: WorkerEnrollmentRequest):
     except WorkerProtocolError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     except RuntimeError as error:
-        raise HTTPException(status_code=503, detail="Cloud worker storage is not configured.") from error
+        raise HTTPException(
+            status_code=503,
+            detail="Cloud worker storage is not configured.",
+        ) from error
 
 
 @app.post("/v1/worker/heartbeat")

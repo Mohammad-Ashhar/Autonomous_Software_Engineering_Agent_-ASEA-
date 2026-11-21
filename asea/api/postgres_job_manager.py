@@ -4,11 +4,11 @@ This adapter is deliberately opt-in and is not selected by the API yet. The
 cloud worker protocol must be implemented before switching production traffic
 from the local SQLite manager to this backend.
 """
-from contextlib import contextmanager
-from datetime import datetime, timezone
 import json
 import os
 import re
+from contextlib import contextmanager
+from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
@@ -28,7 +28,7 @@ def _hybrid_row_factory(cursor):
     names = [column.name for column in cursor.description]
 
     def make_row(values):
-        return _HybridRow(zip(names, values))
+        return _HybridRow(zip(names, values, strict=True))
 
     return make_row
 
@@ -71,7 +71,8 @@ class PostgresRepairJobManager(RepairJobManager):
             parsed.scheme not in {"postgres", "postgresql"}
             or not parsed.hostname
             or not parsed.path.strip("/")
-            or query.get("sslmode", [""])[0] not in {"require", "verify-ca", "verify-full"}
+            or query.get("sslmode", [""])[0]
+            not in {"require", "verify-ca", "verify-full"}
         ):
             raise RuntimeError(
                 "ASEA_DATABASE_URL must be a PostgreSQL URL with sslmode=require "

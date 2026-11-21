@@ -4,28 +4,47 @@ from fastapi.testclient import TestClient
 from asea.api import main
 
 
-def test_production_requires_api_key():
-    with pytest.raises(RuntimeError, match="ASEA_API_KEY"):
+def test_production_requires_supabase_configuration(monkeypatch):
+    monkeypatch.delenv("SUPABASE_URL", raising=False)
+    monkeypatch.delenv("SUPABASE_ANON_KEY", raising=False)
+    with pytest.raises(RuntimeError, match="SUPABASE_URL"):
         main.validate_api_security_configuration("production", None)
 
 
-@pytest.mark.parametrize("api_key", ["", "   ", "short", " " * 40])
-def test_production_rejects_missing_or_weak_api_key(api_key):
-    with pytest.raises(RuntimeError, match="at least 32"):
-        main.validate_api_security_configuration("production", api_key)
+@pytest.mark.parametrize(
+    ("url", "anon_key"),
+    [
+        ("", "public-anon-key"),
+        ("https://example.supabase.co", ""),
+        ("http://example.supabase.co", "public-anon-key"),
+    ],
+)
+def test_production_rejects_missing_or_invalid_supabase_configuration(
+    monkeypatch, url, anon_key
+):
+    monkeypatch.setenv("SUPABASE_URL", url)
+    monkeypatch.setenv("SUPABASE_ANON_KEY", anon_key)
+    with pytest.raises(RuntimeError, match="SUPABASE_URL"):
+        main.validate_api_security_configuration("production", "legacy-api-key")
 
 
-def test_production_accepts_api_key_with_at_least_32_characters():
-    main.validate_api_security_configuration("production", "a" * 32)
+def test_production_accepts_valid_supabase_configuration(monkeypatch):
+    monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
+    monkeypatch.setenv("SUPABASE_ANON_KEY", "public-anon-key")
+    main.validate_api_security_configuration("production", None)
 
 
-def test_production_environment_name_is_case_and_whitespace_insensitive():
-    with pytest.raises(RuntimeError, match="ASEA_API_KEY"):
+def test_production_environment_name_is_case_and_whitespace_insensitive(
+    monkeypatch,
+):
+    monkeypatch.delenv("SUPABASE_URL", raising=False)
+    monkeypatch.delenv("SUPABASE_ANON_KEY", raising=False)
+    with pytest.raises(RuntimeError, match="SUPABASE_URL"):
         main.validate_api_security_configuration(" Production ", None)
 
 
 @pytest.mark.parametrize("environment", ["development", "test", ""])
-def test_nonproduction_does_not_require_api_key(environment):
+def test_nonproduction_does_not_require_supabase_configuration(environment):
     main.validate_api_security_configuration(environment, None)
 
 
@@ -80,11 +99,12 @@ def test_health_check_remains_available_when_key_is_configured(monkeypatch):
     assert response.json()["status"] == "healthy"
 
 
-def test_production_startup_fails_without_api_key(monkeypatch):
+def test_production_startup_fails_without_supabase_configuration(monkeypatch):
     monkeypatch.setenv("ASEA_ENV", "production")
-    monkeypatch.delenv("ASEA_API_KEY", raising=False)
+    monkeypatch.delenv("SUPABASE_URL", raising=False)
+    monkeypatch.delenv("SUPABASE_ANON_KEY", raising=False)
 
-    with pytest.raises(RuntimeError, match="ASEA_API_KEY"):
+    with pytest.raises(RuntimeError, match="SUPABASE_URL"):
         with TestClient(main.app):
             pass
 

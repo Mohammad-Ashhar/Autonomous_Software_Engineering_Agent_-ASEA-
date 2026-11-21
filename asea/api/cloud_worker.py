@@ -11,12 +11,12 @@ import json
 import logging
 import os
 import signal
+import platform
 import threading
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from contextlib import nullcontext
 from uuid import uuid4
 
 from langgraph.checkpoint.sqlite import SqliteSaver
@@ -189,7 +189,7 @@ def enroll_worker(api_url: str, code: str) -> str:
         version="0.1.0",
         capabilities={
             "os": os.name,
-            "platform": __import__("platform").platform(),
+            "platform": platform.platform(),
             "execution": ["local-repository", "ollama", "docker", "github"],
         },
     )
@@ -242,8 +242,10 @@ class CloudWorkerRuntime:
             "execution": ["local-repository", "ollama", "docker", "github"],
         }
 
-    def _lease_heartbeat(self, job: dict, lost: threading.Event) -> None:
-        while not self.stop_event.wait(self.heartbeat_seconds):
+    def _lease_heartbeat(
+        self, job: dict, lost: threading.Event, finished: threading.Event
+    ) -> None:
+        while not finished.wait(self.heartbeat_seconds):
             try:
                 self.client.renew(job)
                 self.client.heartbeat("0.1.0", self._capabilities())
@@ -269,9 +271,10 @@ class CloudWorkerRuntime:
             publish_requested=bool(job.get("publish_requested", False)),
         )
         lost = threading.Event()
+        finished = threading.Event()
         heartbeat = threading.Thread(
             target=self._lease_heartbeat,
-            args=(job, lost),
+            args=(job, lost, finished),
             name=f"asea-lease-{job_id[:8]}",
             daemon=True,
         )
@@ -331,16 +334,17 @@ class CloudWorkerRuntime:
                         "Local execution did not produce a successful terminal workflow result.",
                     )
                     return
-                self.client.complete(job, workflow)
+                cloud_result = {"status": "COMPLETED", "workflow": workflow}
+                if result.get("publishing") is not None:
+                    cloud_result["publishing"] = result["publishing"]
+                self.client.complete(job, cloud_result)
                 return
             self.client.fail(
                 job,
                 str(local_job.get("error") or local_job.get("message") or "Repair failed."),
             )
         finally:
-            self.stop_event.wait(0)
-            self.stop_event.clear()
-            lost.set()
+            finished.set()
             heartbeat.join(timeout=2)
 
     def run(self) -> None:

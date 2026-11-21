@@ -37,6 +37,21 @@ NEXT_PUBLIC_API_URL=http://127.0.0.1:8000
 
 Restart the Next.js development server after changing environment variables. This variable is public and is embedded in browser-side code; never put API keys, GitHub tokens, or other secrets in a `NEXT_PUBLIC_*` variable.
 
+
+## Configure Supabase authentication
+
+When the backend is configured for Supabase Auth, set these public project values in the frontend's `.env.local`:
+
+```dotenv
+NEXT_PUBLIC_SUPABASE_URL=https://YOUR_PROJECT.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=YOUR_SUPABASE_PUBLISHABLE_OR_ANON_KEY
+NEXT_PUBLIC_API_URL=http://127.0.0.1:8000
+```
+
+The dashboard then requires users to sign in or create an account. Access tokens are sent as Bearer tokens to the ASEA API, which verifies them server-side and scopes repair jobs to the verified user. The browser keeps the session in tab-scoped session storage; signing out clears it. Email confirmation behavior follows the Supabase project's Auth settings.
+
+For the backend, configure `SUPABASE_URL` and `SUPABASE_ANON_KEY` in the backend environment as described in the root deployment documentation. Never expose a Supabase service-role key or backend secret through a `NEXT_PUBLIC_*` variable. If the two frontend Supabase variables are absent, the app retains its existing local-development behavior without the sign-in screen.
+
 ## Quality checks and production build
 
 Run the checks used by CI:

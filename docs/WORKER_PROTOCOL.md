@@ -2,11 +2,11 @@
 
 ## Status and scope
 
-This document specifies the first distributed-worker protocol for the hybrid ASEA deployment. It is a design contract, not an implementation: the current `ASEA_EXECUTION_MODE=worker` runtime still uses a shared local SQLite database and is not compatible with a cloud API on another machine.
+This document specifies the distributed-worker protocol for the hybrid ASEA deployment. The PostgreSQL worker credential and lease API is being delivered incrementally. The current `ASEA_EXECUTION_MODE=worker` runtime still uses a shared local SQLite database and is not compatible with a cloud API on another machine.
 
 The first distributed release remains single-user until browser authentication and account ownership are implemented. Do not expose worker enrollment or job APIs publicly before those prerequisites and the persistence migration are complete.
 
-## Trust boundaries
+## Implementation status\n\nThe initial API foundation now provides one-time enrollment-code issuance and exchange, per-worker HMAC-hashed bearer credentials, owner-scoped worker listing/revocation, worker authentication, worker heartbeat, PostgreSQL queue claims with fencing generations, lease renewal, and idempotent bounded event insertion. The cloud worker runtime, safe review checkpoint handoff, completion/failure transitions, lease-expiry recovery, and end-to-end Supabase integration are not yet implemented. Do not deploy or connect a worker until those remaining stages and database-backed integration tests are complete.\n\nRequired backend settings are `ASEA_DATABASE_URL` and a randomly generated `ASEA_WORKER_CREDENTIAL_PEPPER` of at least 32 characters. Keep the pepper server-side and stable; changing it invalidates all enrolled worker credentials. Enrollment codes expire after 10 minutes and are single-use. Worker secrets are returned only once by the enrollment exchange.\n\n## Trust boundaries
 
 - The browser authenticates as a user. It never receives a worker credential.
 - A Windows worker authenticates independently with a per-worker credential.

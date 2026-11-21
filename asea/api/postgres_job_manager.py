@@ -123,7 +123,7 @@ class PostgresRepairJobManager(RepairJobManager):
                 SELECT table_name
                 FROM information_schema.tables
                 WHERE table_schema = 'public'
-                  AND table_name LIKE 'asea_%'
+                  AND left(table_name, 5) = 'asea_'
                 """
             ).fetchall()
         present = {row["table_name"] for row in rows}

@@ -92,7 +92,9 @@ def cloud_worker_status(
         if credentials is None:
             console.print("[yellow]This machine is not enrolled.[/yellow]")
             return
-        console.print("[bold green]Cloud worker credentials are installed.[/bold green]")
+        console.print(
+            "[bold green]Cloud worker credentials are installed.[/bold green]"
+        )
         console.print(f"Worker ID: {credentials['worker_id']}")
     except (RuntimeError, ValueError) as error:
         console.print(f"[bold red]Cloud worker status failed:[/bold red] {error}")

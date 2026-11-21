@@ -1,6 +1,7 @@
+from types import SimpleNamespace
+
 import pytest
 from fastapi import HTTPException
-from types import SimpleNamespace
 
 from asea.api import main
 

@@ -68,7 +68,9 @@ def verify_supabase_access_token(access_token: str) -> str:
             "Supabase authentication is temporarily unavailable."
         ) from None
     except (URLError, TimeoutError, OSError, ValueError):
-        raise SupabaseAuthError("Supabase authentication is temporarily unavailable.") from None
+        raise SupabaseAuthError(
+            "Supabase authentication is temporarily unavailable."
+        ) from None
 
     if not isinstance(payload, dict):
         raise SupabaseAuthError("Supabase returned an invalid identity response.")

@@ -176,6 +176,11 @@ class CloudWorkerManager:
                     WHERE l.job_id = asea_repair_jobs.job_id
                       AND l.released_at IS NULL
                   )
+                  AND NOT EXISTS (
+                    SELECT 1 FROM public.asea_job_leases own_lease
+                    WHERE own_lease.worker_id = %s
+                      AND own_lease.released_at IS NULL
+                  )
                 ORDER BY created_at, job_id
                 LIMIT 1 FOR UPDATE SKIP LOCKED
                 """,

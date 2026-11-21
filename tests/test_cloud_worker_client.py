@@ -31,7 +31,9 @@ def test_authenticated_request_sends_bearer_and_json():
     response.read.return_value = b'{"status":"ok"}'
     response.__enter__.return_value = response
     client = CloudWorkerClient("https://example.com", "worker-secret")
-    with patch("asea.api.cloud_worker_client.urlopen", return_value=response) as open_url:
+    with patch(
+        "asea.api.cloud_worker_client.urlopen", return_value=response
+    ) as open_url:
         assert client.heartbeat("0.1.0") == {"status": "ok"}
     request = open_url.call_args.args[0]
     assert request.get_header("Authorization") == "Bearer worker-secret"

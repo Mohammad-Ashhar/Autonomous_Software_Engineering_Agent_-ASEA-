@@ -1,6 +1,7 @@
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim().replace(/\/$/, "");
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim();
 const SESSION_KEY = "asea-supabase-session";
+let refreshInFlight: Promise<string | null> | null = null;
 
 export interface SupabaseSession {
   access_token: string;
@@ -93,7 +94,7 @@ export function signOut(): void {
 }
 
 export async function getAccessToken(): Promise<string | null> {
-  let session = readStoredSession();
+  const session = readStoredSession();
   if (!session) return null;
 
   const expiry = session.expires_at ?? (
@@ -103,17 +104,25 @@ export async function getAccessToken(): Promise<string | null> {
     return session.access_token;
   }
 
-  try {
-    session = await authRequest<SupabaseSession>("token?grant_type=refresh_token", {
-      refresh_token: session.refresh_token,
-    });
-    if (!session.access_token || !session.refresh_token) throw new Error("Refresh returned no session.");
-    storeSession(session);
-    return session.access_token;
-  } catch {
-    storeSession(null);
-    return null;
-  }
+  if (refreshInFlight) return refreshInFlight;
+  refreshInFlight = (async () => {
+    try {
+      const refreshed = await authRequest<SupabaseSession>("token?grant_type=refresh_token", {
+        refresh_token: session.refresh_token,
+      });
+      if (!refreshed.access_token || !refreshed.refresh_token) {
+        throw new Error("Refresh returned no session.");
+      }
+      storeSession(refreshed);
+      return refreshed.access_token;
+    } catch {
+      storeSession(null);
+      return null;
+    } finally {
+      refreshInFlight = null;
+    }
+  })();
+  return refreshInFlight;
 }
 
 export function getStoredSession(): SupabaseSession | null {

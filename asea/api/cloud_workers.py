@@ -37,6 +37,11 @@ class CloudWorkerManager:
     def _digest(self, secret: str) -> bytes:
         return hmac.new(self.pepper, secret.encode(), hashlib.sha256).digest()
 
+    @staticmethod
+    def _validate_capabilities(capabilities: dict) -> None:
+        if not isinstance(capabilities, dict) or len(str(capabilities).encode()) > 8192:
+            raise WorkerProtocolError("Worker capabilities must be an object under 8 KB.")
+
     def issue_enrollment_code(self, owner_id: str) -> dict[str, Any]:
         code = secrets.token_urlsafe(32)
         with self._connect() as connection:
@@ -54,6 +59,7 @@ class CloudWorkerManager:
     def enroll(self, code: str, version: str | None, capabilities: dict) -> dict:
         if not isinstance(code, str) or not 20 <= len(code) <= 200:
             raise WorkerProtocolError("Enrollment code is invalid or expired.")
+        self._validate_capabilities(capabilities)
         worker_secret = secrets.token_urlsafe(48)
         with self._connect() as connection:
             enrollment = connection.execute(
@@ -136,6 +142,7 @@ class CloudWorkerManager:
             return cursor.rowcount == 1
 
     def heartbeat(self, identity: dict, version: str | None, capabilities: dict):
+        self._validate_capabilities(capabilities)
         with self._connect() as connection:
             cursor = connection.execute(
                 """

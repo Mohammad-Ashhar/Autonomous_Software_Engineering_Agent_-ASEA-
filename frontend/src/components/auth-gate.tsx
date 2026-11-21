@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import {
+  getAccessToken,
   getStoredSession,
   isSupabaseAuthConfigured,
   signIn,
@@ -22,8 +23,13 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   const configured = isSupabaseAuthConfigured();
 
   useEffect(() => {
-    setSession(getStoredSession());
-    setReady(true);
+    let active = true;
+    void getAccessToken().finally(() => {
+      if (!active) return;
+      setSession(getStoredSession());
+      setReady(true);
+    });
+    return () => { active = false; };
   }, []);
 
   async function submit(event: FormEvent<HTMLFormElement>) {

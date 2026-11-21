@@ -190,6 +190,26 @@ def _workflow_job_outcome(result: dict[str, object]) -> tuple[str, str, str | No
     return "failed", message, error
 
 
+def _request_owner_id(request: Request | None) -> str | None:
+    """Return the identity attached by authentication middleware, if present."""
+    return getattr(getattr(request, "state", None), "user_id", None)
+
+
+def _get_request_job(job_id: str, owner_id: str | None):
+    """Keep direct local/test callers compatible while enforcing cloud ownership."""
+    if owner_id is None:
+        return repair_jobs.get_job(job_id)
+    return repair_jobs.get_job(job_id, owner_id=owner_id)
+
+
+def _list_request_jobs(limit: int, offset: int, status: str | None, owner_id: str | None):
+    if owner_id is None:
+        return repair_jobs.list_jobs(limit=limit, offset=offset, status=status)
+    return repair_jobs.list_jobs(
+        limit=limit, offset=offset, status=status, owner_id=owner_id
+    )
+
+
 def _safe_error_detail(error: Exception) -> str:
     """Keep actionable exception details while redacting common credentials."""
     detail = f"{type(error).__name__}: {error}"
@@ -461,7 +481,10 @@ class ReviewRequest(BaseModel):
         description="Optional feedback explaining the review decision.",
     )   
 @app.post("/repair", status_code=202)
-def start_repair(request: RepairRequest, http_request: Request):
+def start_repair(
+    request: RepairRequest,
+    http_request: Request = None,
+):
     """Start an ASEA repair job in the background."""
 
     repository = request.repository.strip()
@@ -486,12 +509,15 @@ def start_repair(request: RepairRequest, http_request: Request):
     job_id = str(uuid4())
 
     try:
-        job = repair_jobs.create_job(
-            job_id=job_id,
-            repository=repository,
-            publish_requested=request.publish,
-            owner_id=getattr(http_request.state, "user_id", None),
-        )
+        owner_id = _request_owner_id(http_request)
+        job_arguments = {
+            "job_id": job_id,
+            "repository": repository,
+            "publish_requested": request.publish,
+        }
+        if owner_id is not None:
+            job_arguments["owner_id"] = owner_id
+        job = repair_jobs.create_job(**job_arguments)
     except JobQueueFullError as error:
         raise HTTPException(
             status_code=503,
@@ -531,7 +557,7 @@ def start_repair(request: RepairRequest, http_request: Request):
 
 @app.get("/repairs")
 def list_repair_jobs(
-    http_request: Request,
+    http_request: Request = None,
     limit: int = 50,
     offset: int = 0,
     status: Literal[
@@ -564,22 +590,27 @@ def list_repair_jobs(
             status_code=400,
             detail="Unsupported repair job status.",
         )
-    return repair_jobs.list_jobs(
-        limit=limit,
-        offset=offset,
-        status=status,
-        owner_id=getattr(http_request.state, "user_id", None),
+    return _list_request_jobs(
+        limit, offset, status, _request_owner_id(http_request)
     )
 
 
 @app.post("/repair/{job_id}/publish", status_code=202)
-def retry_repair_publish(job_id: str, http_request: Request):
+def retry_repair_publish(
+    job_id: str,
+    http_request: Request = None,
+):
     """Retry publishing a validated repair without rerunning its workflow."""
-    owner_id = getattr(http_request.state, "user_id", None)
-    job = repair_jobs.get_job(job_id, owner_id=owner_id)
+    owner_id = _request_owner_id(http_request)
+    job = _get_request_job(job_id, owner_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Repair job not found.")
-    if not repair_jobs.claim_publishing_retry(job_id, owner_id=owner_id):
+    claimed = (
+        repair_jobs.claim_publishing_retry(job_id)
+        if owner_id is None
+        else repair_jobs.claim_publishing_retry(job_id, owner_id=owner_id)
+    )
+    if not claimed:
         raise HTTPException(
             status_code=409,
             detail=(
@@ -604,12 +635,13 @@ def retry_repair_publish(job_id: str, http_request: Request):
 
 
 @app.get("/repair/{job_id}")
-def get_repair_status(job_id: str, http_request: Request):
+def get_repair_status(
+    job_id: str,
+    http_request: Request = None,
+):
     """Retrieve the current status of a repair job."""
 
-    job = repair_jobs.get_job(
-        job_id, owner_id=getattr(http_request.state, "user_id", None)
-    )
+    job = _get_request_job(job_id, _request_owner_id(http_request))
 
     if job is None:
         raise HTTPException(
@@ -623,12 +655,12 @@ def get_repair_status(job_id: str, http_request: Request):
 def review_repair_patch(
     job_id: str,
     request: ReviewRequest,
-    http_request: Request,
+    http_request: Request = None,
 ):
     """Approve or reject a patch and resume the ASEA workflow."""
 
-    owner_id = getattr(http_request.state, "user_id", None)
-    job = repair_jobs.get_job(job_id, owner_id=owner_id)
+    owner_id = _request_owner_id(http_request)
+    job = _get_request_job(job_id, owner_id)
 
     if job is None:
         raise HTTPException(
@@ -651,12 +683,13 @@ def review_repair_patch(
     # Claim the review transition atomically before scheduling work.
     # This closes the race where duplicate requests both observe the
     # waiting_for_review state and enqueue concurrent graph resumes.
-    if not repair_jobs.claim_review(
-        job_id,
-        decision=request.decision,
-        feedback=request.feedback.strip(),
-        owner_id=owner_id,
-    ):
+    review_arguments = {
+        "decision": request.decision,
+        "feedback": request.feedback.strip(),
+    }
+    if owner_id is not None:
+        review_arguments["owner_id"] = owner_id
+    if not repair_jobs.claim_review(job_id, **review_arguments):
         raise HTTPException(
             status_code=409,
             detail="This repair job review has already been submitted.",

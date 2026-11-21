@@ -294,3 +294,27 @@ def test_api_rejects_invalid_supabase_access_token(monkeypatch):
     )
 
     assert response.status_code == 401
+
+
+@pytest.mark.parametrize("pepper", [None, "", "too-short"])
+def test_cloud_storage_requires_worker_credential_pepper(monkeypatch, pepper):
+    from asea.api.main import validate_cloud_worker_security_configuration
+
+    validate = validate_cloud_worker_security_configuration
+    with pytest.raises(RuntimeError, match="ASEA_WORKER_CREDENTIAL_PEPPER"):
+        validate("postgresql://db.example/asea?sslmode=require", pepper)
+
+
+def test_cloud_storage_accepts_sufficient_worker_credential_pepper():
+    from asea.api.main import validate_cloud_worker_security_configuration
+
+    validate_cloud_worker_security_configuration(
+        "postgresql://db.example/asea?sslmode=require",
+        "a-private-random-pepper-value-with-32-plus-characters",
+    )
+
+
+def test_local_sqlite_mode_does_not_require_worker_credential_pepper():
+    from asea.api.main import validate_cloud_worker_security_configuration
+
+    validate_cloud_worker_security_configuration(None, None)

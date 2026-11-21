@@ -31,8 +31,14 @@ deployed separately to Vercel from the `frontend` directory.
      including `sslmode=require`.
    - `SUPABASE_URL`: the HTTPS Supabase project URL, without a path.
    - `SUPABASE_ANON_KEY`: the Supabase anon/public key.
+   - `ASEA_WORKER_CREDENTIAL_PEPPER`: generate and set this before deployment;
+     the API now refuses PostgreSQL cloud mode without it.
    - `ASEA_CORS_ORIGINS`: the exact Vercel production origin, for example
      `https://your-project.vercel.app` (no path and no trailing slash).
+   - `ASEA_WORKER_CREDENTIAL_PEPPER`: a private random value of at least 32
+     characters, used to hash enrolled worker credentials. Generate one locally
+     with `python -c "import secrets; print(secrets.token_urlsafe(48))"` and
+     save it only as a Render secret. Never commit it or reuse a public key.
 4. Deploy and wait for the Render health check at `/ready` to pass.
 5. Record the public API origin, for example
    `https://asea-api.onrender.com`.

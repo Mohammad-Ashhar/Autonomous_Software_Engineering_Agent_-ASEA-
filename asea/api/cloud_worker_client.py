@@ -173,6 +173,27 @@ class CloudWorkerClient:
             },
         )
 
+    def pause_for_review(
+        self,
+        job_id: str,
+        lease_id: str,
+        generation: int,
+        review_request: dict,
+        checkpoint_reference: dict,
+        idempotency_key: str,
+    ) -> dict:
+        return self.request(
+            "POST",
+            f"/v1/worker/jobs/{job_id}/pause-for-review",
+            {
+                "lease_id": lease_id,
+                "fencing_generation": generation,
+                "review_request": review_request,
+                "checkpoint_reference": checkpoint_reference,
+                "idempotency_key": idempotency_key,
+            },
+        )
+
     def complete_job(
         self,
         job_id: str,

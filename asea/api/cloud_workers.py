@@ -365,6 +365,13 @@ class CloudWorkerManager:
     ) -> dict:
         """Persist a review interrupt and release its lease atomically."""
         self._validate_review_checkpoint(review_request, checkpoint_reference)
+        if (
+            checkpoint_reference.get("thread_id") != job_id
+            or checkpoint_reference.get("worker_id") != identity.get("worker_id")
+        ):
+            raise WorkerProtocolError(
+                "Checkpoint reference does not match this job and worker."
+            )
         if not isinstance(idempotency_key, str) or not 1 <= len(idempotency_key) <= 200:
             raise WorkerProtocolError(
                 "Idempotency key must contain 1 to 200 characters."

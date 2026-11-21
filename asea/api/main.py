@@ -19,6 +19,7 @@ from langgraph.checkpoint.sqlite import SqliteSaver
 from pydantic import BaseModel, ConfigDict, Field
 
 from asea.api.execution import RepairExecutionService
+from asea.api.cloud_workers import CloudWorkerManager, WorkerProtocolError
 from asea.api.job_manager import JobQueueFullError, repair_jobs
 from asea.api.protection import RequestProtectionMiddleware
 from asea.api.supabase_auth import (
@@ -88,6 +89,25 @@ async def lifespan(app: FastAPI):
     # A fresh executor is required for every application lifespan. This keeps
     # test clients and ASGI reloads from reusing an executor already shut down.
     executor = ThreadPoolExecutor(max_workers=1)
+_cloud_worker_manager = None
+
+
+def _cloud_workers() -> CloudWorkerManager:
+    global _cloud_worker_manager
+    if _cloud_worker_manager is None:
+        _cloud_worker_manager = CloudWorkerManager()
+    return _cloud_worker_manager
+
+
+def _worker_identity(request: Request) -> dict:
+    authorization = request.headers.get("authorization", "")
+    scheme, separator, secret = authorization.partition(" ")
+    if not separator or scheme.lower() != "bearer":
+        raise HTTPException(status_code=401, detail="Worker bearer credential required.")
+    identity = _cloud_workers().authenticate(secret.strip())
+    if identity is None:
+        raise HTTPException(status_code=401, detail="Worker credential is invalid or revoked.")
+    return identity
     worker_mode = (
         os.getenv("ASEA_EXECUTION_MODE", "api").strip().lower() == "worker"
     )
@@ -449,6 +469,34 @@ async def require_api_identity(request: Request, call_next):
     return await call_next(request)
 
 
+class WorkerEnrollmentRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    code: str = Field(..., min_length=20, max_length=200)
+    version: str | None = Field(default=None, max_length=80)
+    capabilities: dict = Field(default_factory=dict)
+
+
+class WorkerHeartbeatRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    version: str | None = Field(default=None, max_length=80)
+    capabilities: dict = Field(default_factory=dict)
+
+
+class WorkerLeaseHeartbeatRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    lease_id: str
+    fencing_generation: int = Field(..., ge=1)
+
+
+class WorkerEventRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    lease_id: str
+    fencing_generation: int = Field(..., ge=1)
+    event_type: str = Field(..., min_length=1, max_length=80)
+    payload: dict = Field(default_factory=dict)
+    idempotency_key: str = Field(..., min_length=1, max_length=200)
+
+
 class AnalyzeRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
@@ -485,6 +533,104 @@ class ReviewRequest(BaseModel):
         max_length=2000,
         description="Optional feedback explaining the review decision.",
     )   
+@app.post("/v1/workers/enrollment-code")
+def create_worker_enrollment_code(http_request: Request):
+    owner_id = _request_owner_id(http_request)
+    if owner_id is None:
+        raise HTTPException(status_code=401, detail="Supabase user authentication required.")
+    try:
+        return _cloud_workers().issue_enrollment_code(owner_id)
+    except RuntimeError as error:
+        raise HTTPException(status_code=503, detail="Cloud worker storage is not configured.") from error
+
+
+@app.get("/v1/workers")
+def get_cloud_workers(http_request: Request):
+    owner_id = _request_owner_id(http_request)
+    if owner_id is None:
+        raise HTTPException(status_code=401, detail="Supabase user authentication required.")
+    try:
+        return {"items": _cloud_workers().list_workers(owner_id)}
+    except RuntimeError as error:
+        raise HTTPException(status_code=503, detail="Cloud worker storage is not configured.") from error
+
+
+@app.post("/v1/workers/{worker_id}/revoke")
+def revoke_cloud_worker(worker_id: str, http_request: Request):
+    owner_id = _request_owner_id(http_request)
+    if owner_id is None:
+        raise HTTPException(status_code=401, detail="Supabase user authentication required.")
+    try:
+        if not _cloud_workers().revoke_worker(owner_id, worker_id):
+            raise HTTPException(status_code=404, detail="Worker not found or already revoked.")
+        return {"status": "revoked", "worker_id": worker_id}
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail="Invalid worker ID.") from error
+    except RuntimeError as error:
+        raise HTTPException(status_code=503, detail="Cloud worker storage is not configured.") from error
+
+
+@app.post("/v1/worker/enroll")
+def enroll_cloud_worker(request: WorkerEnrollmentRequest):
+    try:
+        return _cloud_workers().enroll(
+            request.code, request.version, request.capabilities
+        )
+    except WorkerProtocolError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    except RuntimeError as error:
+        raise HTTPException(status_code=503, detail="Cloud worker storage is not configured.") from error
+
+
+@app.post("/v1/worker/heartbeat")
+def cloud_worker_heartbeat(request: WorkerHeartbeatRequest, http_request: Request):
+    try:
+        _cloud_workers().heartbeat(
+            _worker_identity(http_request), request.version, request.capabilities
+        )
+        return {"status": "ok"}
+    except WorkerProtocolError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+
+
+@app.post("/v1/worker/jobs/claim")
+def claim_cloud_worker_job(http_request: Request):
+    try:
+        job = _cloud_workers().claim_job(_worker_identity(http_request))
+        return {"job": job}
+    except WorkerProtocolError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+
+
+@app.post("/v1/worker/jobs/{job_id}/heartbeat")
+def heartbeat_cloud_worker_job(
+    job_id: str, request: WorkerLeaseHeartbeatRequest, http_request: Request
+):
+    try:
+        expires_at = _cloud_workers().renew_lease(
+            _worker_identity(http_request), job_id, request.lease_id,
+            request.fencing_generation,
+        )
+        return {"lease_expires_at": expires_at}
+    except WorkerProtocolError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+
+
+@app.post("/v1/worker/jobs/{job_id}/events")
+def append_cloud_worker_event(
+    job_id: str, request: WorkerEventRequest, http_request: Request
+):
+    try:
+        event_id = _cloud_workers().append_event(
+            _worker_identity(http_request), job_id, request.lease_id,
+            request.fencing_generation, request.event_type, request.payload,
+            request.idempotency_key,
+        )
+        return {"event_id": event_id}
+    except WorkerProtocolError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+
+
 @app.post("/repair", status_code=202)
 def start_repair(
     request: RepairRequest,

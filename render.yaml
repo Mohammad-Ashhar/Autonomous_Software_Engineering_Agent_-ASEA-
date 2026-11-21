@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: asea-api
+    runtime: python
+    plan: free
+    region: singapore
+    buildCommand: pip install ".[api]"
+    startCommand: uvicorn asea.api.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /ready
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.0
+      - key: ASEA_ENV
+        value: production
+      - key: ASEA_EXECUTION_MODE
+        value: api
+      - key: ASEA_DATABASE_URL
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: ASEA_CORS_ORIGINS
+        sync: false

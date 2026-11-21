@@ -6,7 +6,13 @@ This document specifies the distributed-worker protocol for the hybrid ASEA depl
 
 Cloud worker enrollment and job operations are owner-scoped through the authenticated API. Do not expose the service until the Supabase migrations, production secrets, CORS, rate limits, and end-to-end deployment checks are complete.
 
-## Implementation status\n\nThe API foundation now provides one-time enrollment-code issuance and exchange, per-worker HMAC-hashed bearer credentials, owner-scoped worker listing/revocation, worker authentication, worker heartbeat, PostgreSQL queue claims with fencing generations, lease renewal, idempotent bounded event insertion, and fenced completion/failure endpoints. Expired leases are conservatively finalized as failed before a subsequent claim; jobs are never blindly replayed. The cloud worker runtime and safe review checkpoint handoff are implemented; live Supabase integration validation remains outstanding. Do not deploy or connect a worker until those remaining stages and database-backed integration tests are complete.\n\nRequired backend settings are `ASEA_DATABASE_URL` and a randomly generated `ASEA_WORKER_CREDENTIAL_PEPPER` of at least 32 characters. Keep the pepper server-side and stable; changing it invalidates all enrolled worker credentials. Enrollment codes expire after 10 minutes and are single-use. Worker secrets are returned only once by the enrollment exchange.\n\n### Implemented API routes
+## Implementation status
+
+The API provides one-time enrollment-code issuance and exchange, per-worker HMAC-hashed bearer credentials, owner-scoped worker listing and revocation, worker authentication, periodic worker heartbeats, PostgreSQL queue claims with fencing generations, lease renewal, idempotent bounded event insertion, fenced completion and failure endpoints, review pause/resume, and durable LangGraph checkpoints. Expired running leases are conservatively finalized as failed; jobs are never blindly replayed. Live Supabase deployment and full end-to-end validation remain outstanding.
+
+Required backend settings are `ASEA_DATABASE_URL` and a randomly generated `ASEA_WORKER_CREDENTIAL_PEPPER` of at least 32 characters. Keep the pepper server-side and stable; changing it invalidates all enrolled worker credentials. Enrollment codes expire after 10 minutes and are single-use. Worker secrets are returned only once by the enrollment exchange.
+
+### Implemented API routes
 
 - User-authenticated: `POST /v1/workers/enrollment-code`, `GET /v1/workers`, and `POST /v1/workers/{worker_id}/revoke`.
 - Worker-authenticated: `POST /v1/worker/enroll`, `POST /v1/worker/heartbeat`, `POST /v1/worker/jobs/claim`, `POST /v1/worker/jobs/{job_id}/heartbeat`, and `POST /v1/worker/jobs/{job_id}/events`, `POST /v1/worker/jobs/{job_id}/complete`, and `POST /v1/worker/jobs/{job_id}/fail`.

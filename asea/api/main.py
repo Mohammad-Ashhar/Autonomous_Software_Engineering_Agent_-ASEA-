@@ -915,11 +915,11 @@ def review_repair_patch(
     """Approve or reject a patch and resume the ASEA workflow."""
 
     owner_id = _request_owner_id(http_request)
-    if owner_id is None:
-        raise HTTPException(
-            status_code=401, detail="Supabase user authentication required."
-        )
     if os.getenv("ASEA_DATABASE_URL", "").strip():
+        if owner_id is None:
+            raise HTTPException(
+                status_code=401, detail="Supabase user authentication required."
+            )
         job = _get_request_job(job_id, owner_id)
         if job is None:
             raise HTTPException(status_code=404, detail="Repair job not found.")

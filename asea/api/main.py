@@ -202,7 +202,12 @@ def _get_request_job(job_id: str, owner_id: str | None):
     return repair_jobs.get_job(job_id, owner_id=owner_id)
 
 
-def _list_request_jobs(limit: int, offset: int, status: str | None, owner_id: str | None):
+def _list_request_jobs(
+    limit: int,
+    offset: int,
+    status: str | None,
+    owner_id: str | None,
+):
     if owner_id is None:
         return repair_jobs.list_jobs(limit=limit, offset=offset, status=status)
     return repair_jobs.list_jobs(

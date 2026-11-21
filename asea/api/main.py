@@ -63,6 +63,22 @@ def validate_api_security_configuration(
         ) from error
 
 
+def validate_cloud_worker_security_configuration(
+    database_url: str | None,
+    credential_pepper: str | None,
+) -> None:
+    """Require a private credential-hashing key whenever cloud storage is enabled."""
+    if (
+        database_url
+        and database_url.strip()
+        and len((credential_pepper or "").encode()) < 32
+    ):
+        raise RuntimeError(
+            "ASEA_WORKER_CREDENTIAL_PEPPER must contain at least 32 characters "
+            "when ASEA_DATABASE_URL is configured."
+        )
+
+
 def is_valid_api_key(authorization: str | None, expected_key: str) -> bool:
     """Validate a Bearer API key without leaking timing information."""
     if not authorization:
@@ -89,7 +105,12 @@ async def lifespan(app: FastAPI):
     worker_mode = (
         os.getenv("ASEA_EXECUTION_MODE", "api").strip().lower() == "worker"
     )
-    cloud_storage = bool(os.getenv("ASEA_DATABASE_URL", "").strip())
+    database_url = os.getenv("ASEA_DATABASE_URL", "").strip()
+    cloud_storage = bool(database_url)
+    validate_cloud_worker_security_configuration(
+        database_url,
+        os.getenv("ASEA_WORKER_CREDENTIAL_PEPPER"),
+    )
     if worker_mode and cloud_storage:
         raise RuntimeError(
             "The local SQLite worker cannot use ASEA_DATABASE_URL. "

@@ -40,7 +40,9 @@ class CloudWorkerManager:
     @staticmethod
     def _validate_capabilities(capabilities: dict) -> None:
         if not isinstance(capabilities, dict) or len(str(capabilities).encode()) > 8192:
-            raise WorkerProtocolError("Worker capabilities must be an object under 8 KB.")
+            raise WorkerProtocolError(
+                "Worker capabilities must be an object under 8 KB."
+            )
 
     def issue_enrollment_code(self, owner_id: str) -> dict[str, Any]:
         code = secrets.token_urlsafe(32)

@@ -67,10 +67,6 @@ def enroll_cloud_worker(
         console.print("[bold green]Cloud worker enrolled successfully.[/bold green]")
         console.print(f"Worker ID: {worker_id}")
         console.print("Credential storage: operating system credential vault")
-        console.print(
-            "[yellow]Job execution is not enabled yet; keep using the existing "
-            "local worker until the cloud runtime delivery is complete.[/yellow]"
-        )
     except (CloudWorkerAPIError, RuntimeError, ValueError) as error:
         console.print(f"[bold red]Cloud worker enrollment failed:[/bold red] {error}")
         raise typer.Exit(code=1) from error
@@ -98,6 +94,24 @@ def cloud_worker_status(
         console.print(f"Worker ID: {credentials['worker_id']}")
     except (RuntimeError, ValueError) as error:
         console.print(f"[bold red]Cloud worker status failed:[/bold red] {error}")
+        raise typer.Exit(code=1) from error
+
+
+@cloud_worker_app.command("run")
+def run_cloud_worker(
+    api_url: str = typer.Option(
+        ...,
+        "--api-url",
+        help="HTTPS base URL of the deployed ASEA API.",
+    ),
+):
+    """Poll the cloud queue and execute repairs on this enrolled machine."""
+    from asea.api.cloud_worker_runtime import run
+
+    try:
+        run(api_url)
+    except (RuntimeError, ValueError) as error:
+        console.print(f"[bold red]Cloud worker stopped:[/bold red] {error}")
         raise typer.Exit(code=1) from error
 
 

@@ -64,6 +64,7 @@ class RepairJobManager:
                 """
                 CREATE TABLE IF NOT EXISTS repair_jobs (
                     job_id TEXT PRIMARY KEY,
+                    owner_id TEXT,
                     repository TEXT NOT NULL,
                     status TEXT NOT NULL,
                     message TEXT NOT NULL,
@@ -85,6 +86,10 @@ class RepairJobManager:
                     "PRAGMA table_info(repair_jobs)"
                 ).fetchall()
             }
+            if "owner_id" not in columns:
+                connection.execute(
+                    "ALTER TABLE repair_jobs ADD COLUMN owner_id TEXT"
+                )
             if "publish_requested" not in columns:
                 connection.execute(
                     "ALTER TABLE repair_jobs ADD COLUMN "
@@ -144,6 +149,7 @@ class RepairJobManager:
         job_id: str,
         repository: str,
         publish_requested: bool = False,
+        owner_id: str | None = None,
     ) -> dict[str, Any]:
         """Register a new repair job."""
         if not isinstance(job_id, str) or not job_id.strip() or len(job_id) > 128:
@@ -161,6 +167,7 @@ class RepairJobManager:
 
         job = {
             "job_id": job_id,
+            "owner_id": owner_id,
             "repository": repository,
             "status": "queued",
             "message": "Repair job created.",
@@ -186,14 +193,15 @@ class RepairJobManager:
                 connection.execute(
                     """
                     INSERT INTO repair_jobs (
-                        job_id, repository, status, message,
+                        job_id, owner_id, repository, status, message,
                         created_at, updated_at,
                         review_request, result, error, publish_requested
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         job["job_id"],
+                        job["owner_id"],
                         job["repository"],
                         job["status"],
                         job["message"],
@@ -336,28 +344,42 @@ class RepairJobManager:
         with self._connection() as connection:
             connection.execute("SELECT 1").fetchone()
 
-    def get_job(self, job_id: str) -> dict[str, Any] | None:
-        """Retrieve a repair job."""
-
+    def get_job(
+        self, job_id: str, owner_id: str | None = None
+    ) -> dict[str, Any] | None:
+        """Retrieve a repair job, optionally restricted to its owner."""
         with self.lock:
             with self._connection() as connection:
-                row = connection.execute(
-                    "SELECT * FROM repair_jobs WHERE job_id = ?",
-                    (job_id,),
-                ).fetchone()
+                if owner_id is None:
+                    row = connection.execute(
+                        "SELECT * FROM repair_jobs WHERE job_id = ?", (job_id,)
+                    ).fetchone()
+                else:
+                    row = connection.execute(
+                        "SELECT * FROM repair_jobs WHERE job_id = ? AND owner_id = ?",
+                        (job_id, owner_id),
+                    ).fetchone()
 
                 return self._row_to_dict(row) if row else None
 
 
-    def claim_publishing_retry(self, job_id: str) -> bool:
+    def claim_publishing_retry(
+        self, job_id: str, owner_id: str | None = None
+    ) -> bool:
         """Atomically claim a retry for a completed, failed publication."""
         with self.lock:
             with self._connection() as connection:
-                row = connection.execute(
-                    "SELECT result, status, publish_requested, publishing_retry "
-                    "FROM repair_jobs WHERE job_id = ?",
-                    (job_id,),
-                ).fetchone()
+                if owner_id is None:
+                    row = connection.execute(
+                        "SELECT result, status, publish_requested, publishing_retry "
+                        "FROM repair_jobs WHERE job_id = ?", (job_id,)
+                    ).fetchone()
+                else:
+                    row = connection.execute(
+                        "SELECT result, status, publish_requested, publishing_retry "
+                        "FROM repair_jobs WHERE job_id = ? AND owner_id = ?",
+                        (job_id, owner_id),
+                    ).fetchone()
                 if row is None or row["status"] != "completed":
                     return False
                 if not row["publish_requested"] or row["publishing_retry"]:
@@ -365,11 +387,15 @@ class RepairJobManager:
                 result = self._deserialize(row["result"]) or {}
                 if result.get("publishing", {}).get("status") != "PUBLISH_FAILED":
                     return False
+                owner_clause = " AND owner_id = ?" if owner_id is not None else ""
+                values = [datetime.now(timezone.utc).isoformat(), job_id]
+                if owner_id is not None:
+                    values.append(owner_id)
                 cursor = connection.execute(
                     "UPDATE repair_jobs SET publishing_retry = 1, "
                     "updated_at = ? WHERE job_id = ? AND status = 'completed' "
-                    "AND publishing_retry = 0",
-                    (datetime.now(timezone.utc).isoformat(), job_id),
+                    "AND publishing_retry = 0" + owner_clause,
+                    values,
                 )
                 return cursor.rowcount == 1
 
@@ -389,6 +415,7 @@ class RepairJobManager:
         job_id: str,
         decision: str | None = None,
         feedback: str = "",
+        owner_id: str | None = None,
     ) -> bool:
         """Atomically persist and claim a review decision before scheduling it."""
         if decision not in {None, "approved", "rejected"}:
@@ -400,17 +427,16 @@ class RepairJobManager:
         now = datetime.now(timezone.utc).isoformat()
         with self.lock:
             with self._connection() as connection:
+                owner_clause = " AND owner_id = ?" if owner_id is not None else ""
+                values = [decision, feedback.strip(), now, job_id]
+                if owner_id is not None:
+                    values.append(owner_id)
                 cursor = connection.execute(
-                    """
-                    UPDATE repair_jobs
-                    SET status = 'running',
-                        message = 'Processing patch review decision.',
-                        review_decision = ?,
-                        review_feedback = ?,
-                        updated_at = ?
-                    WHERE job_id = ? AND status = 'waiting_for_review'
-                    """,
-                    (decision, feedback.strip(), now, job_id),
+                    "UPDATE repair_jobs SET status = 'running', "
+                    "message = 'Processing patch review decision.', "
+                    "review_decision = ?, review_feedback = ?, updated_at = ? "
+                    "WHERE job_id = ? AND status = 'waiting_for_review'" + owner_clause,
+                    values,
                 )
                 return cursor.rowcount == 1
 
@@ -581,8 +607,9 @@ class RepairJobManager:
         limit: int = 50,
         offset: int = 0,
         status: str | None = None,
+        owner_id: str | None = None,
     ) -> dict[str, Any]:
-        """Return a newest-first page of persisted repair jobs."""
+        """Return a newest-first page of jobs, optionally restricted to an owner."""
         if not 1 <= limit <= 100:
             raise ValueError("limit must be between 1 and 100")
         if offset < 0:
@@ -597,8 +624,15 @@ class RepairJobManager:
 
         with self.lock:
             with self._connection() as connection:
-                where_clause = "WHERE status = ?" if status else ""
-                parameters: tuple[Any, ...] = (status,) if status else ()
+                filters = []
+                parameters: list[Any] = []
+                if status is not None:
+                    filters.append("status = ?")
+                    parameters.append(status)
+                if owner_id is not None:
+                    filters.append("owner_id = ?")
+                    parameters.append(owner_id)
+                where_clause = "WHERE " + " AND ".join(filters) if filters else ""
                 total = connection.execute(
                     f"SELECT COUNT(*) FROM repair_jobs {where_clause}",
                     parameters,

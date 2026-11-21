@@ -20,7 +20,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from asea.api.cloud_workers import CloudWorkerManager, WorkerProtocolError
 from asea.api.execution import RepairExecutionService
-from asea.api.job_manager import JobQueueFullError, repair_jobs
+from asea.api.job_manager import JobQueueFullError
+from asea.api.job_storage import repair_jobs
 from asea.api.protection import RequestProtectionMiddleware
 from asea.api.supabase_auth import (
     SupabaseAuthError,
@@ -88,20 +89,32 @@ async def lifespan(app: FastAPI):
     worker_mode = (
         os.getenv("ASEA_EXECUTION_MODE", "api").strip().lower() == "worker"
     )
+    cloud_storage = bool(os.getenv("ASEA_DATABASE_URL", "").strip())
+    if worker_mode and cloud_storage:
+        raise RuntimeError(
+            "The local SQLite worker cannot use ASEA_DATABASE_URL. "
+            "Cloud workers use the HTTPS worker protocol."
+        )
 
     try:
         checkpointer_context = (
             nullcontext(None)
-            if worker_mode
+            if worker_mode or cloud_storage
             else SqliteSaver.from_conn_string(str(CHECKPOINT_DB_PATH))
         )
         with checkpointer_context as checkpointer:
             if checkpointer is not None:
                 checkpointer.setup()
-            recovered = 0 if worker_mode else repair_jobs.mark_interrupted_jobs()
+            if cloud_storage:
+                repair_jobs.check_database()
+            recovered = (
+                0
+                if worker_mode or cloud_storage
+                else repair_jobs.mark_interrupted_jobs()
+            )
             publishing_retries = (
                 0
-                if worker_mode
+                if worker_mode or cloud_storage
                 else repair_jobs.reset_interrupted_publishing_retries()
             )
             if publishing_retries:
@@ -120,7 +133,7 @@ async def lifespan(app: FastAPI):
                 if checkpointer is not None
                 else None
             )
-            if not worker_mode:
+            if not worker_mode and not cloud_storage:
                 for pending_review in repair_jobs.list_pending_reviews():
                     try:
                         executor.submit(
@@ -692,7 +705,10 @@ def start_repair(
         ) from error
 
     try:
-        if os.getenv("ASEA_EXECUTION_MODE", "api").strip().lower() != "worker":
+        if (
+            os.getenv("ASEA_EXECUTION_MODE", "api").strip().lower() != "worker"
+            and not os.getenv("ASEA_DATABASE_URL", "").strip()
+        ):
             executor.submit(
                 run_repair_job,
                 job_id,
@@ -767,6 +783,14 @@ def retry_repair_publish(
     http_request: Request = None,
 ):
     """Retry publishing a validated repair without rerunning its workflow."""
+    if os.getenv("ASEA_DATABASE_URL", "").strip():
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Cloud publishing retries will be enabled with cloud job "
+                "lifecycle support."
+            ),
+        )
     owner_id = _request_owner_id(http_request)
     job = _get_request_job(job_id, owner_id)
     if job is None:
@@ -825,6 +849,14 @@ def review_repair_patch(
 ):
     """Approve or reject a patch and resume the ASEA workflow."""
 
+    if os.getenv("ASEA_DATABASE_URL", "").strip():
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Cloud review handoff will be enabled with cloud job "
+                "lifecycle support."
+            ),
+        )
     owner_id = _request_owner_id(http_request)
     job = _get_request_job(job_id, owner_id)
 
@@ -907,7 +939,12 @@ def readiness_check():
         worker_mode = (
             os.getenv("ASEA_EXECUTION_MODE", "api").strip().lower() == "worker"
         )
-        if not worker_mode and not getattr(app.state, "graph", None):
+        cloud_storage = bool(os.getenv("ASEA_DATABASE_URL", "").strip())
+        if (
+            not worker_mode
+            and not cloud_storage
+            and not getattr(app.state, "graph", None)
+        ):
             raise RuntimeError("Workflow graph is not initialized.")
         repair_jobs.check_database()
     except Exception as error:

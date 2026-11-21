@@ -149,12 +149,18 @@ class CloudWorkerManager:
                         )::text
                     ),
                     updated_at = now()
-                WHERE status = 'running' AND job_id IN (
-                    SELECT job_id FROM public.asea_job_leases
-                    WHERE worker_id = %s AND released_at IS NULL
+                WHERE (
+                    status = 'running' AND job_id IN (
+                        SELECT job_id FROM public.asea_job_leases
+                        WHERE worker_id = %s AND released_at IS NULL
+                    )
+                ) OR (
+                    status IN ('queued', 'waiting_for_review')
+                    AND execution_worker_id = %s
+                    AND checkpoint_reference IS NOT NULL
                 )
                 """,
-                (UUID(worker_id),),
+                (UUID(worker_id), UUID(worker_id)),
             )
             connection.execute(
                 """
@@ -478,6 +484,10 @@ class CloudWorkerManager:
                   AND status = 'waiting_for_review'
                   AND checkpoint_reference IS NOT NULL
                   AND execution_worker_id IS NOT NULL
+                  AND EXISTS (
+                      SELECT 1 FROM public.asea_workers w
+                      WHERE w.worker_id = execution_worker_id AND w.status = 'active'
+                  )
                 RETURNING job_id
                 """,
                 (decision, feedback.strip(), job_id, UUID(owner_id)),

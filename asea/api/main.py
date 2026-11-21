@@ -82,13 +82,73 @@ async def lifespan(app: FastAPI):
         os.getenv("ASEA_ENV", "development"),
         os.getenv("ASEA_API_KEY"),
     )
-    CHECKPOINT_DB_PATH.parent.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
-    # A fresh executor is required for every application lifespan. This keeps
-    # test clients and ASGI reloads from reusing an executor already shut down.
+    CHECKPOINT_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    # A fresh executor is required for every application lifespan.
     executor = ThreadPoolExecutor(max_workers=1)
+    worker_mode = (
+        os.getenv("ASEA_EXECUTION_MODE", "api").strip().lower() == "worker"
+    )
+
+    try:
+        checkpointer_context = (
+            nullcontext(None)
+            if worker_mode
+            else SqliteSaver.from_conn_string(str(CHECKPOINT_DB_PATH))
+        )
+        with checkpointer_context as checkpointer:
+            if checkpointer is not None:
+                checkpointer.setup()
+            recovered = 0 if worker_mode else repair_jobs.mark_interrupted_jobs()
+            publishing_retries = (
+                0
+                if worker_mode
+                else repair_jobs.reset_interrupted_publishing_retries()
+            )
+            if publishing_retries:
+                logging.warning(
+                    "Released %s interrupted publishing retries after restart.",
+                    publishing_retries,
+                )
+            if recovered:
+                logging.warning(
+                    "Marked %s interrupted repair jobs after restart.",
+                    recovered,
+                )
+            app.state.checkpointer = checkpointer
+            app.state.graph = (
+                build_asea_graph(checkpointer=checkpointer)
+                if checkpointer is not None
+                else None
+            )
+            if not worker_mode:
+                for pending_review in repair_jobs.list_pending_reviews():
+                    try:
+                        executor.submit(
+                            resume_repair_job,
+                            pending_review["job_id"],
+                            pending_review["review_decision"],
+                            pending_review.get("review_feedback") or "",
+                        )
+                    except RuntimeError:
+                        repair_jobs.release_review_claim(pending_review["job_id"])
+                        logging.exception(
+                            "Could not recover pending patch review %s.",
+                            pending_review["job_id"],
+                        )
+                print("ASEA SQLite checkpoint database initialized.")
+                print("ASEA LangGraph workflow compiled successfully.")
+            yield
+    finally:
+        logging.info(
+            "ASEA API is shutting down; draining active background work."
+        )
+        await asyncio.to_thread(
+            executor.shutdown,
+            wait=True,
+            cancel_futures=True,
+        )
+
+
 _cloud_worker_manager = None
 
 
@@ -112,82 +172,9 @@ def _worker_identity(request: Request) -> dict:
             status_code=401, detail="Worker credential is invalid or revoked."
         )
     return identity
-    worker_mode = (
-        os.getenv("ASEA_EXECUTION_MODE", "api").strip().lower() == "worker"
-    )
 
-    try:
-        # Keep the executor cleanup outside the checkpointer context so even a
-        # failed database setup or graph compilation cannot leak its worker.
-        checkpointer_context = (
-            nullcontext(None)
-            if worker_mode
-            else SqliteSaver.from_conn_string(str(CHECKPOINT_DB_PATH))
-        )
-        with checkpointer_context as checkpointer:
-            if checkpointer is not None:
-                checkpointer.setup()
-            # In worker mode the separate local process owns execution recovery.
-            # The API must not mark its queued jobs as interrupted.
-            recovered = 0 if worker_mode else repair_jobs.mark_interrupted_jobs()
-            publishing_retries = (
-                0
-                if worker_mode
-                else repair_jobs.reset_interrupted_publishing_retries()
-            )
-            if publishing_retries:
-                logging.warning(
-                    "Released %s interrupted publishing retries after restart.",
-                    publishing_retries,
-                )
-            if recovered:
-                logging.warning(
-                    "Marked %s interrupted repair jobs after restart.",
-                    recovered,
-                )
-
-            app.state.checkpointer = checkpointer
-            app.state.graph = (
-                build_asea_graph(checkpointer=checkpointer)
-                if checkpointer is not None
-                else None
-            )
-            # Review decisions are committed to SQLite before scheduling. If
-            # the process stopped between those steps, resume them on startup.
-            if not worker_mode:
-                for pending_review in repair_jobs.list_pending_reviews():
-                    try:
-                        executor.submit(
-                            resume_repair_job,
-                            pending_review["job_id"],
-                            pending_review["review_decision"],
-                            pending_review.get("review_feedback") or "",
-                        )
-                    except RuntimeError:
-                        repair_jobs.release_review_claim(pending_review["job_id"])
-                        logging.exception(
-                            "Could not recover pending patch review %s.",
-                            pending_review["job_id"],
-                        )
-
-            if not worker_mode:
-                print("ASEA SQLite checkpoint database initialized.")
-                print("ASEA LangGraph workflow compiled successfully.")
-            yield
-    finally:
-        logging.info(
-            "ASEA API is shutting down; draining active background work."
-        )
-        # Keep the SQLite checkpointer open until the running workflow has
-        # finished. Cancel queued jobs, but do not abandon active work.
-        await asyncio.to_thread(
-            executor.shutdown,
-            wait=True,
-            cancel_futures=True,
-        )
 
 executor = ThreadPoolExecutor(max_workers=1)
-
 
 def _workflow_job_outcome(result: dict[str, object]) -> tuple[str, str, str | None]:
     """Map LangGraph terminal states to truthful API job outcomes."""

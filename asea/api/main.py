@@ -61,6 +61,19 @@ def validate_api_security_configuration(
         ) from error
 
 
+def is_valid_api_key(authorization: str | None, expected_key: str) -> bool:
+    """Validate a Bearer API key without leaking timing information."""
+    if not authorization:
+        return False
+    scheme, separator, supplied_key = authorization.partition(" ")
+    return (
+        bool(separator)
+        and scheme.lower() == "bearer"
+        and bool(supplied_key)
+        and secrets.compare_digest(supplied_key, expected_key)
+    )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global executor

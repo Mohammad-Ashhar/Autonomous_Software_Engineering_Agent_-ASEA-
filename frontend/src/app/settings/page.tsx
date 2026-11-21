@@ -134,7 +134,7 @@ export default function SettingsPage() {
       <section className="settings-panel">
         <h2>Windows setup commands</h2>
         <p>Open PowerShell in your local ASEA repository folder and run:</p>
-        <code className="settings-command">python -m pip install -e ".[cloud-worker]"</code>
+        <code className="settings-command">python -m pip install -e &quot;.[cloud-worker]&quot;</code>
         <code className="settings-command">asea cloud-worker enroll --api-url {API_URL || "https://YOUR-RENDER-SERVICE.onrender.com"}</code>
         <p>When prompted, paste the one-time enrollment code. Then check the enrollment:</p>
         <code className="settings-command">asea cloud-worker status --api-url {API_URL || "https://YOUR-RENDER-SERVICE.onrender.com"}</code>

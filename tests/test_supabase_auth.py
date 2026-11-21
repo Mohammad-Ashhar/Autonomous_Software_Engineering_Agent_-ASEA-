@@ -74,7 +74,13 @@ def test_rejects_expired_or_invalid_token(monkeypatch):
     configure_supabase(monkeypatch)
 
     def fake_urlopen(_request, timeout):
-        raise HTTPError("https://example.supabase.co/auth/v1/user", 401, "Unauthorized", {}, BytesIO())
+        raise HTTPError(
+            "https://example.supabase.co/auth/v1/user",
+            401,
+            "Unauthorized",
+            {},
+            BytesIO(),
+        )
 
     monkeypatch.setattr(supabase_auth, "urlopen", fake_urlopen)
 

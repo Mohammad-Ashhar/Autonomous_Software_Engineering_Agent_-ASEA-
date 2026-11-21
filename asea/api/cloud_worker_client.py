@@ -76,7 +76,9 @@ class CloudWorkerClient:
             headers["Content-Type"] = "application/json"
         if authenticated:
             if not self.worker_secret:
-                raise CloudWorkerAPIError(None, "Worker credentials are not configured.")
+                raise CloudWorkerAPIError(
+                    None, "Worker credentials are not configured."
+                )
             headers["Authorization"] = f"Bearer {self.worker_secret}"
         request = Request(
             f"{self.api_url}{path}",
@@ -97,15 +99,23 @@ class CloudWorkerClient:
         except (URLError, TimeoutError, OSError) as error:
             # Do not include request headers or credential-bearing objects.
             reason = getattr(error, "reason", None)
-            detail = type(reason).__name__ if reason is not None else type(error).__name__
-            raise CloudWorkerAPIError(None, f"Cloud API connection failed ({detail}).") from None
+            detail = (
+                type(reason).__name__ if reason is not None else type(error).__name__
+            )
+            raise CloudWorkerAPIError(
+                None, f"Cloud API connection failed ({detail})."
+            ) from None
 
         try:
             decoded = json.loads(raw.decode("utf-8"))
         except (UnicodeDecodeError, ValueError):
-            raise CloudWorkerAPIError(None, "Cloud API returned an invalid JSON response.") from None
+            raise CloudWorkerAPIError(
+                None, "Cloud API returned an invalid JSON response."
+            ) from None
         if not isinstance(decoded, dict):
-            raise CloudWorkerAPIError(None, "Cloud API returned an unexpected response.")
+            raise CloudWorkerAPIError(
+                None, "Cloud API returned an unexpected response."
+            )
         return decoded
 
     def enroll(self, enrollment_code: str) -> dict:

@@ -15,6 +15,12 @@ app = typer.Typer(
     help="Autonomous Software Engineering Agent",
     no_args_is_help=True,
 )
+cloud_worker_app = typer.Typer(
+    name="cloud-worker",
+    help="Enroll and manage this machine's ASEA cloud-worker credentials.",
+    no_args_is_help=True,
+)
+app.add_typer(cloud_worker_app, name="cloud-worker")
 console = Console()
 
 
@@ -25,6 +31,72 @@ def resolve_repository(repository: str) -> Path:
         console.print("[cyan]Cloning GitHub repository...[/cyan]")
         return manager.clone_repository(repository)
     return manager.load_local_repository(repository)
+
+
+@cloud_worker_app.command("enroll")
+def enroll_cloud_worker(
+    api_url: str = typer.Option(
+        ...,
+        "--api-url",
+        help="HTTPS base URL of the deployed ASEA API.",
+    ),
+    code: str = typer.Option(
+        ...,
+        "--code",
+        prompt="One-time enrollment code",
+        hide_input=True,
+    ),
+):
+    """Enroll this machine and save its secret in the OS credential vault."""
+    from asea.api.cloud_worker_client import (
+        CloudWorkerAPIError,
+        CloudWorkerClient,
+        save_worker_credentials,
+    )
+
+    try:
+        client = CloudWorkerClient(api_url)
+        response = client.enroll(code.strip())
+        worker_id = response.get("worker_id")
+        worker_secret = response.get("worker_secret")
+        if not isinstance(worker_id, str) or not isinstance(worker_secret, str):
+            raise CloudWorkerAPIError(
+                None, "The cloud API returned incomplete enrollment credentials."
+            )
+        save_worker_credentials(client.api_url, worker_id, worker_secret)
+        console.print("[bold green]Cloud worker enrolled successfully.[/bold green]")
+        console.print(f"Worker ID: {worker_id}")
+        console.print("Credential storage: operating system credential vault")
+        console.print(
+            "[yellow]Job execution is not enabled yet; keep using the existing "
+            "local worker until the cloud runtime delivery is complete.[/yellow]"
+        )
+    except (CloudWorkerAPIError, RuntimeError, ValueError) as error:
+        console.print(f"[bold red]Cloud worker enrollment failed:[/bold red] {error}")
+        raise typer.Exit(code=1) from error
+
+
+@cloud_worker_app.command("status")
+def cloud_worker_status(
+    api_url: str = typer.Option(
+        ...,
+        "--api-url",
+        help="HTTPS base URL of the deployed ASEA API.",
+    ),
+):
+    """Check whether this machine has credentials saved for the cloud API."""
+    from asea.api.cloud_worker_client import load_worker_credentials
+
+    try:
+        credentials = load_worker_credentials(api_url)
+        if credentials is None:
+            console.print("[yellow]This machine is not enrolled.[/yellow]")
+            return
+        console.print("[bold green]Cloud worker credentials are installed.[/bold green]")
+        console.print(f"Worker ID: {credentials['worker_id']}")
+    except (RuntimeError, ValueError) as error:
+        console.print(f"[bold red]Cloud worker status failed:[/bold red] {error}")
+        raise typer.Exit(code=1) from error
 
 
 @app.command()

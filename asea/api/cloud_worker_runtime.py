@@ -9,6 +9,7 @@ import logging
 import os
 import signal
 import threading
+import time
 
 from langgraph.types import Command
 
@@ -30,7 +31,17 @@ from asea.core.graph import build_asea_graph, create_initial_state
 _LOG = logging.getLogger(__name__)
 _STOP = threading.Event()
 LEASE_RENEW_SECONDS = 25
+IDLE_HEARTBEAT_SECONDS = 30
 WORKER_VERSION = "0.1.0"
+
+
+def _heartbeat_if_due(client, last_heartbeat: float, now: float | None = None) -> float:
+    """Keep idle workers visible without relying on job lease renewals."""
+    current = time.monotonic() if now is None else now
+    if current - last_heartbeat < IDLE_HEARTBEAT_SECONDS:
+        return last_heartbeat
+    client.heartbeat(WORKER_VERSION, {"runtime": "cloud"})
+    return current
 
 
 def _positive_seconds(name: str, default: float) -> float:
@@ -238,13 +249,18 @@ def run(api_url: str) -> None:
     with open_cloud_checkpointer(database_url) as checkpointer:
         graph = build_asea_graph(checkpointer=checkpointer)
         client.heartbeat(WORKER_VERSION, {"runtime": "cloud"})
+        last_heartbeat = time.monotonic()
         _LOG.info("ASEA cloud worker %s started.", credentials["worker_id"])
         while not _STOP.is_set():
             try:
+                last_heartbeat = _heartbeat_if_due(client, last_heartbeat)
                 job_response = client.claim_job()
                 job = job_response.get("job")
                 if job is None:
-                    _STOP.wait(poll_seconds)
+                    until_heartbeat = IDLE_HEARTBEAT_SECONDS - (
+                        time.monotonic() - last_heartbeat
+                    )
+                    _STOP.wait(min(poll_seconds, max(0.1, until_heartbeat)))
                     continue
                 _LOG.info("Claimed cloud repair job %s.", job["job_id"])
                 outcome = execute_claimed_job(

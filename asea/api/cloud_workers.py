@@ -140,7 +140,10 @@ class CloudWorkerManager:
                 SET status = 'failed',
                     message = 'Cloud worker was revoked during repair execution.',
                     error = to_jsonb(
-                        'The assigned worker was revoked. Submit a new repair job to retry.'::text
+                        (
+                            'The assigned worker was revoked. Submit a new repair job '
+                            'to retry.'
+                        )::text
                     ),
                     updated_at = now()
                 WHERE status = 'running' AND job_id IN (
@@ -372,7 +375,9 @@ class CloudWorkerManager:
     ) -> dict:
         self._validate_terminal_result(result)
         if not isinstance(idempotency_key, str) or not 1 <= len(idempotency_key) <= 200:
-            raise WorkerProtocolError("Idempotency key must contain 1 to 200 characters.")
+            raise WorkerProtocolError(
+                "Idempotency key must contain 1 to 200 characters."
+            )
         event_type = "job.completed"
         with self._connect() as connection:
             existing = self._existing_terminal_event(
@@ -441,7 +446,11 @@ class CloudWorkerManager:
                     Jsonb({"status": "completed"}), idempotency_key,
                 ),
             ).fetchone()
-            return {"status": "completed", "event_id": event["event_id"], "replayed": False}
+            return {
+                "status": "completed",
+                "event_id": event["event_id"],
+                "replayed": False,
+            }
 
     def fail_job(
         self, identity: dict, job_id: str, lease_id: str, generation: int,
@@ -489,7 +498,8 @@ class CloudWorkerManager:
             updated = connection.execute(
                 """
                 UPDATE public.asea_repair_jobs
-                SET status = 'failed', message = 'Cloud worker reported a repair failure.',
+                SET status = 'failed',
+                    message = 'Cloud worker reported a repair failure.',
                     error = %s, updated_at = now()
                 WHERE job_id = %s AND status = 'running'
                 RETURNING job_id
@@ -518,7 +528,11 @@ class CloudWorkerManager:
                     idempotency_key,
                 ),
             ).fetchone()
-            return {"status": "failed", "event_id": event["event_id"], "replayed": False}
+            return {
+                "status": "failed",
+                "event_id": event["event_id"],
+                "replayed": False,
+            }
 
     @staticmethod
     def _recover_expired_leases(connection) -> int:

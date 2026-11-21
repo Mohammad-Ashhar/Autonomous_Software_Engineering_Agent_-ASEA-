@@ -68,7 +68,11 @@ def validate_cloud_worker_security_configuration(
     credential_pepper: str | None,
 ) -> None:
     """Require a private credential-hashing key whenever cloud storage is enabled."""
-    if database_url and database_url.strip() and len((credential_pepper or "").encode()) < 32:
+    if (
+        database_url
+        and database_url.strip()
+        and len((credential_pepper or "").encode()) < 32
+    ):
         raise RuntimeError(
             "ASEA_WORKER_CREDENTIAL_PEPPER must contain at least 32 characters "
             "when ASEA_DATABASE_URL is configured."

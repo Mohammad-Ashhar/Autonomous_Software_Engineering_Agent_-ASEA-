@@ -3,10 +3,9 @@
 ## Current delivery scope
 
 The cloud-worker HTTPS client, enrollment commands, and durable PostgreSQL
-LangGraph checkpoint adapter are available. The worker still does not poll,
-claim, or execute cloud repair jobs. Continue using the existing local SQLite
-worker until the cloud execution runtime and review checkpoint handoff are
-delivered.
+LangGraph checkpoint adapter are available. The cloud API now supports checkpoint-backed human-review handoff. The worker
+polling/execution loop is still a separate delivery; continue using the existing
+local SQLite worker until that runtime is available.
 
 ## Install the optional worker dependencies
 
@@ -57,3 +56,7 @@ falling back to plaintext storage.
 - Enrollment codes and worker secrets are not included in logs or status output.
 - The browser's Supabase access token is not used by the worker.
 - Revoking the worker in the dashboard invalidates its credential.
+- A cloud repair job is pinned to the first worker that claims it. This keeps
+  its local repository workspace on the same machine when it resumes after
+  human review. A job paused for review releases its lease; submitting a
+  decision queues it for that same enrolled worker to resume.

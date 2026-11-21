@@ -1,4 +1,6 @@
+import io
 import json
+import urllib.error
 from unittest.mock import patch
 
 import pytest
@@ -38,14 +40,15 @@ def test_cloud_worker_client_sends_bearer_and_json_payload():
 
 
 def test_cloud_worker_client_surfaces_http_status_and_safe_detail():
-    class HTTPFailure(Exception):
-        code = 409
-
-        def read(self, _limit):
-            return b'{"detail":"Lease expired."}'
-
+    failure = urllib.error.HTTPError(
+        "https://asea.example/v1/worker/jobs/claim",
+        409,
+        "Conflict",
+        hdrs=None,
+        fp=io.BytesIO(b'{"detail":"Lease expired."}'),
+    )
     client = CloudWorkerClient("https://asea.example", "worker-secret")
-    with patch("urllib.request.urlopen", side_effect=HTTPFailure()):
+    with patch("urllib.request.urlopen", side_effect=failure):
         with pytest.raises(CloudWorkerAPIError) as caught:
             client.request("POST", "/v1/worker/jobs/claim", {})
     assert caught.value.status == 409

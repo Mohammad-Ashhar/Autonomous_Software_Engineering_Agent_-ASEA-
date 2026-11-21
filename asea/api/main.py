@@ -18,8 +18,8 @@ from fastapi.responses import JSONResponse
 from langgraph.checkpoint.sqlite import SqliteSaver
 from pydantic import BaseModel, ConfigDict, Field
 
-from asea.api.execution import RepairExecutionService
 from asea.api.cloud_workers import CloudWorkerManager, WorkerProtocolError
+from asea.api.execution import RepairExecutionService
 from asea.api.job_manager import JobQueueFullError, repair_jobs
 from asea.api.protection import RequestProtectionMiddleware
 from asea.api.supabase_auth import (
@@ -434,7 +434,7 @@ async def handle_unexpected_exception(request: Request, error: Exception):
 @app.middleware("http")
 async def require_api_identity(request: Request, call_next):
     """Authenticate API requests and attach a verified owner identity."""
-    if request.url.path in {"/health", "/ready"} or request.method == "OPTIONS":
+    if (\n        request.url.path in {"/health", "/ready"}\n        or request.url.path.startswith("/v1/worker/")\n        or request.method == "OPTIONS"\n    ):
         return await call_next(request)
     supabase_url = os.getenv("SUPABASE_URL", "").strip()
     supabase_key = os.getenv("SUPABASE_ANON_KEY", "").strip()

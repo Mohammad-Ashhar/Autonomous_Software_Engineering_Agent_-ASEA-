@@ -392,7 +392,10 @@ class CloudWorkerManager:
                 (UUID(identity["worker_id"]), idempotency_key),
             ).fetchone()
             if existing is not None:
-                if existing["job_id"] != job_id or existing["event_type"] != "job.waiting_for_review":
+                if (
+                    existing["job_id"] != job_id
+                    or existing["event_type"] != "job.waiting_for_review"
+                ):
                     raise WorkerProtocolError(
                         "Idempotency key was already used for a different operation."
                     )
@@ -468,7 +471,9 @@ class CloudWorkerManager:
         if decision not in {"approved", "rejected"}:
             raise WorkerProtocolError("Review decision must be approved or rejected.")
         if not isinstance(feedback, str) or len(feedback) > 2000:
-            raise WorkerProtocolError("Review feedback must be at most 2000 characters.")
+            raise WorkerProtocolError(
+                "Review feedback must be at most 2000 characters."
+            )
         if decision == "rejected" and not feedback.strip():
             raise WorkerProtocolError("Feedback is required when rejecting a patch.")
         with self._connect() as connection:
@@ -476,7 +481,9 @@ class CloudWorkerManager:
                 """
                 UPDATE public.asea_repair_jobs AS j
                 SET status = 'queued',
-                    message = 'Patch review submitted; waiting for the assigned worker.',
+                    message = (
+                        'Patch review submitted; waiting for the assigned worker.'
+                    ),
                     review_decision = %s,
                     review_feedback = %s,
                     updated_at = now()

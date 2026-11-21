@@ -164,6 +164,7 @@ class CloudWorkerManager:
 
     def claim_job(self, identity: dict, lease_seconds: int = 90) -> dict | None:
         with self._connect() as connection:
+            self._recover_expired_leases(connection)
             worker = connection.execute(
                 """
                 SELECT 1 FROM public.asea_workers
@@ -500,8 +501,8 @@ class CloudWorkerManager:
                 SET status = 'failed',
                     message = 'Cloud worker lease expired; job was stopped safely.',
                     error = to_jsonb(
-                        'The worker lease expired. ASEA did not automatically replay '
-                        'the job because local execution may have side effects.'
+                        ('The worker lease expired. ASEA did not automatically replay '
+                         'the job because local execution may have side effects.')::text
                     ),
                     updated_at = now()
                 FROM expired e

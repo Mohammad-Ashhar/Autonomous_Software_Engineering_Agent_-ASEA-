@@ -434,7 +434,11 @@ async def handle_unexpected_exception(request: Request, error: Exception):
 @app.middleware("http")
 async def require_api_identity(request: Request, call_next):
     """Authenticate API requests and attach a verified owner identity."""
-    if (\n        request.url.path in {"/health", "/ready"}\n        or request.url.path.startswith("/v1/worker/")\n        or request.method == "OPTIONS"\n    ):
+    if (
+        request.url.path in {"/health", "/ready"}
+        or request.url.path.startswith("/v1/worker/")
+        or request.method == "OPTIONS"
+    ):
         return await call_next(request)
     supabase_url = os.getenv("SUPABASE_URL", "").strip()
     supabase_key = os.getenv("SUPABASE_ANON_KEY", "").strip()
@@ -537,11 +541,11 @@ class ReviewRequest(BaseModel):
 def create_worker_enrollment_code(http_request: Request):
     owner_id = _request_owner_id(http_request)
     if owner_id is None:
-        raise HTTPException(status_code=401, detail="Supabase user authentication required.")
+        raise HTTPException(\n            status_code=401, detail="Supabase user authentication required."\n        )
     try:
         return _cloud_workers().issue_enrollment_code(owner_id)
     except RuntimeError as error:
-        raise HTTPException(status_code=503, detail="Cloud worker storage is not configured.") from error
+        raise HTTPException(\n            status_code=503,\n            detail="Cloud worker storage is not configured.",\n        ) from error
 
 
 @app.get("/v1/workers")
@@ -562,7 +566,7 @@ def revoke_cloud_worker(worker_id: str, http_request: Request):
         raise HTTPException(status_code=401, detail="Supabase user authentication required.")
     try:
         if not _cloud_workers().revoke_worker(owner_id, worker_id):
-            raise HTTPException(status_code=404, detail="Worker not found or already revoked.")
+            raise HTTPException(\n                status_code=404, detail="Worker not found or already revoked."\n            )
         return {"status": "revoked", "worker_id": worker_id}
     except ValueError as error:
         raise HTTPException(status_code=400, detail="Invalid worker ID.") from error

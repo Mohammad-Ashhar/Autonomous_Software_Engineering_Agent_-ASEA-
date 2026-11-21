@@ -134,6 +134,9 @@ class CloudWorkerManager:
                 """,
                 (UUID(owner_id), UUID(worker_id)),
             )
+            worker_was_revoked = cursor.rowcount == 1
+            if not worker_was_revoked:
+                return False
             connection.execute(
                 """
                 UPDATE public.asea_repair_jobs
@@ -160,7 +163,7 @@ class CloudWorkerManager:
                 """,
                 (UUID(worker_id),),
             )
-            return cursor.rowcount == 1
+            return worker_was_revoked
 
     def heartbeat(self, identity: dict, version: str | None, capabilities: dict):
         self._validate_capabilities(capabilities)

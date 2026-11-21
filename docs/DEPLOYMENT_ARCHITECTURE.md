@@ -63,3 +63,8 @@ The deployment target is a zero-cost prototype using provider free tiers where a
 - No automatic merge of generated pull requests.
 - No claim that a sleeping or unavailable free-tier service provides production-grade availability.
 - No multi-user deployment until authentication, tenant isolation, and authorization are implemented and tested.
+
+
+## Worker protocol
+
+The detailed enrollment, authentication, lease, fencing, review-resume, and recovery contract is documented in [WORKER_PROTOCOL.md](WORKER_PROTOCOL.md). Implement that protocol before enabling distributed worker endpoints or deploying the cloud API.

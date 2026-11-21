@@ -61,8 +61,12 @@ def verify_supabase_access_token(access_token: str) -> str:
             payload = json.loads(response.read().decode("utf-8"))
     except HTTPError as error:
         if error.code in {400, 401, 403}:
-            raise SupabaseAuthError("The Supabase access token is invalid or expired.") from None
-        raise SupabaseAuthError("Supabase authentication is temporarily unavailable.") from None
+            raise SupabaseAuthError(
+                "The Supabase access token is invalid or expired."
+            ) from None
+        raise SupabaseAuthError(
+            "Supabase authentication is temporarily unavailable."
+        ) from None
     except (URLError, TimeoutError, OSError, ValueError):
         raise SupabaseAuthError("Supabase authentication is temporarily unavailable.") from None
 

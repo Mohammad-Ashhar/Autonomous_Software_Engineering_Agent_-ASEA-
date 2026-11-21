@@ -461,7 +461,9 @@ class CloudWorkerManager:
     ) -> dict:
         self._validate_failure(error)
         if not isinstance(idempotency_key, str) or not 1 <= len(idempotency_key) <= 200:
-            raise WorkerProtocolError("Idempotency key must contain 1 to 200 characters.")
+            raise WorkerProtocolError(
+                "Idempotency key must contain 1 to 200 characters."
+            )
         event_type = "job.failed"
         with self._connect() as connection:
             existing = self._existing_terminal_event(

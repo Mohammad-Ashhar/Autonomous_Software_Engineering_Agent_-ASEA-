@@ -786,7 +786,10 @@ def retry_repair_publish(
     if os.getenv("ASEA_DATABASE_URL", "").strip():
         raise HTTPException(
             status_code=409,
-            detail="Cloud publishing retries will be enabled with cloud job lifecycle support.",
+            detail=(
+                "Cloud publishing retries will be enabled with cloud job "
+                "lifecycle support."
+            ),
         )
     owner_id = _request_owner_id(http_request)
     job = _get_request_job(job_id, owner_id)
@@ -849,7 +852,10 @@ def review_repair_patch(
     if os.getenv("ASEA_DATABASE_URL", "").strip():
         raise HTTPException(
             status_code=409,
-            detail="Cloud review handoff will be enabled with cloud job lifecycle support.",
+            detail=(
+                "Cloud review handoff will be enabled with cloud job "
+                "lifecycle support."
+            ),
         )
     owner_id = _request_owner_id(http_request)
     job = _get_request_job(job_id, owner_id)

@@ -505,6 +505,22 @@ class WorkerEventRequest(BaseModel):
     idempotency_key: str = Field(..., min_length=1, max_length=200)
 
 
+class WorkerCompleteRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    lease_id: str
+    fencing_generation: int = Field(..., ge=1)
+    result: dict
+    idempotency_key: str = Field(..., min_length=1, max_length=200)
+
+
+class WorkerFailRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    lease_id: str
+    fencing_generation: int = Field(..., ge=1)
+    error: str = Field(..., min_length=1, max_length=1800)
+    idempotency_key: str = Field(..., min_length=1, max_length=200)
+
+
 class AnalyzeRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
@@ -655,6 +671,32 @@ def append_cloud_worker_event(
             request.idempotency_key,
         )
         return {"event_id": event_id}
+    except WorkerProtocolError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+
+
+@app.post("/v1/worker/jobs/{job_id}/complete")
+def complete_cloud_worker_job(
+    job_id: str, request: WorkerCompleteRequest, http_request: Request
+):
+    try:
+        return _cloud_workers().complete_job(
+            _worker_identity(http_request), job_id, request.lease_id,
+            request.fencing_generation, request.result, request.idempotency_key,
+        )
+    except WorkerProtocolError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+
+
+@app.post("/v1/worker/jobs/{job_id}/fail")
+def fail_cloud_worker_job(
+    job_id: str, request: WorkerFailRequest, http_request: Request
+):
+    try:
+        return _cloud_workers().fail_job(
+            _worker_identity(http_request), job_id, request.lease_id,
+            request.fencing_generation, request.error, request.idempotency_key,
+        )
     except WorkerProtocolError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
 

@@ -149,12 +149,18 @@ class CloudWorkerManager:
                         )::text
                     ),
                     updated_at = now()
-                WHERE status = 'running' AND job_id IN (
-                    SELECT job_id FROM public.asea_job_leases
-                    WHERE worker_id = %s AND released_at IS NULL
+                WHERE (
+                    status = 'running' AND job_id IN (
+                        SELECT job_id FROM public.asea_job_leases
+                        WHERE worker_id = %s AND released_at IS NULL
+                    )
+                ) OR (
+                    status IN ('queued', 'waiting_for_review')
+                    AND execution_worker_id = %s
+                    AND checkpoint_reference IS NOT NULL
                 )
                 """,
-                (UUID(worker_id),),
+                (UUID(worker_id), UUID(worker_id)),
             )
             connection.execute(
                 """
@@ -200,9 +206,11 @@ class CloudWorkerManager:
             row = connection.execute(
                 """
                 SELECT job_id, owner_id, repository, publish_requested,
-                       workflow_version, checkpoint_reference
+                       workflow_version, checkpoint_reference,
+                       review_decision, review_feedback, execution_worker_id
                 FROM public.asea_repair_jobs
                 WHERE owner_id = %s AND status = 'queued'
+                  AND (execution_worker_id IS NULL OR execution_worker_id = %s)
                   AND NOT EXISTS (
                     SELECT 1 FROM public.asea_job_leases l
                     WHERE l.job_id = asea_repair_jobs.job_id
@@ -216,7 +224,11 @@ class CloudWorkerManager:
                 ORDER BY created_at, job_id
                 LIMIT 1 FOR UPDATE SKIP LOCKED
                 """,
-                (UUID(identity["owner_id"]), UUID(identity["worker_id"])),
+                (
+                    UUID(identity["owner_id"]),
+                    UUID(identity["worker_id"]),
+                    UUID(identity["worker_id"]),
+                ),
             ).fetchone()
             if row is None:
                 return None
@@ -239,11 +251,13 @@ class CloudWorkerManager:
             connection.execute(
                 """
                 UPDATE public.asea_repair_jobs
-                SET status = 'running', message = 'Cloud worker claimed repair job.',
+                SET status = 'running',
+                    execution_worker_id = COALESCE(execution_worker_id, %s),
+                    message = 'Cloud worker claimed repair job.',
                     updated_at = now()
                 WHERE job_id = %s AND status = 'queued'
                 """,
-                (row["job_id"],),
+                (UUID(identity["worker_id"]), row["job_id"]),
             )
             return {
                 **row,
@@ -331,6 +345,161 @@ class CloudWorkerManager:
             ).fetchone()
             return existing["event_id"]
 
+
+
+    @staticmethod
+    def _validate_review_checkpoint(review_request: dict, checkpoint_reference: dict):
+        import json
+
+        if not isinstance(review_request, dict) or not isinstance(
+            checkpoint_reference, dict
+        ):
+            raise WorkerProtocolError(
+                "Review request and checkpoint reference must be objects."
+            )
+        if len(json.dumps(review_request, default=str).encode()) > 262_144:
+            raise WorkerProtocolError("Review request exceeds 256 KB.")
+        if len(json.dumps(checkpoint_reference, default=str).encode()) > 8192:
+            raise WorkerProtocolError("Checkpoint reference exceeds 8 KB.")
+        thread_id = checkpoint_reference.get("thread_id")
+        if not isinstance(thread_id, str) or not thread_id:
+            raise WorkerProtocolError("Checkpoint reference must include thread_id.")
+
+    def pause_for_review(
+        self, identity: dict, job_id: str, lease_id: str, generation: int,
+        review_request: dict, checkpoint_reference: dict, idempotency_key: str,
+    ) -> dict:
+        """Persist a review interrupt and release its lease atomically."""
+        self._validate_review_checkpoint(review_request, checkpoint_reference)
+        if (
+            checkpoint_reference.get("thread_id") != job_id
+            or checkpoint_reference.get("worker_id") != identity.get("worker_id")
+        ):
+            raise WorkerProtocolError(
+                "Checkpoint reference does not match this job and worker."
+            )
+        if not isinstance(idempotency_key, str) or not 1 <= len(idempotency_key) <= 200:
+            raise WorkerProtocolError(
+                "Idempotency key must contain 1 to 200 characters."
+            )
+        with self._connect() as connection:
+            existing = connection.execute(
+                """
+                SELECT event_id, job_id, event_type
+                FROM public.asea_job_events
+                WHERE worker_id = %s AND idempotency_key = %s
+                """,
+                (UUID(identity["worker_id"]), idempotency_key),
+            ).fetchone()
+            if existing is not None:
+                if (
+                    existing["job_id"] != job_id
+                    or existing["event_type"] != "job.waiting_for_review"
+                ):
+                    raise WorkerProtocolError(
+                        "Idempotency key was already used for a different operation."
+                    )
+                return {
+                    "status": "waiting_for_review",
+                    "event_id": existing["event_id"],
+                    "replayed": True,
+                }
+            lease = connection.execute(
+                """
+                SELECT l.lease_id
+                FROM public.asea_job_leases l
+                JOIN public.asea_repair_jobs j ON j.job_id = l.job_id
+                JOIN public.asea_workers w ON w.worker_id = l.worker_id
+                WHERE l.job_id = %s AND l.lease_id = %s
+                  AND l.worker_id = %s AND l.fencing_generation = %s
+                  AND l.released_at IS NULL AND l.expires_at > now()
+                  AND j.owner_id = %s AND j.status = 'running'
+                  AND j.execution_worker_id = l.worker_id
+                  AND w.owner_id = j.owner_id AND w.status = 'active'
+                FOR UPDATE OF l, j
+                """,
+                (
+                    job_id, UUID(lease_id), UUID(identity["worker_id"]),
+                    generation, UUID(identity["owner_id"]),
+                ),
+            ).fetchone()
+            if lease is None:
+                raise WorkerProtocolError("Lease is expired, revoked, or superseded.")
+            connection.execute(
+                """
+                UPDATE public.asea_repair_jobs
+                SET status = 'waiting_for_review',
+                    message = 'ASEA is waiting for patch approval.',
+                    review_request = %s,
+                    checkpoint_reference = %s,
+                    review_decision = NULL,
+                    review_feedback = NULL,
+                    updated_at = now()
+                WHERE job_id = %s AND status = 'running'
+                """,
+                (Jsonb(review_request), Jsonb(checkpoint_reference), job_id),
+            )
+            connection.execute(
+                "UPDATE public.asea_job_leases SET released_at = now() "
+                "WHERE lease_id = %s AND released_at IS NULL",
+                (UUID(lease_id),),
+            )
+            event = connection.execute(
+                """
+                INSERT INTO public.asea_job_events
+                    (owner_id, job_id, worker_id, lease_id, event_type,
+                     payload, idempotency_key)
+                VALUES (%s, %s, %s, %s, 'job.waiting_for_review', %s, %s)
+                RETURNING event_id
+                """,
+                (
+                    UUID(identity["owner_id"]), job_id, UUID(identity["worker_id"]),
+                    UUID(lease_id), Jsonb({"status": "waiting_for_review"}),
+                    idempotency_key,
+                ),
+            ).fetchone()
+            return {
+                "status": "waiting_for_review",
+                "event_id": event["event_id"],
+                "replayed": False,
+            }
+
+    def submit_review(
+        self, owner_id: str, job_id: str, decision: str, feedback: str = "",
+    ) -> bool:
+        """Atomically queue a paused cloud job with its human review decision."""
+        if decision not in {"approved", "rejected"}:
+            raise WorkerProtocolError("Review decision must be approved or rejected.")
+        if not isinstance(feedback, str) or len(feedback) > 2000:
+            raise WorkerProtocolError(
+                "Review feedback must be at most 2000 characters."
+            )
+        if decision == "rejected" and not feedback.strip():
+            raise WorkerProtocolError("Feedback is required when rejecting a patch.")
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                UPDATE public.asea_repair_jobs AS j
+                SET status = 'queued',
+                    message = (
+                        'Patch review submitted; waiting for the assigned worker.'
+                    ),
+                    review_decision = %s,
+                    review_feedback = %s,
+                    updated_at = now()
+                WHERE job_id = %s AND owner_id = %s
+                  AND status = 'waiting_for_review'
+                  AND checkpoint_reference IS NOT NULL
+                  AND execution_worker_id IS NOT NULL
+                  AND EXISTS (
+                      SELECT 1 FROM public.asea_workers w
+                      WHERE w.worker_id = j.execution_worker_id AND w.status = 'active'
+                  )
+                RETURNING job_id
+                """,
+                (decision, feedback.strip(), job_id, UUID(owner_id)),
+            ).fetchone()
+            return row is not None
 
     @staticmethod
     def _validate_terminal_result(result: dict) -> None:

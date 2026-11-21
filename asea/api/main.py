@@ -505,6 +505,15 @@ class WorkerEventRequest(BaseModel):
     idempotency_key: str = Field(..., min_length=1, max_length=200)
 
 
+class WorkerReviewPauseRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    lease_id: str
+    fencing_generation: int = Field(..., ge=1)
+    review_request: dict
+    checkpoint_reference: dict
+    idempotency_key: str = Field(..., min_length=1, max_length=200)
+
+
 class WorkerCompleteRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     lease_id: str
@@ -671,6 +680,20 @@ def append_cloud_worker_event(
             request.idempotency_key,
         )
         return {"event_id": event_id}
+    except WorkerProtocolError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+
+
+@app.post("/v1/worker/jobs/{job_id}/pause-for-review")
+def pause_cloud_worker_job_for_review(
+    job_id: str, request: WorkerReviewPauseRequest, http_request: Request
+):
+    try:
+        return _cloud_workers().pause_for_review(
+            _worker_identity(http_request), job_id, request.lease_id,
+            request.fencing_generation, request.review_request,
+            request.checkpoint_reference, request.idempotency_key,
+        )
     except WorkerProtocolError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
 
@@ -891,15 +914,37 @@ def review_repair_patch(
 ):
     """Approve or reject a patch and resume the ASEA workflow."""
 
-    if os.getenv("ASEA_DATABASE_URL", "").strip():
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                "Cloud review handoff will be enabled with cloud job "
-                "lifecycle support."
-            ),
-        )
     owner_id = _request_owner_id(http_request)
+    if os.getenv("ASEA_DATABASE_URL", "").strip():
+        if owner_id is None:
+            raise HTTPException(
+                status_code=401, detail="Supabase user authentication required."
+            )
+        job = _get_request_job(job_id, owner_id)
+        if job is None:
+            raise HTTPException(status_code=404, detail="Repair job not found.")
+        if job["status"] != "waiting_for_review":
+            raise HTTPException(
+                status_code=409,
+                detail="This repair job is not waiting for patch review.",
+            )
+        try:
+            accepted = _cloud_workers().submit_review(
+                owner_id, job_id, request.decision, request.feedback.strip()
+            )
+        except WorkerProtocolError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        if not accepted:
+            raise HTTPException(
+                status_code=409,
+                detail="This repair job review has already been submitted.",
+            )
+        return {
+            "message": "Patch review decision submitted successfully.",
+            "job_id": job_id,
+            "decision": request.decision,
+            "status": "queued",
+        }
     job = _get_request_job(job_id, owner_id)
 
     if job is None:

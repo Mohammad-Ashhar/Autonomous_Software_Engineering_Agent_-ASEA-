@@ -65,3 +65,28 @@ def test_api_error_does_not_echo_authorization_header():
         with pytest.raises(CloudWorkerAPIError, match="revoked") as raised:
             client.heartbeat("0.1.0")
     assert "top-secret" not in str(raised.value)
+
+
+
+def test_pause_for_review_sends_checkpoint_and_fencing_data():
+    response = MagicMock()
+    response.read.return_value = b'{"status":"waiting_for_review"}'
+    response.__enter__.return_value = response
+    client = CloudWorkerClient("https://example.com", "worker-secret")
+    with patch(
+        "asea.api.cloud_worker_client.urlopen", return_value=response
+    ) as open_url:
+        result = client.pause_for_review(
+            "job-1",
+            "lease-1",
+            3,
+            {"patch": "diff"},
+            {"thread_id": "job-1", "worker_id": "worker-1"},
+            "review-job-1",
+        )
+    assert result["status"] == "waiting_for_review"
+    request = open_url.call_args.args[0]
+    payload = json.loads(request.data)
+    assert payload["lease_id"] == "lease-1"
+    assert payload["fencing_generation"] == 3
+    assert payload["checkpoint_reference"]["thread_id"] == "job-1"

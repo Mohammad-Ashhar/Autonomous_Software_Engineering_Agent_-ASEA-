@@ -307,3 +307,218 @@ class CloudWorkerManager:
                 (UUID(identity["worker_id"]), idempotency_key),
             ).fetchone()
             return existing["event_id"]
+
+
+    @staticmethod
+    def _validate_terminal_result(result: dict) -> None:
+        import json
+
+        if not isinstance(result, dict):
+            raise WorkerProtocolError("Completion result must be an object.")
+        if result.get("status") != "COMPLETED":
+            raise WorkerProtocolError(
+                "Only a successfully completed ASEA workflow can be finalized."
+            )
+        if len(json.dumps(result, default=str).encode()) > 1_048_576:
+            raise WorkerProtocolError("Completion result exceeds 1 MB.")
+
+    @staticmethod
+    def _validate_failure(error: str) -> None:
+        if not isinstance(error, str) or not error.strip() or len(error) > 1800:
+            raise WorkerProtocolError(
+                "Failure diagnostics must contain 1 to 1800 characters."
+            )
+
+    def _existing_terminal_event(
+        self, connection, identity: dict, job_id: str, idempotency_key: str,
+        event_type: str,
+    ):
+        row = connection.execute(
+            """
+            SELECT event_id, job_id, event_type
+            FROM public.asea_job_events
+            WHERE worker_id = %s AND idempotency_key = %s
+            """,
+            (UUID(identity["worker_id"]), idempotency_key),
+        ).fetchone()
+        if row is None:
+            return None
+        if row["job_id"] != job_id or row["event_type"] != event_type:
+            raise WorkerProtocolError(
+                "Idempotency key was already used for a different operation."
+            )
+        return row["event_id"]
+
+    def complete_job(
+        self, identity: dict, job_id: str, lease_id: str, generation: int,
+        result: dict, idempotency_key: str,
+    ) -> dict:
+        self._validate_terminal_result(result)
+        if not isinstance(idempotency_key, str) or not 1 <= len(idempotency_key) <= 200:
+            raise WorkerProtocolError("Idempotency key must contain 1 to 200 characters.")
+        event_type = "job.completed"
+        with self._connect() as connection:
+            existing = self._existing_terminal_event(
+                connection, identity, job_id, idempotency_key, event_type
+            )
+            if existing is not None:
+                return {"status": "completed", "event_id": existing, "replayed": True}
+            lease = connection.execute(
+                """
+                SELECT l.lease_id
+                FROM public.asea_job_leases l
+                JOIN public.asea_repair_jobs j ON j.job_id = l.job_id
+                JOIN public.asea_workers w ON w.worker_id = l.worker_id
+                WHERE l.job_id = %s AND l.lease_id = %s
+                  AND l.worker_id = %s AND l.fencing_generation = %s
+                  AND l.released_at IS NULL AND l.expires_at > now()
+                  AND j.owner_id = %s AND j.status = 'running'
+                  AND w.owner_id = j.owner_id AND w.status = 'active'
+                FOR UPDATE OF l, j
+                """,
+                (
+                    job_id, UUID(lease_id), UUID(identity["worker_id"]),
+                    generation, UUID(identity["owner_id"]),
+                ),
+            ).fetchone()
+            if lease is None:
+                raise WorkerProtocolError("Lease is expired, revoked, or superseded.")
+            updated = connection.execute(
+                """
+                UPDATE public.asea_repair_jobs
+                SET status = 'completed',
+                    message = 'ASEA repair workflow completed successfully.',
+                    result = %s, error = NULL, updated_at = now()
+                WHERE job_id = %s AND status = 'running'
+                RETURNING job_id
+                """,
+                (Jsonb(result), job_id),
+            ).fetchone()
+            if updated is None:
+                raise WorkerProtocolError("Job is no longer running.")
+            connection.execute(
+                "UPDATE public.asea_job_leases SET released_at = now() "
+                "WHERE lease_id = %s AND released_at IS NULL",
+                (UUID(lease_id),),
+            )
+            event = connection.execute(
+                """
+                INSERT INTO public.asea_job_events
+                    (owner_id, job_id, worker_id, lease_id, event_type,
+                     payload, idempotency_key)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                RETURNING event_id
+                """,
+                (
+                    UUID(identity["owner_id"]), job_id, UUID(identity["worker_id"]),
+                    UUID(lease_id), event_type,
+                    Jsonb({"status": "completed"}), idempotency_key,
+                ),
+            ).fetchone()
+            return {"status": "completed", "event_id": event["event_id"], "replayed": False}
+
+    def fail_job(
+        self, identity: dict, job_id: str, lease_id: str, generation: int,
+        error: str, idempotency_key: str,
+    ) -> dict:
+        self._validate_failure(error)
+        if not isinstance(idempotency_key, str) or not 1 <= len(idempotency_key) <= 200:
+            raise WorkerProtocolError("Idempotency key must contain 1 to 200 characters.")
+        event_type = "job.failed"
+        with self._connect() as connection:
+            existing = self._existing_terminal_event(
+                connection, identity, job_id, idempotency_key, event_type
+            )
+            if existing is not None:
+                return {"status": "failed", "event_id": existing, "replayed": True}
+            lease = connection.execute(
+                """
+                SELECT l.lease_id
+                FROM public.asea_job_leases l
+                JOIN public.asea_repair_jobs j ON j.job_id = l.job_id
+                JOIN public.asea_workers w ON w.worker_id = l.worker_id
+                WHERE l.job_id = %s AND l.lease_id = %s
+                  AND l.worker_id = %s AND l.fencing_generation = %s
+                  AND l.released_at IS NULL AND l.expires_at > now()
+                  AND j.owner_id = %s AND j.status = 'running'
+                  AND w.owner_id = j.owner_id AND w.status = 'active'
+                FOR UPDATE OF l, j
+                """,
+                (
+                    job_id, UUID(lease_id), UUID(identity["worker_id"]),
+                    generation, UUID(identity["owner_id"]),
+                ),
+            ).fetchone()
+            if lease is None:
+                raise WorkerProtocolError("Lease is expired, revoked, or superseded.")
+            updated = connection.execute(
+                """
+                UPDATE public.asea_repair_jobs
+                SET status = 'failed', message = 'Cloud worker reported a repair failure.',
+                    error = %s, updated_at = now()
+                WHERE job_id = %s AND status = 'running'
+                RETURNING job_id
+                """,
+                (Jsonb(error.strip()), job_id),
+            ).fetchone()
+            if updated is None:
+                raise WorkerProtocolError("Job is no longer running.")
+            connection.execute(
+                "UPDATE public.asea_job_leases SET released_at = now() "
+                "WHERE lease_id = %s AND released_at IS NULL",
+                (UUID(lease_id),),
+            )
+            event = connection.execute(
+                """
+                INSERT INTO public.asea_job_events
+                    (owner_id, job_id, worker_id, lease_id, event_type,
+                     payload, idempotency_key)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                RETURNING event_id
+                """,
+                (
+                    UUID(identity["owner_id"]), job_id, UUID(identity["worker_id"]),
+                    UUID(lease_id), event_type,
+                    Jsonb({"message": "Cloud worker reported a repair failure."}),
+                    idempotency_key,
+                ),
+            ).fetchone()
+            return {"status": "failed", "event_id": event["event_id"], "replayed": False}
+
+    @staticmethod
+    def _recover_expired_leases(connection) -> int:
+        rows = connection.execute(
+            """
+            WITH expired AS (
+                UPDATE public.asea_job_leases
+                SET released_at = now()
+                WHERE released_at IS NULL AND expires_at <= now()
+                RETURNING lease_id, job_id, worker_id
+            ),
+            failed AS (
+                UPDATE public.asea_repair_jobs j
+                SET status = 'failed',
+                    message = 'Cloud worker lease expired; job was stopped safely.',
+                    error = to_jsonb(
+                        'The worker lease expired. ASEA did not automatically replay '
+                        'the job because local execution may have side effects.'
+                    ),
+                    updated_at = now()
+                FROM expired e
+                WHERE j.job_id = e.job_id AND j.status = 'running'
+                RETURNING j.job_id, j.owner_id, e.worker_id, e.lease_id
+            )
+            INSERT INTO public.asea_job_events
+                (owner_id, job_id, worker_id, lease_id, event_type, payload)
+            SELECT owner_id, job_id, worker_id, lease_id, 'job.lease_expired',
+                   jsonb_build_object('status', 'failed', 'automatic_replay', false)
+            FROM failed
+            RETURNING event_id
+            """
+        ).fetchall()
+        return len(rows)
+
+    def recover_expired_leases(self) -> int:
+        """Fail expired running jobs conservatively; never replay side effects."""
+        with self._connect() as connection:
+            return self._recover_expired_leases(connection)

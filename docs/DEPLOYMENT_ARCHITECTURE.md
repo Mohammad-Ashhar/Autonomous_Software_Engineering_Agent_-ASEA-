@@ -67,4 +67,4 @@ The deployment target is a zero-cost prototype using provider free tiers where a
 
 ## Worker protocol
 
-The detailed enrollment, authentication, lease, fencing, review-resume, and recovery contract is documented in [WORKER_PROTOCOL.md](WORKER_PROTOCOL.md). Implement that protocol before enabling distributed worker endpoints or deploying the cloud API.
+The initial Supabase PostgreSQL schema is documented in [POSTGRES_PERSISTENCE.md](POSTGRES_PERSISTENCE.md) and defined in `migrations/postgres/0001_cloud_coordination.sql`. It is schema-only; the API still uses local SQLite until the PostgreSQL adapter and transactional worker protocol are implemented. The detailed enrollment, authentication, lease, fencing, review-resume, and recovery contract is documented in [WORKER_PROTOCOL.md](WORKER_PROTOCOL.md). Implement and test that protocol before enabling distributed worker endpoints or deploying the cloud API.

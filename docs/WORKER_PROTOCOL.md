@@ -6,12 +6,12 @@ This document specifies the distributed-worker protocol for the hybrid ASEA depl
 
 The first distributed release remains single-user until browser authentication and account ownership are implemented. Do not expose worker enrollment or job APIs publicly before those prerequisites and the persistence migration are complete.
 
-## Implementation status\n\nThe initial API foundation now provides one-time enrollment-code issuance and exchange, per-worker HMAC-hashed bearer credentials, owner-scoped worker listing/revocation, worker authentication, worker heartbeat, PostgreSQL queue claims with fencing generations, lease renewal, and idempotent bounded event insertion. The cloud worker runtime, safe review checkpoint handoff, completion/failure transitions, lease-expiry recovery, and end-to-end Supabase integration are not yet implemented. Do not deploy or connect a worker until those remaining stages and database-backed integration tests are complete.\n\nRequired backend settings are `ASEA_DATABASE_URL` and a randomly generated `ASEA_WORKER_CREDENTIAL_PEPPER` of at least 32 characters. Keep the pepper server-side and stable; changing it invalidates all enrolled worker credentials. Enrollment codes expire after 10 minutes and are single-use. Worker secrets are returned only once by the enrollment exchange.\n\n### Implemented API routes
+## Implementation status\n\nThe API foundation now provides one-time enrollment-code issuance and exchange, per-worker HMAC-hashed bearer credentials, owner-scoped worker listing/revocation, worker authentication, worker heartbeat, PostgreSQL queue claims with fencing generations, lease renewal, idempotent bounded event insertion, and fenced completion/failure endpoints. Expired leases are conservatively finalized as failed before a subsequent claim; jobs are never blindly replayed. The cloud worker runtime, safe review checkpoint handoff, and end-to-end Supabase integration are not yet implemented. Do not deploy or connect a worker until those remaining stages and database-backed integration tests are complete.\n\nRequired backend settings are `ASEA_DATABASE_URL` and a randomly generated `ASEA_WORKER_CREDENTIAL_PEPPER` of at least 32 characters. Keep the pepper server-side and stable; changing it invalidates all enrolled worker credentials. Enrollment codes expire after 10 minutes and are single-use. Worker secrets are returned only once by the enrollment exchange.\n\n### Implemented API routes
 
 - User-authenticated: `POST /v1/workers/enrollment-code`, `GET /v1/workers`, and `POST /v1/workers/{worker_id}/revoke`.
-- Worker-authenticated: `POST /v1/worker/enroll`, `POST /v1/worker/heartbeat`, `POST /v1/worker/jobs/claim`, `POST /v1/worker/jobs/{job_id}/heartbeat`, and `POST /v1/worker/jobs/{job_id}/events`.
+- Worker-authenticated: `POST /v1/worker/enroll`, `POST /v1/worker/heartbeat`, `POST /v1/worker/jobs/claim`, `POST /v1/worker/jobs/{job_id}/heartbeat`, and `POST /v1/worker/jobs/{job_id}/events`, `POST /v1/worker/jobs/{job_id}/complete`, and `POST /v1/worker/jobs/{job_id}/fail`.
 
-Apply migrations `0001_cloud_coordination.sql`, `0002_job_manager_compatibility.sql`, and `0003_cloud_worker_protocol_indexes.sql` in order before using these routes. The enrollment-code and worker-secret hashes use HMAC-SHA256 with the server-only pepper. A worker may hold one active lease at a time. Lease expiry does not automatically requeue a job; recovery transitions are intentionally a later implementation stage.
+Apply migrations `0001_cloud_coordination.sql`, `0002_job_manager_compatibility.sql`, and `0003_cloud_worker_protocol_indexes.sql` in order before using these routes. The enrollment-code and worker-secret hashes use HMAC-SHA256 with the server-only pepper. A worker may hold one active lease at a time. Expired running leases are finalized as failed on the next claim attempt. This deliberately avoids automatic replay of potentially side-effecting local work. A user must submit a fresh repair job after inspecting the failure.
 
 ## Trust boundaries
 
@@ -45,6 +45,8 @@ All endpoints are HTTPS and require a valid worker bearer credential. JSON bodie
 | `POST /v1/workers/jobs/claim` | Atomically claim one eligible queued job. Empty queue returns no job. |
 | `POST /v1/workers/jobs/{job_id}/heartbeat` | Renew the lease for the matching active job. |
 | `POST /v1/workers/jobs/{job_id}/events` | Append bounded progress/status events for the matching lease. |
+| `POST /v1/workers/jobs/{job_id}/complete` | Finalize a successful `COMPLETED` workflow result under the current lease. |
+| `POST /v1/workers/jobs/{job_id}/fail` | Finalize a failed job with bounded diagnostics under the current lease. |
 | `POST /v1/workers/jobs/{job_id}/review-wait` | Persist a review checkpoint reference and release the execution lease. |
 | `POST /v1/workers/jobs/{job_id}/resume` | Fetch a pending review decision for the paused job and acquire a new lease. |
 | `POST /v1/workers/jobs/{job_id}/complete` | Submit a validated terminal outcome for the matching lease. |
@@ -59,7 +61,7 @@ The API returns only the repository locator and explicit job options required to
 - A job can have at most one current lease. The server never trusts a worker-provided timestamp to decide whether a lease is valid; it uses server time.
 - Heartbeats renew only when worker ID, job ID, lease ID, fencing generation, and non-expired lease all match.
 - Progress, review-wait, completion, and failure writes require the same current lease tuple. Stale workers receive a conflict and must stop acting on that job.
-- Claim and completion requests are idempotent. A retried request with the same idempotency key returns the original outcome rather than creating a second claim or terminal event.
+- Terminal completion/failure requests are idempotent per worker and idempotency key. A retried request with the same key returns the original terminal event rather than creating a second terminal transition. Claim idempotency is not yet implemented.
 - A worker must stop execution when it learns that its lease was revoked, expired, or superseded. It must not publish a PR after losing its lease.
 - A worker claims one job at a time initially. Do not run multiple workers against the current SQLite queue.
 
@@ -79,7 +81,7 @@ The user review decision is stored by the cloud API and is immutable for that re
 ## Disconnect, expiry, and recovery
 
 - A missed heartbeat does not immediately reassign work. The lease first expires according to server time.
-- On expiry, the job enters a recovery-needed state. It is not blindly replayed: cloning, patch application, tests, and GitHub publishing may have side effects.
+- On expiry, the next claim request marks the running job failed and releases its lease. It is not blindly replayed: cloning, patch application, tests, and GitHub publishing may have side effects.
 - The next worker may resume only when the server has a safe recovery record and the worker confirms the referenced local checkpoint exists and matches the job/workflow version.
 - If the checkpoint is absent or inconsistent, the job is marked failed with a retry-from-scratch recommendation; the API must not pretend the old execution resumed.
 - Completion is accepted only from the current lease generation. A delayed completion from an old worker cannot overwrite a newer attempt.
@@ -112,10 +114,10 @@ Indexes are required for eligible queue claims, owner-scoped job listing, worker
 
 1. Implement user authentication/ownership and PostgreSQL migrations for jobs and worker credentials.
 2. Implement one-time enrollment, per-worker authentication, revocation, and rotation.
-3. Implement transactional claims, leases, fencing generations, heartbeat, and idempotent event/result writes.
+3. Implement transactional claims, leases, fencing generations, heartbeat, idempotent events, and fenced terminal completion/failure.
 4. Adapt the worker to HTTPS transport behind a separate execution mode; retain the current local SQLite mode for development.
-5. Add safe checkpoint handoff for review pause/resume and explicit recovery behavior.
-6. Add integration tests for concurrent claims, duplicate requests, stale leases, revocation, worker disconnect/restart, review pause/resume, and stale completion.
+5. Add safe checkpoint handoff for review pause/resume and a worker-side recovery strategy.
+6. Add integration tests against PostgreSQL for concurrent claims, duplicate requests, stale leases, revocation, worker disconnect/restart, review pause/resume, and stale completion.
 7. Only then deploy the cloud API and connect the dashboard.
 
 ## Acceptance criteria

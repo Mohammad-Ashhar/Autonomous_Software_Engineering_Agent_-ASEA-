@@ -541,11 +541,16 @@ class ReviewRequest(BaseModel):
 def create_worker_enrollment_code(http_request: Request):
     owner_id = _request_owner_id(http_request)
     if owner_id is None:
-        raise HTTPException(\n            status_code=401, detail="Supabase user authentication required."\n        )
+        raise HTTPException(
+            status_code=401, detail="Supabase user authentication required."
+        )
     try:
         return _cloud_workers().issue_enrollment_code(owner_id)
     except RuntimeError as error:
-        raise HTTPException(\n            status_code=503,\n            detail="Cloud worker storage is not configured.",\n        ) from error
+        raise HTTPException(
+            status_code=503,
+            detail="Cloud worker storage is not configured.",
+        ) from error
 
 
 @app.get("/v1/workers")
@@ -566,7 +571,9 @@ def revoke_cloud_worker(worker_id: str, http_request: Request):
         raise HTTPException(status_code=401, detail="Supabase user authentication required.")
     try:
         if not _cloud_workers().revoke_worker(owner_id, worker_id):
-            raise HTTPException(\n                status_code=404, detail="Worker not found or already revoked."\n            )
+            raise HTTPException(
+                status_code=404, detail="Worker not found or already revoked."
+            )
         return {"status": "revoked", "worker_id": worker_id}
     except ValueError as error:
         raise HTTPException(status_code=400, detail="Invalid worker ID.") from error

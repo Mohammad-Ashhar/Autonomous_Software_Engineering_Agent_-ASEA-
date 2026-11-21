@@ -81,6 +81,12 @@ def test_claimed_job_pauses_with_durable_worker_affinity(monkeypatch):
     review = {"patch": "diff", "summary": "Review this patch"}
     graph = FakeGraph([SimpleNamespace(value=review)])
     monkeypatch.setattr(runtime, "LEASE_RENEW_SECONDS", 300)
+    monkeypatch.setattr(runtime, "resolve_repository", lambda _repository: "repo-path")
+    monkeypatch.setattr(
+        runtime,
+        "create_initial_state",
+        lambda _path, review_mode: {"review_mode": review_mode},
+    )
 
     outcome = runtime.execute_claimed_job(client, job, "worker-1", graph)
 

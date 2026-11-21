@@ -133,6 +133,21 @@ class PostgresRepairJobManager(RepairJobManager):
                 "migrations/postgres/0001_cloud_coordination.sql; missing: "
                 + ", ".join(missing)
             )
+        with self._connection() as connection:
+            column = connection.execute(
+                """
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_schema = 'public'
+                  AND table_name = 'asea_repair_jobs'
+                  AND column_name = 'publishing_retry'
+                """
+            ).fetchone()
+        if column is None:
+            raise RuntimeError(
+                "ASEA PostgreSQL schema is missing publishing_retry. "
+                "Apply migrations/postgres/0002_job_manager_compatibility.sql."
+            )
 
     @staticmethod
     def _serialize(value: Any):

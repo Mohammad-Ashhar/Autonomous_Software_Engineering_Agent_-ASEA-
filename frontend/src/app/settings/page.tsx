@@ -140,7 +140,7 @@ export default function SettingsPage() {
         <code className="settings-command">asea cloud-worker status --api-url {API_URL || "https://YOUR-RENDER-SERVICE.onrender.com"}</code>
         <p>
           Before running jobs, make sure Ollama and Docker are running and that
-          <code> ASEA_DATABASE_URL </code> is configured in the worker machine's
+          <code> ASEA_DATABASE_URL </code> is configured in the worker machine&apos;s
           environment using your Supabase PostgreSQL connection string. Keep that
           secret out of the browser and Git repository.
         </p>

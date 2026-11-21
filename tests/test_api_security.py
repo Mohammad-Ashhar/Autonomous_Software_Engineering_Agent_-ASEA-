@@ -246,3 +246,51 @@ def test_cors_configuration_accepts_exact_origins(
     monkeypatch.setenv("ASEA_CORS_ORIGINS", origins)
 
     assert main.configured_cors_origins() == expected
+
+
+def test_api_uses_verified_supabase_identity_when_configured(monkeypatch):
+    monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
+    monkeypatch.setenv("SUPABASE_ANON_KEY", "public-anon-key")
+    monkeypatch.delenv("ASEA_API_KEY", raising=False)
+    monkeypatch.setattr(
+        main, "verify_supabase_access_token", lambda token: "verified-user-id"
+    )
+    client = TestClient(main.app)
+
+    response = client.get(
+        "/",
+        headers={"Authorization": "Bearer verified-access-token"},
+    )
+
+    assert response.status_code == 200
+
+
+def test_api_rejects_missing_supabase_access_token(monkeypatch):
+    monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
+    monkeypatch.setenv("SUPABASE_ANON_KEY", "public-anon-key")
+    client = TestClient(main.app)
+
+    response = client.get("/")
+
+    assert response.status_code == 401
+
+
+def test_api_rejects_invalid_supabase_access_token(monkeypatch):
+    from asea.api.supabase_auth import SupabaseAuthError
+
+    monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
+    monkeypatch.setenv("SUPABASE_ANON_KEY", "public-anon-key")
+    monkeypatch.setattr(
+        main,
+        "verify_supabase_access_token",
+        lambda _token: (_ for _ in ()).throw(
+            SupabaseAuthError("The Supabase access token is invalid or expired.")
+        ),
+    )
+    client = TestClient(main.app)
+
+    response = client.get(
+        "/", headers={"Authorization": "Bearer expired-token"}
+    )
+
+    assert response.status_code == 401

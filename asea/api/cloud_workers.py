@@ -184,7 +184,7 @@ class CloudWorkerManager:
                 ORDER BY created_at, job_id
                 LIMIT 1 FOR UPDATE SKIP LOCKED
                 """,
-                (UUID(identity["owner_id"]),),
+                (UUID(identity["owner_id"]), UUID(identity["worker_id"])),
             ).fetchone()
             if row is None:
                 return None

@@ -230,17 +230,18 @@ def execute_claimed_job(
             return "failed"
 
 
-def run(api_url: str) -> None:
-    """Poll the cloud queue and execute jobs sequentially on this machine."""
+def run(api_url: str, profile: str = "default") -> None:
+    """Poll the cloud queue using one named account profile."""
     database_url = os.getenv("ASEA_DATABASE_URL", "").strip()
     if not database_url:
         raise RuntimeError(
             "Set ASEA_DATABASE_URL to the Supabase PostgreSQL URL with TLS enabled."
         )
-    credentials = load_worker_credentials(api_url)
+    credentials = load_worker_credentials(api_url, profile)
     if credentials is None:
         raise RuntimeError(
-            "This machine is not enrolled. Run 'asea cloud-worker enroll' first."
+            f"This machine has no credentials for profile '{profile}'. "
+            "Run 'asea cloud-worker enroll' with the same --profile."
         )
     client = CloudWorkerClient(api_url, credentials["worker_secret"])
     poll_seconds = _positive_seconds("ASEA_CLOUD_WORKER_POLL_SECONDS", 5.0)

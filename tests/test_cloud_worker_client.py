@@ -90,3 +90,70 @@ def test_pause_for_review_sends_checkpoint_and_fencing_data():
     assert payload["lease_id"] == "lease-1"
     assert payload["fencing_generation"] == 3
     assert payload["checkpoint_reference"]["thread_id"] == "job-1"
+
+
+
+def test_worker_credentials_are_isolated_by_profile(monkeypatch):
+    import sys
+    from types import SimpleNamespace
+
+    from asea.api.cloud_worker_client import (
+        load_worker_credentials,
+        save_worker_credentials,
+    )
+
+    values = {}
+    fake_keyring = SimpleNamespace(
+        set_password=lambda service, username, password: values.__setitem__(
+            (service, username), password
+        ),
+        get_password=lambda service, username: values.get((service, username)),
+    )
+    monkeypatch.setitem(sys.modules, "keyring", fake_keyring)
+
+    save_worker_credentials("https://example.com", "worker-a", "secret-a", "account-a")
+    save_worker_credentials("https://example.com", "worker-b", "secret-b", "account-b")
+
+    assert load_worker_credentials("https://example.com", "account-a") == {
+        "worker_id": "worker-a",
+        "worker_secret": "secret-a",
+    }
+    assert load_worker_credentials("https://example.com", "account-b") == {
+        "worker_id": "worker-b",
+        "worker_secret": "secret-b",
+    }
+    assert load_worker_credentials("https://example.com", "account-c") is None
+
+
+def test_default_worker_credentials_keep_legacy_vault_key(monkeypatch):
+    import sys
+    from types import SimpleNamespace
+
+    from asea.api.cloud_worker_client import (
+        load_worker_credentials,
+        save_worker_credentials,
+    )
+
+    values = {}
+    fake_keyring = SimpleNamespace(
+        set_password=lambda service, username, password: values.__setitem__(
+            (service, username), password
+        ),
+        get_password=lambda service, username: values.get((service, username)),
+    )
+    monkeypatch.setitem(sys.modules, "keyring", fake_keyring)
+
+    save_worker_credentials("https://example.com", "worker", "secret")
+    assert ("asea-cloud-worker", "https://example.com") in values
+    assert load_worker_credentials("https://example.com") == {
+        "worker_id": "worker",
+        "worker_secret": "secret",
+    }
+
+
+@pytest.mark.parametrize("profile", ["", "../other", "has space", "a" * 33])
+def test_worker_profile_rejects_unsafe_names(profile):
+    from asea.api.cloud_worker_client import _credential_username
+
+    with pytest.raises(ValueError, match="profile"):
+        _credential_username("https://example.com", profile)

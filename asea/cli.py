@@ -46,6 +46,9 @@ def enroll_cloud_worker(
         prompt="One-time enrollment code",
         hide_input=True,
     ),
+    profile: str = typer.Option(
+        "default", "--profile", help="Credential profile for this ASEA account."
+    ),
 ):
     """Enroll this machine and save its secret in the OS credential vault."""
     from asea.api.cloud_worker_client import (
@@ -63,9 +66,10 @@ def enroll_cloud_worker(
             raise CloudWorkerAPIError(
                 None, "The cloud API returned incomplete enrollment credentials."
             )
-        save_worker_credentials(client.api_url, worker_id, worker_secret)
+        save_worker_credentials(client.api_url, worker_id, worker_secret, profile)
         console.print("[bold green]Cloud worker enrolled successfully.[/bold green]")
         console.print(f"Worker ID: {worker_id}")
+        console.print(f"Credential profile: {profile}")
         console.print("Credential storage: operating system credential vault")
     except (CloudWorkerAPIError, RuntimeError, ValueError) as error:
         console.print(f"[bold red]Cloud worker enrollment failed:[/bold red] {error}")
@@ -79,12 +83,15 @@ def cloud_worker_status(
         "--api-url",
         help="HTTPS base URL of the deployed ASEA API.",
     ),
+    profile: str = typer.Option(
+        "default", "--profile", help="Credential profile to inspect."
+    ),
 ):
     """Check whether this machine has credentials saved for the cloud API."""
     from asea.api.cloud_worker_client import load_worker_credentials
 
     try:
-        credentials = load_worker_credentials(api_url)
+        credentials = load_worker_credentials(api_url, profile)
         if credentials is None:
             console.print("[yellow]This machine is not enrolled.[/yellow]")
             return
@@ -92,6 +99,7 @@ def cloud_worker_status(
             "[bold green]Cloud worker credentials are installed.[/bold green]"
         )
         console.print(f"Worker ID: {credentials['worker_id']}")
+        console.print(f"Credential profile: {profile}")
     except (RuntimeError, ValueError) as error:
         console.print(f"[bold red]Cloud worker status failed:[/bold red] {error}")
         raise typer.Exit(code=1) from error
@@ -104,12 +112,15 @@ def run_cloud_worker(
         "--api-url",
         help="HTTPS base URL of the deployed ASEA API.",
     ),
+    profile: str = typer.Option(
+        "default", "--profile", help="Credential profile to run."
+    ),
 ):
     """Poll the cloud queue and execute repairs on this enrolled machine."""
     from asea.api.cloud_worker_runtime import run
 
     try:
-        run(api_url)
+        run(api_url, profile)
     except (RuntimeError, ValueError) as error:
         console.print(f"[bold red]Cloud worker stopped:[/bold red] {error}")
         raise typer.Exit(code=1) from error

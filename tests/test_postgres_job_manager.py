@@ -1,8 +1,10 @@
 import pytest
+from types import SimpleNamespace
 
 from asea.api.postgres_job_manager import (
     PostgresRepairJobManager,
     _PostgresConnection,
+    _hybrid_row_factory,
 )
 
 
@@ -15,6 +17,27 @@ class FakeConnection:
         self.statement = statement
         self.parameters = parameters
         return "executed"
+
+
+def test_hybrid_row_factory_handles_commands_without_result_columns():
+    cursor = SimpleNamespace(description=None)
+
+    row_factory = _hybrid_row_factory(cursor)
+
+    assert row_factory(("ignored",)) == ("ignored",)
+
+
+def test_hybrid_row_factory_preserves_mapping_and_positional_access():
+    cursor = SimpleNamespace(
+        description=[SimpleNamespace(name="job_id"), SimpleNamespace(name="status")]
+    )
+
+    row_factory = _hybrid_row_factory(cursor)
+    row = row_factory(("job-1", "queued"))
+
+    assert row["job_id"] == "job-1"
+    assert row[0] == "job-1"
+    assert row[1] == "queued"
 
 
 def test_postgres_connection_translates_qmark_and_job_table():
@@ -52,7 +75,6 @@ def test_postgres_manager_requires_database_url(monkeypatch):
 
     with pytest.raises(RuntimeError, match="ASEA_DATABASE_URL"):
         PostgresRepairJobManager()
-
 
 
 def test_postgres_jsonb_deserializer_preserves_decoded_string_scalars():

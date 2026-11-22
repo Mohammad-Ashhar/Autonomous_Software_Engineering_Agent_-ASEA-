@@ -190,6 +190,17 @@ class RepairJobManager:
                 ).fetchone()[0]
                 if active >= maximum:
                     raise JobQueueFullError("Repair queue is full.")
+                if owner_id is not None:
+                    user_active = connection.execute(
+                        "SELECT COUNT(*) FROM repair_jobs "
+                        "WHERE owner_id = ? "
+                        "AND status IN ('queued', 'running', 'waiting_for_review')",
+                        (owner_id,),
+                    ).fetchone()[0]
+                    if user_active >= self._maximum_active_jobs_per_user():
+                        raise JobQueueFullError(
+                            "Your account has reached its active repair-job limit."
+                        )
                 connection.execute(
                     """
                     INSERT INTO repair_jobs (
@@ -323,6 +334,16 @@ class RepairJobManager:
         except ValueError:
             return 20
         return min(500, max(1, value))
+
+
+    @staticmethod
+    def _maximum_active_jobs_per_user() -> int:
+        """Return a bounded per-account active-job admission limit."""
+        try:
+            value = int(os.getenv("ASEA_MAX_ACTIVE_REPAIR_JOBS_PER_USER", "3"))
+        except ValueError:
+            return 3
+        return min(50, max(1, value))
 
     def prune_terminal_jobs(self, retention_days: int = 30) -> int:
         """Delete old completed/failed jobs; preserve active and review jobs."""

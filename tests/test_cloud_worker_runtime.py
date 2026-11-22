@@ -22,6 +22,9 @@ class FakeClient:
     def renew_lease(self, *args):
         self.calls.append(("renew", args))
 
+    def complete_job(self, *args):
+        self.calls.append(("complete", args))
+
 
 class FakeGraph:
     def __init__(self, interrupts):
@@ -154,3 +157,40 @@ def test_idle_worker_heartbeat_is_not_repeated_before_interval(monkeypatch):
 
     assert last == 130.0
     assert len([call for call in client.calls if call[0] == "heartbeat"]) == 1
+
+
+
+def test_successful_workflow_sends_top_level_status_when_finalizing(monkeypatch):
+    client = FakeClient()
+    job = {
+        "job_id": "job-1",
+        "lease_id": "lease-1",
+        "fencing_generation": 4,
+        "repository": "https://github.com/example/repo",
+        "publish_requested": False,
+    }
+
+    class CompletedGraph:
+        def invoke(self, *_args, **_kwargs):
+            return {"status": "COMPLETED", "repo_path": "repo-path"}
+
+        def get_state(self, _config):
+            return SimpleNamespace(tasks=(), config=None)
+
+    monkeypatch.setattr(runtime, "LEASE_RENEW_SECONDS", 300)
+    monkeypatch.setattr(runtime, "resolve_repository", lambda _repository: "repo-path")
+    monkeypatch.setattr(
+        runtime,
+        "create_initial_state",
+        lambda _path, review_mode: {"review_mode": review_mode},
+    )
+    monkeypatch.setattr(runtime, "cleanup_repair_workspace", lambda *_args: None)
+
+    outcome = runtime.execute_claimed_job(
+        client, job, "worker-1", CompletedGraph()
+    )
+
+    assert outcome == "completed"
+    completion = next(call for call in client.calls if call[0] == "complete")
+    assert completion[1][3]["status"] == "COMPLETED"
+    assert completion[1][3]["workflow"]["status"] == "COMPLETED"

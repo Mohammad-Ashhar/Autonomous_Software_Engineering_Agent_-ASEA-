@@ -683,3 +683,45 @@ def test_worker_lists_claimed_publishing_retries(tmp_path):
     pending = manager.list_pending_publishing_retries()
 
     assert [job["job_id"] for job in pending] == ["worker-publish"]
+
+
+
+def test_per_user_active_job_limit_is_enforced_without_blocking_other_users(
+    tmp_path, monkeypatch
+):
+    manager = create_test_manager(tmp_path / "per_user_limit.db")
+    monkeypatch.setenv("ASEA_MAX_ACTIVE_REPAIR_JOBS", "10")
+    monkeypatch.setenv("ASEA_MAX_ACTIVE_REPAIR_JOBS_PER_USER", "1")
+
+    manager.create_job("user-a-001", "repo-one", owner_id="user-a")
+    with pytest.raises(
+        JobQueueFullError, match="account has reached its active repair-job limit"
+    ):
+        manager.create_job("user-a-002", "repo-two", owner_id="user-a")
+
+    other_user_job = manager.create_job(
+        "user-b-001", "repo-three", owner_id="user-b"
+    )
+    assert other_user_job["status"] == "queued"
+
+
+def test_per_user_active_job_limit_releases_capacity_after_completion(
+    tmp_path, monkeypatch
+):
+    manager = create_test_manager(tmp_path / "per_user_release.db")
+    monkeypatch.setenv("ASEA_MAX_ACTIVE_REPAIR_JOBS_PER_USER", "1")
+
+    manager.create_job("user-a-before", "repo-one", owner_id="user-a")
+    manager.update_job("user-a-before", status="completed")
+
+    next_job = manager.create_job("user-a-after", "repo-two", owner_id="user-a")
+    assert next_job["status"] == "queued"
+
+
+def test_per_user_active_job_limit_is_bounded(monkeypatch):
+    monkeypatch.setenv("ASEA_MAX_ACTIVE_REPAIR_JOBS_PER_USER", "999999")
+    assert RepairJobManager._maximum_active_jobs_per_user() == 50
+    monkeypatch.setenv("ASEA_MAX_ACTIVE_REPAIR_JOBS_PER_USER", "invalid")
+    assert RepairJobManager._maximum_active_jobs_per_user() == 3
+    monkeypatch.setenv("ASEA_MAX_ACTIVE_REPAIR_JOBS_PER_USER", "0")
+    assert RepairJobManager._maximum_active_jobs_per_user() == 1

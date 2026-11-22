@@ -151,3 +151,13 @@ def test_repair_publishes_only_after_validated_success(monkeypatch, tmp_path):
     assert "abc123" in result.output
     assert "https://github.com/example/repo/pull/1" in result.output
 
+
+
+
+def test_cloud_worker_commands_expose_profile_selection():
+    for command in ("enroll", "status", "run"):
+        result = runner.invoke(
+            cli.app, ["cloud-worker", command, "--help"]
+        )
+        assert result.exit_code == 0, result.output
+        assert "--profile" in result.output

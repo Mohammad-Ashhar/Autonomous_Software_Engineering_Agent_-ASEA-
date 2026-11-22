@@ -157,7 +157,7 @@ def test_repair_publishes_only_after_validated_success(monkeypatch, tmp_path):
 def test_cloud_worker_commands_expose_profile_selection():
     for command in ("enroll", "status", "run"):
         result = runner.invoke(
-            cli.app, ["cloud-worker", command, "--help"]
+            cli.app, ["cloud-worker", command, "--help"], color=False
         )
         assert result.exit_code == 0, result.output
         assert "--profile" in result.output

@@ -25,7 +25,12 @@ class _HybridRow(dict):
 
 
 def _hybrid_row_factory(cursor):
-    names = [column.name for column in cursor.description]
+    description = cursor.description
+    # psycopg invokes the row factory for commands such as INSERT/UPDATE that
+    # do not produce a result set. Their cursor.description is None.
+    if description is None:
+        return tuple
+    names = [column.name for column in description]
 
     def make_row(values):
         return _HybridRow(zip(names, values, strict=True))

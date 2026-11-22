@@ -191,7 +191,9 @@ def execute_claimed_job(
                 cleanup_repair_workspace(result.get("repo_path", ""), result)
                 return "failed"
 
-            payload = {"workflow": result}
+            # The server validates the terminal status at the top level;
+            # retain the workflow result under its existing nested key as well.
+            payload = {"status": result.get("status"), "workflow": result}
             if job.get("publish_requested"):
                 payload["publishing"] = _publish_repair_result(result, job_id)
             if lease.lost.is_set():

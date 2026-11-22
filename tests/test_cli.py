@@ -1,5 +1,6 @@
 import importlib
 
+import click
 from typer.testing import CliRunner
 
 cli = importlib.import_module("asea.cli")
@@ -160,4 +161,4 @@ def test_cloud_worker_commands_expose_profile_selection():
             cli.app, ["cloud-worker", command, "--help"], color=False
         )
         assert result.exit_code == 0, result.output
-        assert "--profile" in result.output
+        assert "--profile" in click.unstyle(result.output)

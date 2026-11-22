@@ -153,7 +153,7 @@ def test_default_worker_credentials_keep_legacy_vault_key(monkeypatch):
 
 @pytest.mark.parametrize("profile", ["", "../other", "has space", "a" * 33])
 def test_worker_profile_rejects_unsafe_names(profile):
-    from asea.api.cloud_worker_client import load_worker_credentials
+    from asea.api.cloud_worker_client import _credential_username
 
     with pytest.raises(ValueError, match="profile"):
-        load_worker_credentials("https://example.com", profile)
+        _credential_username("https://example.com", profile)

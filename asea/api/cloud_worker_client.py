@@ -280,7 +280,8 @@ def load_worker_credentials(api_url: str, profile: str = "default") -> dict | No
         raise RuntimeError(
             'Install the cloud-worker extra with "pip install -e .[cloud-worker]".'
         ) from error
-    stored = keyring.get_password("asea-cloud-worker", _credential_username(api_url, profile))
+    username = _credential_username(api_url, profile)
+    stored = keyring.get_password("asea-cloud-worker", username)
     if stored is None:
         return None
     try:

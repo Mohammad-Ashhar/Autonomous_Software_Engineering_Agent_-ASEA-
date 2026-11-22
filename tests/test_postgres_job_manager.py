@@ -1,10 +1,11 @@
-import pytest
 from types import SimpleNamespace
+
+import pytest
 
 from asea.api.postgres_job_manager import (
     PostgresRepairJobManager,
-    _PostgresConnection,
     _hybrid_row_factory,
+    _PostgresConnection,
 )
 
 

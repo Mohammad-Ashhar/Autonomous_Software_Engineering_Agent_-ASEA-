@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import platform
+import re
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit, urlunsplit
 from urllib.request import Request, urlopen
@@ -233,8 +234,31 @@ class CloudWorkerClient:
         )
 
 
-def save_worker_credentials(api_url: str, worker_id: str, worker_secret: str) -> None:
-    """Store a worker secret in the operating system credential vault."""
+def _credential_username(api_url: str, profile: str = "default") -> str:
+    """Return an isolated credential-vault key for an API URL and profile."""
+    if not isinstance(profile, str) or not re.fullmatch(
+        r"[A-Za-z0-9][A-Za-z0-9._-]{0,31}", profile
+    ):
+        raise ValueError(
+            "Worker profile must be 1–32 characters: letters, numbers, dots, "
+            "underscores, or hyphens."
+        )
+    normalized_url = normalize_api_url(api_url)
+    normalized_profile = profile.lower()
+    # Preserve the original credential key so existing default enrollments
+    # continue working without requiring users to enroll again.
+    if normalized_profile == "default":
+        return normalized_url
+    return f"{normalized_url}|{normalized_profile}"
+
+
+def save_worker_credentials(
+    api_url: str,
+    worker_id: str,
+    worker_secret: str,
+    profile: str = "default",
+) -> None:
+    """Store a profile-specific worker secret in the OS credential vault."""
     try:
         import keyring
     except ImportError as error:
@@ -243,20 +267,20 @@ def save_worker_credentials(api_url: str, worker_id: str, worker_secret: str) ->
         ) from error
     keyring.set_password(
         "asea-cloud-worker",
-        normalize_api_url(api_url),
+        _credential_username(api_url, profile),
         json.dumps({"worker_id": worker_id, "worker_secret": worker_secret}),
     )
 
 
-def load_worker_credentials(api_url: str) -> dict | None:
-    """Read worker credentials from the operating system credential vault."""
+def load_worker_credentials(api_url: str, profile: str = "default") -> dict | None:
+    """Read profile-specific worker credentials from the OS credential vault."""
     try:
         import keyring
     except ImportError as error:
         raise RuntimeError(
             'Install the cloud-worker extra with "pip install -e .[cloud-worker]".'
         ) from error
-    stored = keyring.get_password("asea-cloud-worker", normalize_api_url(api_url))
+    stored = keyring.get_password("asea-cloud-worker", _credential_username(api_url, profile))
     if stored is None:
         return None
     try:

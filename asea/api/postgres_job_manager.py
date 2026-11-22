@@ -219,6 +219,19 @@ class PostgresRepairJobManager(RepairJobManager):
             ).fetchone()["active_count"]
             if active >= self._maximum_active_jobs():
                 raise JobQueueFullError("Repair queue is full.")
+            user_active = connection.execute(
+                """
+                SELECT COUNT(*) AS active_count
+                FROM public.asea_repair_jobs
+                WHERE owner_id = ?
+                  AND status IN ('queued', 'running', 'waiting_for_review')
+                """,
+                (owner_id,),
+            ).fetchone()["active_count"]
+            if user_active >= self._maximum_active_jobs_per_user():
+                raise JobQueueFullError(
+                    "Your account has reached its active repair-job limit."
+                )
             connection.execute(
                 """
                 INSERT INTO public.asea_repair_jobs (

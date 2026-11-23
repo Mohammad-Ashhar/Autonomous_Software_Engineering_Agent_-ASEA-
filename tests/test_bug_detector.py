@@ -653,3 +653,111 @@ def is_positive(number: int) -> bool:
     assert findings[0]["classification"] == "confirmed_bug"
     assert "accepts zero" in findings[0]["description"]
     assert ">= 0" in findings[0]["suggestion"]
+
+
+def test_return_in_finally_block_is_detected():
+    agent = BugDetectorAgent()
+    source = """
+def read_config(path):
+    try:
+        return open(path).read()
+    finally:
+        return None
+"""
+
+    findings = agent.detect_ast_bugs(ast.parse(source), Path("logic.py"))
+    exits = [
+        item for item in findings
+        if item["title"] == "Control flow exits from finally block"
+    ]
+
+    assert len(exits) == 1
+    assert exits[0]["line"] == 6
+    assert exits[0]["severity"] == "high"
+    assert exits[0]["classification"] == "confirmed_bug"
+    assert exits[0]["source"] == "ast"
+    assert "finally" in exits[0]["description"]
+
+
+def test_break_and_continue_in_finally_block_are_detected():
+    agent = BugDetectorAgent()
+    source = """
+def scan(values):
+    for value in values:
+        try:
+            handle(value)
+        finally:
+            break
+        try:
+            handle(value)
+        finally:
+            continue
+"""
+
+    findings = agent.detect_ast_bugs(ast.parse(source), Path("logic.py"))
+    exits = [
+        item for item in findings
+        if item["title"] == "Control flow exits from finally block"
+    ]
+
+    assert [item["line"] for item in exits] == [7, 11]
+
+
+def test_async_function_return_in_finally_block_is_detected():
+    agent = BugDetectorAgent()
+    source = """
+async def load(path):
+    try:
+        return await read(path)
+    finally:
+        return None
+"""
+
+    findings = agent.detect_ast_bugs(ast.parse(source), Path("logic.py"))
+
+    assert any(
+        item["title"] == "Control flow exits from finally block"
+        for item in findings
+    )
+
+
+def test_cleanup_only_finally_block_is_not_reported():
+    agent = BugDetectorAgent()
+    source = """
+def read_config(path):
+    try:
+        return open(path).read()
+    finally:
+        release_lock()
+"""
+
+    findings = agent.detect_ast_bugs(ast.parse(source), Path("logic.py"))
+
+    assert not any(
+        item["title"] == "Control flow exits from finally block"
+        for item in findings
+    )
+
+
+def test_exits_in_nested_scopes_inside_finally_are_not_reported():
+    agent = BugDetectorAgent()
+    source = """
+def cleanup(items):
+    try:
+        work()
+    finally:
+        def helper():
+            return True
+
+        for item in items:
+            if item:
+                continue
+            break
+"""
+
+    findings = agent.detect_ast_bugs(ast.parse(source), Path("logic.py"))
+
+    assert not any(
+        item["title"] == "Control flow exits from finally block"
+        for item in findings
+    )

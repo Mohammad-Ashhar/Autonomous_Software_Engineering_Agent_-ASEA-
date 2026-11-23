@@ -495,6 +495,59 @@ class BugDetectorAgent:
             })
     
 
+        # Control flow that leaves a finally block overrides any exception or
+        # pending return from the try statement. Nested functions, classes and
+        # loops own their own control flow, so their exits are not exits from
+        # the finally block itself.
+        def find_finally_exits(statements: list[ast.stmt]) -> list[ast.stmt]:
+            exits = []
+
+            def visit(node: ast.AST, inside_loop: bool) -> None:
+                if isinstance(
+                    node,
+                    (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda),
+                ):
+                    return
+                if isinstance(node, ast.Return):
+                    exits.append(node)
+                elif isinstance(node, (ast.Break, ast.Continue)) and not inside_loop:
+                    exits.append(node)
+                if isinstance(node, (ast.For, ast.AsyncFor, ast.While)):
+                    inside_loop = True
+                for child in ast.iter_child_nodes(node):
+                    visit(child, inside_loop)
+
+            for statement in statements:
+                visit(statement, False)
+            return exits
+
+        for node in ast.walk(syntax_tree):
+            if not isinstance(node, (ast.Try, ast.TryStar)):
+                continue
+            if not node.finalbody:
+                continue
+            for exit_statement in find_finally_exits(node.finalbody):
+                findings.append({
+                    "title": "Control flow exits from finally block",
+                    "line": exit_statement.lineno,
+                    "severity": "high",
+                    "classification": "confirmed_bug",
+                    "confidence": 0.97,
+                    "description": (
+                        "This return, break, or continue statement exits from "
+                        "a finally block, which overrides any exception or "
+                        "pending return value from the try statement and can "
+                        "silently discard failures."
+                    ),
+                    "suggestion": (
+                        "Keep the finally block for cleanup only and let the "
+                        "try statement determine the result, or raise an "
+                        "explicit exception instead."
+                    ),
+                    "file": str(file_path),
+                    "source": "ast",
+                })
+
         # Stable deduplication: one finding per rule and source line.
         unique_findings = {}
         for finding in findings:

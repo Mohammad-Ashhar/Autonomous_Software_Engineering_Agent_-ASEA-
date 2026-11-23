@@ -774,24 +774,13 @@ def start_repair(
 ):
     """Start an ASEA repair job in the background."""
 
-    repository = request.repository.strip()
-
-    if not repository:
+    try:
+        repository = validate_api_repository(request.repository)
+    except ValueError as error:
         raise HTTPException(
             status_code=400,
-            detail="Repository cannot be empty.",
-        )
-
-    # Validate repository URLs before creating background jobs.
-    if "://" in repository:
-        try:
-            manager = RepositoryManager()
-            manager.validate_github_url(repository)
-        except ValueError as error:
-            raise HTTPException(
-                status_code=400,
-                detail=str(error),
-            ) from error
+            detail=str(error),
+        ) from error
 
     job_id = str(uuid4())
 

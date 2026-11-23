@@ -551,6 +551,28 @@ class WorkerFailRequest(BaseModel):
     idempotency_key: str = Field(..., min_length=1, max_length=200)
 
 
+def validate_api_repository(repository: str) -> str:
+    """Normalize repository input and reject malformed GitHub URLs early.
+
+    Local paths remain valid, but anything that looks like a remote address is
+    checked with the project's existing GitHub URL validator. Without this,
+    `/analyze` treated unsupported schemes as local paths (HTTP 500) and
+    `/repair` accepted them as background jobs that failed much later.
+    """
+
+    value = repository.strip()
+    if not value:
+        raise ValueError("Repository cannot be empty.")
+
+    looks_remote = (
+        "://" in value
+        or re.match(r"^(?:www\.)?github\.com(?:/|$)", value, re.IGNORECASE)
+    )
+    if looks_remote:
+        RepositoryManager().validate_github_url(value)
+    return value
+
+
 class AnalyzeRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 

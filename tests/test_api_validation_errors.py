@@ -57,3 +57,28 @@ def test_invalid_query_parameter_uses_shared_error_envelope(api_client):
 
     assert_shared_error_envelope(response)
     assert "limit" in response.json()["detail"]
+
+
+def test_worker_enrollment_code_is_not_echoed_back(api_client):
+    # Shorter than the 20-character minimum so validation rejects the request.
+    secret_code = "SECRET-MARKER"
+
+    response = api_client.post(
+        "/v1/worker/enroll",
+        json={"code": secret_code},
+    )
+
+    assert_shared_error_envelope(response)
+    assert secret_code not in response.text
+    assert "code" in response.json()["detail"]
+
+
+def test_client_request_id_is_reported_in_validation_error(api_client):
+    response = api_client.post(
+        "/repair",
+        json={},
+        headers={"X-Request-ID": "validation-trace-123"},
+    )
+
+    assert_shared_error_envelope(response)
+    assert response.json()["request_id"] == "validation-trace-123"

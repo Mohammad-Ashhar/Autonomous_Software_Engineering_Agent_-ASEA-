@@ -155,10 +155,11 @@ useEffect(() => {
 
 useEffect(() => {
   let cancelled = false;
+  const controller = new AbortController();
 
   async function checkBackend() {
     try {
-      await checkBackendHealth();
+      await checkBackendHealth(controller.signal);
       if (!cancelled) setBackendStatus("online");
     } catch {
       if (!cancelled) setBackendStatus("offline");
@@ -170,22 +171,24 @@ useEffect(() => {
 
   return () => {
     cancelled = true;
+    controller.abort();
     clearInterval(healthTimer);
   };
 }, []);
 
 useEffect(() => {
   let cancelled = false;
+  const controller = new AbortController();
 
   async function loadRepairHistory() {
     try {
-      const history = await getRepairHistory(20, 0);
+      const history = await getRepairHistory(20, 0, controller.signal);
       if (cancelled) return;
       setRepairHistory(history.items);
       setHistoryTotal(history.total);
       setHistoryError("");
     } catch (error) {
-      if (cancelled) return;
+      if (cancelled || (error instanceof Error && error.name === "AbortError")) return;
       setHistoryError(
         error instanceof Error
           ? error.message
@@ -199,6 +202,7 @@ useEffect(() => {
 
   return () => {
     cancelled = true;
+    controller.abort();
     clearInterval(timer);
   };
 }, [repairJob?.job_id, repairStatus?.status, historyReloadKey]);
@@ -209,12 +213,13 @@ useEffect(() => {
   if (!jobId) return;
 
   let cancelled = false;
+  const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
   let failures = 0;
 
   async function pollRepairStatus() {
     try {
-      const status = await getRepairStatus(jobId!);
+      const status = await getRepairStatus(jobId!, controller.signal);
 
       if (cancelled) return;
 
@@ -228,7 +233,7 @@ useEffect(() => {
 
       timer = setTimeout(pollRepairStatus, 2000);
     } catch (error) {
-      if (cancelled) return;
+      if (cancelled || (error instanceof Error && error.name === "AbortError")) return;
 
       failures += 1;
       setPollError(
@@ -247,6 +252,7 @@ useEffect(() => {
 
   return () => {
     cancelled = true;
+    controller.abort();
 
     if (timer) {
       clearTimeout(timer);

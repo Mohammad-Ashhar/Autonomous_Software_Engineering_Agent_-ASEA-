@@ -1078,7 +1078,7 @@ def readiness_check():
 @app.post("/analyze")
 def analyze_repository(request: AnalyzeRequest):
     try:
-        repository = request.repository.strip()
+        repository = validate_api_repository(request.repository)
 
         analyzer = RepositoryAnalyzer()
 

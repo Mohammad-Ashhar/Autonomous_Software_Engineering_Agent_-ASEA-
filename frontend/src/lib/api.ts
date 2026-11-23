@@ -62,7 +62,10 @@ async function request<T>(
       },
       cache: "no-store",
     });
-  } catch {
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw error;
+    }
     throw new Error(
       "Cannot connect to ASEA backend. Make sure FastAPI is running on port 8000.",
     );
@@ -100,9 +103,11 @@ export function startRepair(
 
 export function getRepairStatus(
   jobId: string,
+  signal?: AbortSignal,
 ): Promise<RepairJob> {
   return request<RepairJob>(
     `/repair/${encodeURIComponent(jobId)}`,
+    { signal },
   );
 }
 
@@ -119,11 +124,13 @@ export function submitPatchReview(
   );
 }
 
-export function checkBackendHealth(): Promise<{
+export function checkBackendHealth(
+  signal?: AbortSignal,
+): Promise<{
   status: string;
   service: string;
 }> {
-  return request("/health");
+  return request("/health", { signal });
 }
 
 export interface RepairHistoryResponse {
@@ -136,12 +143,15 @@ export interface RepairHistoryResponse {
 export function getRepairHistory(
   limit = 20,
   offset = 0,
+  signal?: AbortSignal,
 ): Promise<RepairHistoryResponse> {
   const query = new URLSearchParams({
     limit: String(limit),
     offset: String(offset),
   });
-  return request<RepairHistoryResponse>(`/repairs?${query.toString()}`);
+  return request<RepairHistoryResponse>(`/repairs?${query.toString()}`, {
+    signal,
+  });
 }
 
 

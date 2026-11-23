@@ -117,6 +117,10 @@ export default function Home() {
   const [publishRequested, setPublishRequested] = useState(false);
   const [repository, setRepository] = useState("");
   const [notice, setNotice] = useState("");
+  const [historyError, setHistoryError] = useState("");
+  const [historyReloadKey, setHistoryReloadKey] = useState(0);
+  const [pollError, setPollError] = useState("");
+  const [pollRetryKey, setPollRetryKey] = useState(0);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
  const [analysisResult, setAnalysisResult] = useState<AnalyzeResponse | null>(null);
  const [isStartingRepair, setIsStartingRepair] = useState(false);
@@ -151,10 +155,11 @@ useEffect(() => {
 
 useEffect(() => {
   let cancelled = false;
+  const controller = new AbortController();
 
   async function checkBackend() {
     try {
-      await checkBackendHealth();
+      await checkBackendHealth(controller.signal);
       if (!cancelled) setBackendStatus("online");
     } catch {
       if (!cancelled) setBackendStatus("offline");
@@ -166,21 +171,29 @@ useEffect(() => {
 
   return () => {
     cancelled = true;
+    controller.abort();
     clearInterval(healthTimer);
   };
 }, []);
 
 useEffect(() => {
   let cancelled = false;
+  const controller = new AbortController();
 
   async function loadRepairHistory() {
     try {
-      const history = await getRepairHistory(20, 0);
+      const history = await getRepairHistory(20, 0, controller.signal);
       if (cancelled) return;
       setRepairHistory(history.items);
       setHistoryTotal(history.total);
-    } catch {
-      // Keep the dashboard usable if history is temporarily unavailable.
+      setHistoryError("");
+    } catch (error) {
+      if (cancelled || (error instanceof Error && error.name === "AbortError")) return;
+      setHistoryError(
+        error instanceof Error
+          ? error.message
+          : "Unable to load repair history.",
+      );
     }
   }
 
@@ -189,9 +202,10 @@ useEffect(() => {
 
   return () => {
     cancelled = true;
+    controller.abort();
     clearInterval(timer);
   };
-}, [repairJob?.job_id, repairStatus?.status]);
+}, [repairJob?.job_id, repairStatus?.status, historyReloadKey]);
 
 useEffect(() => {
   const jobId = repairJob?.job_id;
@@ -199,14 +213,18 @@ useEffect(() => {
   if (!jobId) return;
 
   let cancelled = false;
+  const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let failures = 0;
 
   async function pollRepairStatus() {
     try {
-      const status = await getRepairStatus(jobId!);
+      const status = await getRepairStatus(jobId!, controller.signal);
 
       if (cancelled) return;
 
+      failures = 0;
+      setPollError("");
       setRepairStatus(status);
 
       if ((status.status === "completed" && !status.publishing_retry) || status.status === "failed") {
@@ -215,15 +233,18 @@ useEffect(() => {
 
       timer = setTimeout(pollRepairStatus, 2000);
     } catch (error) {
-      if (cancelled) return;
+      if (cancelled || (error instanceof Error && error.name === "AbortError")) return;
 
-      setNotice(
+      failures += 1;
+      setPollError(
         error instanceof Error
           ? error.message
           : "Unable to fetch repair status.",
       );
 
-      timer = setTimeout(pollRepairStatus, 3000);
+      // Back off up to 30 seconds so a failing backend is not hammered.
+      const delay = Math.min(2000 * 2 ** (failures - 1), 30000);
+      timer = setTimeout(pollRepairStatus, delay);
     }
   }
 
@@ -231,12 +252,13 @@ useEffect(() => {
 
   return () => {
     cancelled = true;
+    controller.abort();
 
     if (timer) {
       clearTimeout(timer);
     }
   };
-}, [repairJob?.job_id, repairStatus?.publishing_retry]);
+}, [repairJob?.job_id, repairStatus?.publishing_retry, pollRetryKey]);
 
   
 async function startAnalysis() {
@@ -788,6 +810,7 @@ async function handleRetryPublishing() {
 
     <textarea
       className="review-feedback"
+      aria-label="Review feedback (required when rejecting a patch)"
       placeholder="Enter feedback (required when rejecting a patch)..."
       value={reviewFeedback}
       onChange={(event) => setReviewFeedback(event.target.value)}
@@ -1004,7 +1027,21 @@ async function handleRetryPublishing() {
               </div>
 
               <div className="jobs-list">
-                {currentJobs.length === 0 ? (
+                {historyError ? (
+                  <div className="empty-jobs" role="alert" aria-live="polite">
+                    <span>Repair history is unavailable: {historyError}</span>{" "}
+                    <button
+                      className="job-open"
+                      type="button"
+                      onClick={() => {
+                        setHistoryError("");
+                        setHistoryReloadKey((key) => key + 1);
+                      }}
+                    >
+                      Retry
+                    </button>
+                  </div>
+                ) : currentJobs.length === 0 ? (
                   <div className="empty-jobs">
                     No repair jobs yet. Start an autonomous repair to build your history.
                   </div>
@@ -1064,6 +1101,21 @@ async function handleRetryPublishing() {
                     </div>
                   );
                 })}
+                {pollError && (
+                  <div className="pipeline-error" role="alert" aria-live="polite">
+                    <span>Status updates paused: {pollError}</span>{" "}
+                    <button
+                      className="job-open"
+                      type="button"
+                      onClick={() => {
+                        setPollError("");
+                        setPollRetryKey((key) => key + 1);
+                      }}
+                    >
+                      Retry now
+                    </button>
+                  </div>
+                )}
                 {repairStatus?.status === "failed" && repairStatus.error && (
                   <p className="pipeline-error" role="alert">{repairStatus.error}</p>
                 )}

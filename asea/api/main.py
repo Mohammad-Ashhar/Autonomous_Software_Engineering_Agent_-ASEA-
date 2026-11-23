@@ -13,6 +13,7 @@ from uuid import uuid4
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from langgraph.checkpoint.sqlite import SqliteSaver
@@ -437,6 +438,22 @@ async def add_request_correlation(request: Request, call_next):
     return response
 
 
+def validation_error_detail(error: RequestValidationError) -> str:
+    """Build a safe message from field locations and generic validator text.
+
+    The framework's default payload includes the raw ``input`` value, which
+    can echo sensitive request fields back to the caller. Only field paths
+    and validator messages are needed to make the error actionable.
+    """
+
+    details = []
+    for item in error.errors():
+        field = ".".join(str(part) for part in item.get("loc", ())[1:])
+        message = str(item.get("msg", "Invalid value."))
+        details.append(f"{field}: {message}" if field else message)
+    return "; ".join(details) or "Invalid request."
+
+
 @app.exception_handler(Exception)
 async def handle_unexpected_exception(request: Request, error: Exception):
     """Return a stable public error while retaining diagnostic server logs."""
@@ -450,6 +467,23 @@ async def handle_unexpected_exception(request: Request, error: Exception):
         status_code=500,
         content={
             "detail": "An internal server error occurred.",
+            "request_id": request_id,
+        },
+        headers={"X-Request-ID": request_id, "Cache-Control": "no-store"},
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def handle_validation_error(
+    request: Request, error: RequestValidationError
+):
+    """Return the shared public envelope for request validation failures."""
+
+    request_id = getattr(request.state, "request_id", "unavailable")
+    return JSONResponse(
+        status_code=422,
+        content={
+            "detail": validation_error_detail(error),
             "request_id": request_id,
         },
         headers={"X-Request-ID": request_id, "Cache-Control": "no-store"},

@@ -473,6 +473,23 @@ async def handle_unexpected_exception(request: Request, error: Exception):
     )
 
 
+@app.exception_handler(RequestValidationError)
+async def handle_validation_error(
+    request: Request, error: RequestValidationError
+):
+    """Return the shared public envelope for request validation failures."""
+
+    request_id = getattr(request.state, "request_id", "unavailable")
+    return JSONResponse(
+        status_code=422,
+        content={
+            "detail": validation_error_detail(error),
+            "request_id": request_id,
+        },
+        headers={"X-Request-ID": request_id, "Cache-Control": "no-store"},
+    )
+
+
 @app.middleware("http")
 async def require_api_identity(request: Request, call_next):
     """Authenticate API requests and attach a verified owner identity."""

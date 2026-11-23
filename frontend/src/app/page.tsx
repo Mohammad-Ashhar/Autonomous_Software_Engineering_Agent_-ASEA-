@@ -810,6 +810,7 @@ async function handleRetryPublishing() {
 
     <textarea
       className="review-feedback"
+      aria-label="Review feedback (required when rejecting a patch)"
       placeholder="Enter feedback (required when rejecting a patch)..."
       value={reviewFeedback}
       onChange={(event) => setReviewFeedback(event.target.value)}

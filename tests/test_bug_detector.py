@@ -719,3 +719,45 @@ async def load(path):
         item["title"] == "Control flow exits from finally block"
         for item in findings
     )
+
+
+def test_cleanup_only_finally_block_is_not_reported():
+    agent = BugDetectorAgent()
+    source = """
+def read_config(path):
+    try:
+        return open(path).read()
+    finally:
+        release_lock()
+"""
+
+    findings = agent.detect_ast_bugs(ast.parse(source), Path("logic.py"))
+
+    assert not any(
+        item["title"] == "Control flow exits from finally block"
+        for item in findings
+    )
+
+
+def test_exits_in_nested_scopes_inside_finally_are_not_reported():
+    agent = BugDetectorAgent()
+    source = """
+def cleanup(items):
+    try:
+        work()
+    finally:
+        def helper():
+            return True
+
+        for item in items:
+            if item:
+                continue
+            break
+"""
+
+    findings = agent.detect_ast_bugs(ast.parse(source), Path("logic.py"))
+
+    assert not any(
+        item["title"] == "Control flow exits from finally block"
+        for item in findings
+    )

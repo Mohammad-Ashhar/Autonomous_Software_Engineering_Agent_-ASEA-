@@ -117,6 +117,8 @@ export default function Home() {
   const [publishRequested, setPublishRequested] = useState(false);
   const [repository, setRepository] = useState("");
   const [notice, setNotice] = useState("");
+  const [historyError, setHistoryError] = useState("");
+  const [historyReloadKey, setHistoryReloadKey] = useState(0);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
  const [analysisResult, setAnalysisResult] = useState<AnalyzeResponse | null>(null);
  const [isStartingRepair, setIsStartingRepair] = useState(false);
@@ -179,8 +181,14 @@ useEffect(() => {
       if (cancelled) return;
       setRepairHistory(history.items);
       setHistoryTotal(history.total);
-    } catch {
-      // Keep the dashboard usable if history is temporarily unavailable.
+      setHistoryError("");
+    } catch (error) {
+      if (cancelled) return;
+      setHistoryError(
+        error instanceof Error
+          ? error.message
+          : "Unable to load repair history.",
+      );
     }
   }
 
@@ -191,7 +199,7 @@ useEffect(() => {
     cancelled = true;
     clearInterval(timer);
   };
-}, [repairJob?.job_id, repairStatus?.status]);
+}, [repairJob?.job_id, repairStatus?.status, historyReloadKey]);
 
 useEffect(() => {
   const jobId = repairJob?.job_id;
@@ -1004,7 +1012,21 @@ async function handleRetryPublishing() {
               </div>
 
               <div className="jobs-list">
-                {currentJobs.length === 0 ? (
+                {historyError ? (
+                  <div className="empty-jobs" role="alert" aria-live="polite">
+                    <span>Repair history is unavailable: {historyError}</span>{" "}
+                    <button
+                      className="job-open"
+                      type="button"
+                      onClick={() => {
+                        setHistoryError("");
+                        setHistoryReloadKey((key) => key + 1);
+                      }}
+                    >
+                      Retry
+                    </button>
+                  </div>
+                ) : currentJobs.length === 0 ? (
                   <div className="empty-jobs">
                     No repair jobs yet. Start an autonomous repair to build your history.
                   </div>

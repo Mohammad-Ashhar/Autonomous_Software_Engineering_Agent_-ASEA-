@@ -521,6 +521,33 @@ class BugDetectorAgent:
                 visit(statement, False)
             return exits
 
+        for node in ast.walk(syntax_tree):
+            if not isinstance(node, (ast.Try, ast.TryStar)):
+                continue
+            if not node.finalbody:
+                continue
+            for exit_statement in find_finally_exits(node.finalbody):
+                findings.append({
+                    "title": "Control flow exits from finally block",
+                    "line": exit_statement.lineno,
+                    "severity": "high",
+                    "classification": "confirmed_bug",
+                    "confidence": 0.97,
+                    "description": (
+                        "This return, break, or continue statement exits from "
+                        "a finally block, which overrides any exception or "
+                        "pending return value from the try statement and can "
+                        "silently discard failures."
+                    ),
+                    "suggestion": (
+                        "Keep the finally block for cleanup only and let the "
+                        "try statement determine the result, or raise an "
+                        "explicit exception instead."
+                    ),
+                    "file": str(file_path),
+                    "source": "ast",
+                })
+
         # Stable deduplication: one finding per rule and source line.
         unique_findings = {}
         for finding in findings:

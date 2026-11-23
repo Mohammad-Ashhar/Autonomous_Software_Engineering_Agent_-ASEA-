@@ -13,6 +13,7 @@ from uuid import uuid4
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from langgraph.checkpoint.sqlite import SqliteSaver
@@ -435,6 +436,22 @@ async def add_request_correlation(request: Request, call_next):
     )
     response.headers["X-Request-ID"] = request_id
     return response
+
+
+def validation_error_detail(error: RequestValidationError) -> str:
+    """Build a safe message from field locations and generic validator text.
+
+    The framework's default payload includes the raw ``input`` value, which
+    can echo sensitive request fields back to the caller. Only field paths
+    and validator messages are needed to make the error actionable.
+    """
+
+    details = []
+    for item in error.errors():
+        field = ".".join(str(part) for part in item.get("loc", ())[1:])
+        message = str(item.get("msg", "Invalid value."))
+        details.append(f"{field}: {message}" if field else message)
+    return "; ".join(details) or "Invalid request."
 
 
 @app.exception_handler(Exception)
